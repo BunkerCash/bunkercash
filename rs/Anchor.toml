@@ -12,7 +12,7 @@ bunkercash = "HaPTPu1ZWhMV1t7VtKDmytXpRhwhgxe3tdFMGpPueDsX"
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "localnet"
+cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
