@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import { cn } from '@/lib/utils'
@@ -16,7 +17,7 @@ export function Header() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-12">
             <Link href="/" className="flex items-center">
-              <img src="/logo.svg" alt="BunkerCash" className="h-8" />
+              <Image src="/logo.svg" alt="BunkerCash" width={120} height={32} className="h-8 w-auto" />
             </Link>
 
             <nav className="hidden md:flex items-center gap-8">

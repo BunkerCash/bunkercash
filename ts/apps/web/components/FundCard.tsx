@@ -24,18 +24,14 @@ export function FundCard({
   comingSoonText = 'COMING SOON',
   href
 }: FundCardProps) {
-  const CardWrapper = href && !comingSoon ? Link : 'div'
-  const cardProps = href && !comingSoon ? { href } : {}
+  const cardClassName = cn(
+    'relative h-[600px] bg-gradient-to-br from-neutral-900 to-neutral-950 border border-neutral-800 rounded-3xl p-12 flex flex-col justify-between overflow-hidden transition-all duration-300',
+    !comingSoon && 'hover:border-[#00FFB2] hover:shadow-2xl hover:shadow-[#00FFB2]/10 cursor-pointer',
+    comingSoon && 'opacity-50'
+  )
 
-  return (
-    <CardWrapper
-      {...cardProps}
-      className={cn(
-        'relative h-[600px] bg-gradient-to-br from-neutral-900 to-neutral-950 border border-neutral-800 rounded-3xl p-12 flex flex-col justify-between overflow-hidden transition-all duration-300',
-        !comingSoon && 'hover:border-[#00FFB2] hover:shadow-2xl hover:shadow-[#00FFB2]/10 cursor-pointer',
-        comingSoon && 'opacity-50'
-      )}
-    >
+  const cardContent = (
+    <>
       {comingSoon && (
         <div className="absolute top-6 right-6 bg-[#00FFB2]/10 text-[#00FFB2]/70 text-xs font-semibold px-3 py-1.5 rounded-md">
           {comingSoonText}
@@ -68,6 +64,20 @@ export function FundCard({
           {description}
         </p>
       </div>
-    </CardWrapper>
+    </>
+  )
+
+  if (href && !comingSoon) {
+    return (
+      <Link href={href} className={cardClassName}>
+        {cardContent}
+      </Link>
+    )
+  }
+
+  return (
+    <div className={cardClassName}>
+      {cardContent}
+    </div>
   )
 }

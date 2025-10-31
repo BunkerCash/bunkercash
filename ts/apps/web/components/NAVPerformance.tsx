@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis, Tooltip, TooltipProps } from 'recharts'
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis, Tooltip } from 'recharts'
 
 const generateNAVData = () => {
   const data = []
@@ -44,12 +44,22 @@ const generateNAVData = () => {
 
 const allData = generateNAVData()
 
-const CustomTooltip = ({ active, payload, label }: TooltipProps<number, string>) => {
+interface CustomTooltipProps {
+  active?: boolean
+  payload?: Array<{
+    name: string
+    value: number | string
+    color: string
+  }>
+  label?: string
+}
+
+const CustomTooltip = ({ active, payload, label }: CustomTooltipProps) => {
   if (active && payload && payload.length) {
     return (
       <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-4 shadow-xl">
         <p className="text-neutral-400 text-xs mb-2">
-          {new Date(label).toLocaleDateString('en-US', {
+          {label && new Date(label).toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
             year: 'numeric',
