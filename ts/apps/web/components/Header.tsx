@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
@@ -10,6 +11,11 @@ export function Header() {
   const pathname = usePathname()
   const isHome = pathname === '/'
   const isBrent = pathname === '/brent'
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   return (
     <header className="border-b border-neutral-800 bg-black/50 backdrop-blur-sm sticky top-0 z-50">
@@ -42,10 +48,14 @@ export function Header() {
             </nav>
           </div>
 
-          <UnifiedWalletButton 
-            buttonClassName="!bg-[#00FFB2] !text-black hover:!bg-[#00FFB2]/90 !transition-all !rounded-lg !font-semibold !px-6"
-            currentUserClassName="!bg-[#00FFB2] !text-black"
-          />
+          {mounted ? (
+            <UnifiedWalletButton 
+              buttonClassName="!bg-[#00FFB2] !text-black hover:!bg-[#00FFB2]/90 !transition-all !rounded-lg !font-semibold !px-6"
+              currentUserClassName="!bg-[#00FFB2] !text-black"
+            />
+          ) : (
+            <div className="h-10 w-32 bg-neutral-800 rounded-lg animate-pulse" />
+          )}
         </div>
       </div>
     </header>
