@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
-import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
+import { UnifiedWalletButton } from '@jup-ag/wallet-adapter'
 import { cn } from '@/lib/utils'
 
 export function Header() {
@@ -42,7 +42,10 @@ export function Header() {
             </nav>
           </div>
 
-          <WalletMultiButton className="!bg-[#00FFB2] !text-black hover:!bg-[#00FFB2]/90 !transition-all !rounded-lg !font-semibold !px-6" />
+          <UnifiedWalletButton 
+            buttonClassName="!bg-[#00FFB2] !text-black hover:!bg-[#00FFB2]/90 !transition-all !rounded-lg !font-semibold !px-6"
+            currentUserClassName="!bg-[#00FFB2] !text-black"
+          />
         </div>
       </div>
     </header>
