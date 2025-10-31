@@ -20,7 +20,7 @@ export function PoolStats() {
           </div>
           <div className="text-xs uppercase tracking-wider text-neutral-500">NAV</div>
         </div>
-        <div className="text-3xl font-bold">${nav.toLocaleString()}</div>
+        <div className="text-2xl sm:text-3xl font-bold break-all">${nav.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
         <div className="text-xs text-neutral-600 mt-1">Net asset value</div>
       </div>
 

@@ -35,7 +35,7 @@ export function SwapInterface() {
           </div>
           <div>
             <div className="text-xs uppercase tracking-wider text-neutral-500 mb-2">NAV</div>
-            <div className="text-2xl font-bold">${nav.toFixed(4)}</div>
+            <div className="text-2xl font-bold">${nav.toFixed(2)}</div>
           </div>
         </div>
       </div>

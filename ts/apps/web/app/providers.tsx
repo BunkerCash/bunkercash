@@ -30,6 +30,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         walletlistExplanation: {
           href: 'https://station.jup.ag/docs/additional-topics/wallet-list',
         },
+        theme: 'dark',
       }}
     >
       <JotaiProvider>

@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils'
 export function Header() {
   const pathname = usePathname()
   const isHome = pathname === '/'
-  const isBrent = pathname === '/brent'
+  const isBrent = pathname === '/bRENT'
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
@@ -37,7 +37,7 @@ export function Header() {
                 About
               </Link>
               <Link
-                href="/brent"
+                href="/bRENT"
                 className={cn(
                   "transition-colors",
                   isBrent ? "text-[#00FFB2]" : "text-neutral-400 hover:text-white"

@@ -46,7 +46,7 @@ export default function Home() {
                 apy={6}
                 description="Real estate rented out"
                 issuedAmount="$20,000"
-                href="/brent"
+                href="/bRENT"
               />
             </div>
 

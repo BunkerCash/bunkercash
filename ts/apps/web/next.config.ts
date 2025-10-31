@@ -5,6 +5,8 @@ const nextConfig: NextConfig = {
     images: {
         unoptimized: true,
     },
+    // tmp bypass eslint // ts to get cf pages to accept build
+    // no type/lint errors present ^^
     eslint: {
         ignoreDuringBuilds: true,
     },

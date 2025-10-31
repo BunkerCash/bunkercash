@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis, Tooltip } from 'recharts'
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 
 const generateNAVData = () => {
   const data = []
@@ -150,14 +150,13 @@ export function NAVPerformance() {
         ))}
       </div>
 
-      <div className="bg-neutral-950 border border-neutral-800 rounded-2xl p-6">
+      <div className="bg-neutral-950 border border-neutral-800 rounded-2xl p-6 overflow-hidden">
         <div className="w-full h-[400px]">
-          <AreaChart
-            width={600}
-            height={400}
-            data={filteredData}
-            margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
-          >
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart
+              data={filteredData}
+              margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+            >
             <defs>
               <linearGradient id="colorNAV" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#00FFB2" stopOpacity={0.4} />
@@ -241,6 +240,7 @@ export function NAVPerformance() {
               />
             )}
           </AreaChart>
+          </ResponsiveContainer>
         </div>
       </div>
     </div>
