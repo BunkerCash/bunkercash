@@ -37,7 +37,7 @@ export function Header() {
                 About
               </Link>
               <Link
-                href="/bRENT"
+                href="/brent"
                 className={cn(
                   "transition-colors",
                   isBrent ? "text-[#00FFB2]" : "text-neutral-400 hover:text-white"
