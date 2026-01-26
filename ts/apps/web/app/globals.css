@@ -5,7 +5,7 @@
 :root {
   --background: #000000;
   --foreground: #ffffff;
-  --accent: #00FFB2;
+  --accent: #00ffb2;
   --font-geist-sans: var(--font-geist-sans);
   --font-geist-mono: var(--font-geist-mono);
 }
@@ -29,7 +29,7 @@ body {
 }
 
 .wallet-adapter-button {
-  background-color: #00FFB2 !important;
+  background-color: #00ffb2 !important;
   color: #000000 !important;
 }
 
