@@ -58,6 +58,22 @@ async function main() {
   const poolPda = new PublicKey(config.poolPda);
   const brentMint = new PublicKey(config.brentMint);
 
+  console.log("\n=== 0) Verify pool is initialized (initialize) ===");
+  const poolAccount = await program.account.pool.fetch(poolPda);
+  console.log(
+    "Pool:",
+    "master_wallet=",
+    poolAccount.masterWallet.toBase58(),
+    "nav=",
+    poolAccount.nav.toString(),
+    "supply=",
+    poolAccount.totalBrentSupply.toString()
+  );
+  assert(
+    poolAccount.masterWallet.toBase58() === walletPk.toBase58(),
+    "Pool master_wallet != current wallet; run this script as the master wallet to test admin flows"
+  );
+
   console.log("\n=== 1) Create mock Token-2022 USDC mint (decimals=6) ===");
   const usdcMint = await createMint(
     provider.connection,
@@ -150,7 +166,61 @@ async function main() {
     poolAfterDeposit.totalBrentSupply.toString()
   );
 
-  console.log("\n=== 5) File claim (burn bRENT) ===");
+  console.log("\n=== 5) Admin withdraw + repay (add_liquidity via master_repay) ===");
+  // master_withdraw is required to create a Withdrawal account before master_repay can add liquidity.
+  const withdrawalCounterBefore = poolAfterDeposit.withdrawalCounter.toNumber();
+  const [withdrawalPda] = PublicKey.findProgramAddressSync(
+    [
+      Buffer.from("withdrawal"),
+      new anchor.BN(withdrawalCounterBefore).toArrayLike(Buffer, "le", 8),
+    ],
+    program.programId
+  );
+
+  const metadataHash = Array.from(Buffer.alloc(32, 7)); // demo only: 32-byte marker
+  const withdrawAmount = 2_000_000; // 2 USDC
+  const masterWithdrawSig = await program.methods
+    .masterWithdraw(new anchor.BN(withdrawAmount), metadataHash)
+    .accounts({
+      pool: poolPda,
+      withdrawal: withdrawalPda,
+      poolUsdc: poolUsdc.address,
+      masterUsdc: userUsdc.address, // same wallet in this e2e
+      usdcMint,
+      masterWallet: walletPk,
+      tokenProgram: TOKEN_2022_PROGRAM_ID,
+      systemProgram: anchor.web3.SystemProgram.programId,
+    } as any)
+    .rpc();
+  console.log("MasterWithdraw signature:", masterWithdrawSig);
+
+  const repayAmount = 1_000_000; // 1 USDC
+  const masterRepaySig = await program.methods
+    .masterRepay(new anchor.BN(repayAmount))
+    .accounts({
+      pool: poolPda,
+      withdrawal: withdrawalPda,
+      masterUsdc: userUsdc.address,
+      poolUsdc: poolUsdc.address,
+      usdcMint,
+      masterWallet: walletPk,
+      tokenProgram: TOKEN_2022_PROGRAM_ID,
+    } as any)
+    .rpc();
+  console.log("MasterRepay signature:", masterRepaySig);
+
+  const withdrawal = await program.account.withdrawal.fetch(withdrawalPda);
+  console.log(
+    "Withdrawal:",
+    "id=",
+    withdrawal.id.toString(),
+    "amount=",
+    withdrawal.amount.toString(),
+    "remaining=",
+    withdrawal.remaining.toString()
+  );
+
+  console.log("\n=== 6) File claim (register_sell via file_claim) ===");
   // Derive expected claim PDA for the current claim_counter (used as seed before increment).
   const claimCounterBefore = poolAfterDeposit.claimCounter.toNumber();
   const [claimPda] = PublicKey.findProgramAddressSync(
@@ -185,7 +255,7 @@ async function main() {
     claim.processed
   );
 
-  console.log("\n=== 6) Settle claims (master wallet pays claim) ===");
+  console.log("\n=== 7) Settle claims (process_claims via settle_claims) ===");
   const settleSig = await program.methods
     .settleClaims(Buffer.from([]))
     .accounts({
@@ -215,6 +285,8 @@ async function main() {
   console.log("Tip: open these txs in Solana Explorer (cluster=devnet):");
   console.log("- mintTo:", mintSig);
   console.log("- deposit:", depositSig);
+  console.log("- masterWithdraw:", masterWithdrawSig);
+  console.log("- masterRepay:", masterRepaySig);
   console.log("- fileClaim:", fileClaimSig);
   console.log("- settle:", settleSig);
 }
