@@ -4,7 +4,7 @@ import { useState } from "react";
 import { CreditCard, Building } from "lucide-react";
 import { useAtom } from "jotai";
 import { loansAtom, transactionsAtom } from "@/lib/atoms";
-import { Loan } from "@/types";
+// import { Loan } from "@/types";
 
 export function AdminDeposit() {
   const [amount, setAmount] = useState("");
