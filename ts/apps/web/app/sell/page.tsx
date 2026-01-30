@@ -103,7 +103,7 @@ const SellRegistration = () => {
                   value={tokenAmount}
                   onChange={(e) => setTokenAmount(e.target.value)}
                   max={tokenBalance}
-                  className="pr-16 h-14 text-lg bg-muted/50"
+                  className="pr-16 h-14 text-lg bg-transparent"
                 />
                 <button
                   onClick={() => setTokenAmount(tokenBalance.toString())}

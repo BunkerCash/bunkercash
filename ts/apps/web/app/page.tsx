@@ -65,7 +65,7 @@ export default function Home() {
                     placeholder="0.00"
                     value={usdcAmount}
                     onChange={(e: any) => setUsdcAmount(e.target.value)}
-                    className="pr-16 h-14 text-lg bg-muted/50"
+                    className="pr-16 h-14 text-lg bg-transparent"
                   />
                   <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">
                     USDC
@@ -88,7 +88,7 @@ export default function Home() {
                     type="text"
                     value={estimatedTokens}
                     readOnly
-                    className="pr-20 h-14 text-lg bg-muted/30"
+                    className="pr-20 h-14 text-lg bg-transparent"
                   />
                   <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">
                     BNKR
