@@ -5,7 +5,7 @@
 :root {
   --background: #000000;
   --foreground: #ffffff;
-  --accent: #00FFB2;
+  --accent: #00ffb2;
   --font-geist-sans: var(--font-geist-sans);
   --font-geist-mono: var(--font-geist-mono);
 }
@@ -29,10 +29,27 @@ body {
 }
 
 .wallet-adapter-button {
-  background-color: #00FFB2 !important;
+  background-color: #00ffb2 !important;
   color: #000000 !important;
 }
 
 .wallet-adapter-button:not([disabled]):hover {
   background-color: rgba(0, 255, 178, 0.9) !important;
+}
+
+/* Animations */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  opacity: 0; /* Start invisible */
+  animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
