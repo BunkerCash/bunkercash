@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
+import "../index.css";
 import { Providers } from "./providers";
 
 const geistSans = Geist({
@@ -15,9 +15,10 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "BunkerCash",
-  description: "Turn property yield into on-chain liquidity. Backed by overcollateralized property assets, transparently managed on Solana.",
+  description:
+    "Turn property yield into on-chain liquidity. Backed by overcollateralized property assets, transparently managed on Solana.",
   icons: {
-    icon: '/icon.png',
+    icon: "/icon.png",
   },
 };
 
@@ -31,9 +32,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-black text-white`}
       >
-        <Providers>
-          {children}
-        </Providers>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );
