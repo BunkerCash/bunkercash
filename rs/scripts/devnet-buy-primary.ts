@@ -153,15 +153,13 @@ async function main() {
     TOKEN_2022_PROGRAM_ID
   );
 
-  console.log("\nBefore:");
-  console.log("  user USDC:", toUi(beforeUserUsdc.amount, usdcMintDecimals));
-  console.log("  pool USDC:", toUi(beforePoolUsdc.amount, usdcMintDecimals));
-  console.log(
-    "  user BunkerCash:",
-    toUi(beforeUserBunkercash.amount, bunkercashDecimals)
-  );
+  console.log("\n========== STEP 1: BALANCES BEFORE BUY ==========");
+  console.log("  Pool USDC vault:", toUi(beforePoolUsdc.amount, usdcMintDecimals), "USDC");
+  console.log("  My USDC:        ", toUi(beforeUserUsdc.amount, usdcMintDecimals), "USDC");
+  console.log("  My BunkerCash:  ", toUi(beforeUserBunkercash.amount, bunkercashDecimals));
 
   const usdcAmount = new anchor.BN(2_500_000); // 2.5 USDC
+  console.log("\n========== STEP 2: BUYING", toUi(BigInt(usdcAmount.toString()), usdcMintDecimals), "USDC worth of BunkerCash ==========");
   const buyTx = await program.methods
     .buyPrimary(usdcAmount)
     .accounts({
@@ -176,7 +174,7 @@ async function main() {
     })
     .rpc({ commitment: "confirmed" });
 
-  console.log("\nbuy_primary tx:", buyTx);
+  console.log("  Tx signature:", buyTx);
 
   const afterUserUsdc = await getAccount(
     provider.connection,
@@ -197,13 +195,14 @@ async function main() {
     TOKEN_2022_PROGRAM_ID
   );
 
-  console.log("\nAfter:");
-  console.log("  user USDC:", toUi(afterUserUsdc.amount, usdcMintDecimals));
-  console.log("  pool USDC:", toUi(afterPoolUsdc.amount, usdcMintDecimals));
-  console.log(
-    "  user BunkerCash:",
-    toUi(afterUserBunkercash.amount, bunkercashDecimals)
-  );
+  console.log("\n========== STEP 3: BALANCES AFTER BUY ==========");
+  console.log("  Pool USDC vault:", toUi(afterPoolUsdc.amount, usdcMintDecimals), "USDC");
+  console.log("  My USDC:        ", toUi(afterUserUsdc.amount, usdcMintDecimals), "USDC");
+  console.log("  My BunkerCash:  ", toUi(afterUserBunkercash.amount, bunkercashDecimals));
+
+  const usdcSpent = beforeUserUsdc.amount - afterUserUsdc.amount;
+  const brentReceived = afterUserBunkercash.amount - beforeUserBunkercash.amount;
+  console.log("\n  Summary: spent", toUi(usdcSpent, usdcMintDecimals), "USDC -> received", toUi(brentReceived, bunkercashDecimals), "BunkerCash");
 
   // Basic assertions (Definition of Done)
   const usdcDeltaUser = beforeUserUsdc.amount - afterUserUsdc.amount;
