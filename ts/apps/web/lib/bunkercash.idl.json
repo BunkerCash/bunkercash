@@ -1,5 +1,5 @@
 {
-  "address": "HaPTPu1ZWhMV1t7VtKDmytXpRhwhgxe3tdFMGpPueDsX",
+  "address": "4or1tGUSc8tWixaMcb3yBSRmrjd7jZmC5PDWgAwRQUND",
   "metadata": {
     "name": "bunkercash",
     "version": "0.1.0",
@@ -7,86 +7,6 @@
     "description": "Created with Anchor"
   },
   "instructions": [
-    {
-      "name": "buy_primary",
-      "docs": [
-        "Fixed-price primary sale:",
-        "- user pays USDC into the pool USDC vault",
-        "- program mints Bunker Cash tokens to the user at a strictly fixed price",
-        "",
-        "Price is read from `PrimaryPoolState.price_usdc_per_token`."
-      ],
-      "discriminator": [
-        89,
-        86,
-        227,
-        49,
-        41,
-        118,
-        66,
-        248
-      ],
-      "accounts": [
-        {
-          "name": "primary_pool",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  105,
-                  109,
-                  97,
-                  114,
-                  121,
-                  95,
-                  112,
-                  111,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "user",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "usdc_mint"
-        },
-        {
-          "name": "bunkercash_mint",
-          "writable": true
-        },
-        {
-          "name": "user_usdc",
-          "writable": true
-        },
-        {
-          "name": "pool_usdc_vault",
-          "writable": true
-        },
-        {
-          "name": "user_bunkercash",
-          "writable": true
-        },
-        {
-          "name": "token_program"
-        }
-      ],
-      "args": [
-        {
-          "name": "usdc_amount",
-          "type": "u64"
-        }
-      ]
-    },
     {
       "name": "deposit_usdc",
       "discriminator": [
@@ -287,82 +207,6 @@
         {
           "name": "master_wallet",
           "type": "pubkey"
-        }
-      ]
-    },
-    {
-      "name": "initialize_primary_sale",
-      "docs": [
-        "Initializes a separate PDA-backed state for **fixed-price primary sales**.",
-        "",
-        "This is intentionally separate from the existing `Pool` (bRENT/NAV) account",
-        "to avoid breaking existing devnet deployments that depend on the old layout.",
-        "",
-        "`price_usdc_per_token` is stored in **USDC base units per 1 whole token**.",
-        "Example: if USDC has 6 decimals and 1 token costs 1.25 USDC, set",
-        "`price_usdc_per_token = 1_250_000`."
-      ],
-      "discriminator": [
-        206,
-        65,
-        65,
-        249,
-        109,
-        72,
-        81,
-        243
-      ],
-      "accounts": [
-        {
-          "name": "primary_pool",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  105,
-                  109,
-                  97,
-                  114,
-                  121,
-                  95,
-                  112,
-                  111,
-                  111,
-                  108
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "payer",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "usdc_mint"
-        },
-        {
-          "name": "bunkercash_mint",
-          "writable": true
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "master_wallet",
-          "type": "pubkey"
-        },
-        {
-          "name": "price_usdc_per_token",
-          "type": "u64"
         }
       ]
     },
@@ -717,19 +561,6 @@
       ]
     },
     {
-      "name": "PrimaryPoolState",
-      "discriminator": [
-        161,
-        8,
-        191,
-        138,
-        159,
-        156,
-        49,
-        65
-      ]
-    },
-    {
       "name": "Withdrawal",
       "discriminator": [
         10,
@@ -782,19 +613,6 @@
         168,
         100
       ]
-    },
-    {
-      "name": "PrimaryPurchaseEvent",
-      "discriminator": [
-        188,
-        7,
-        120,
-        41,
-        134,
-        254,
-        21,
-        89
-      ]
     }
   ],
   "errors": [
@@ -805,38 +623,13 @@
     },
     {
       "code": 6001,
-      "name": "InvalidAmount",
-      "msg": "Invalid amount"
-    },
-    {
-      "code": 6002,
       "name": "Unauthorized",
       "msg": "Unauthorized access"
     },
     {
-      "code": 6003,
+      "code": 6002,
       "name": "RepaymentExceedsWithdrawal",
       "msg": "Repayment amount exceeds withdrawal remaining balance"
-    },
-    {
-      "code": 6004,
-      "name": "MathError",
-      "msg": "Math error"
-    },
-    {
-      "code": 6005,
-      "name": "InvalidTokenAccountOwner",
-      "msg": "Invalid token account owner"
-    },
-    {
-      "code": 6006,
-      "name": "InvalidMint",
-      "msg": "Invalid mint"
-    },
-    {
-      "code": 6007,
-      "name": "InvalidMintAuthority",
-      "msg": "Invalid mint authority"
     }
   ],
   "types": [
@@ -1006,64 +799,6 @@
       }
     },
     {
-      "name": "PrimaryPoolState",
-      "docs": [
-        "Separate state for fixed-price primary sales."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "master_wallet",
-            "type": "pubkey"
-          },
-          {
-            "name": "usdc_mint",
-            "type": "pubkey"
-          },
-          {
-            "name": "bunkercash_mint",
-            "type": "pubkey"
-          },
-          {
-            "name": "price_usdc_per_token",
-            "docs": [
-              "USDC base units per 1 whole token."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "bump",
-            "type": "u8"
-          }
-        ]
-      }
-    },
-    {
-      "name": "PrimaryPurchaseEvent",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "user",
-            "type": "pubkey"
-          },
-          {
-            "name": "usdc_amount",
-            "type": "u64"
-          },
-          {
-            "name": "token_amount",
-            "type": "u64"
-          },
-          {
-            "name": "price_usdc_per_token",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "Withdrawal",
       "type": {
         "kind": "struct",
@@ -1102,4 +837,3 @@
     }
   ]
 }
-

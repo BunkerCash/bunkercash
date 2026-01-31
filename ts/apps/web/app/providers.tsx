@@ -4,6 +4,12 @@ import { useState, useEffect } from 'react'
 import { Provider as JotaiProvider } from 'jotai'
 import { UnifiedWalletProvider } from '@jup-ag/wallet-adapter'
 
+function getWalletEnv(): 'mainnet-beta' | 'devnet' {
+  // Default to devnet for now because the Anchor program is deployed there.
+  const cluster = (process.env.NEXT_PUBLIC_SOLANA_CLUSTER ?? 'devnet').toLowerCase()
+  return cluster === 'mainnet-beta' || cluster === 'mainnet' ? 'mainnet-beta' : 'devnet'
+}
+
 export function Providers({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false)
 
@@ -20,7 +26,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       wallets={[]}
       config={{
         autoConnect: true,
-        env: 'mainnet-beta',
+        env: getWalletEnv(),
         metadata: {
           name: 'BunkerCash',
           description: 'BunkerCash - Tokenized Commodities',

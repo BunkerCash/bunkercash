@@ -4,7 +4,8 @@ use anchor_spl::token_interface::{self, Mint, TokenAccount, TokenInterface};
 use anchor_spl::token::accessor;
 use anchor_lang::solana_program::program_option::COption;
 
-declare_id!("HaPTPu1ZWhMV1t7VtKDmytXpRhwhgxe3tdFMGpPueDsX");
+// NOTE: This must match the deployed program id (and `target/deploy/bunkercash-keypair.json`).
+declare_id!("4or1tGUSc8tWixaMcb3yBSRmrjd7jZmC5PDWgAwRQUND");
 
 const TRANSFER_FEE_BASIS_POINTS: u16 = 25; // 0.25%
 
