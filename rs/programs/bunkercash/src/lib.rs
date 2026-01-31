@@ -1,6 +1,8 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_2022::Token2022;
+use anchor_spl::token_interface::{self, Mint, TokenAccount, TokenInterface};
 use anchor_spl::token::accessor;
+use anchor_lang::solana_program::program_option::COption;
 
 declare_id!("HaPTPu1ZWhMV1t7VtKDmytXpRhwhgxe3tdFMGpPueDsX");
 
@@ -24,6 +26,108 @@ pub mod bunkercash {
         pool.bump = ctx.bumps.pool;
 
         msg!("bRENT pool initialized with master wallet: {}", master_wallet);
+        Ok(())
+    }
+
+    /// Initializes a separate PDA-backed state for **fixed-price primary sales**.
+    ///
+    /// This is intentionally separate from the existing `Pool` (bRENT/NAV) account
+    /// to avoid breaking existing devnet deployments that depend on the old layout.
+    ///
+    /// `price_usdc_per_token` is stored in **USDC base units per 1 whole token**.
+    /// Example: if USDC has 6 decimals and 1 token costs 1.25 USDC, set
+    /// `price_usdc_per_token = 1_250_000`.
+    pub fn initialize_primary_sale(
+        ctx: Context<InitializePrimarySale>,
+        master_wallet: Pubkey,
+        price_usdc_per_token: u64,
+    ) -> Result<()> {
+        require!(price_usdc_per_token > 0, ErrorCode::InvalidAmount);
+
+        let pool = &mut ctx.accounts.primary_pool;
+        pool.master_wallet = master_wallet;
+        pool.usdc_mint = ctx.accounts.usdc_mint.key();
+        pool.bunkercash_mint = ctx.accounts.bunkercash_mint.key();
+        pool.price_usdc_per_token = price_usdc_per_token;
+        pool.bump = ctx.bumps.primary_pool;
+
+        msg!(
+            "Primary sale initialized. master_wallet={}, price_usdc_per_token={}",
+            master_wallet,
+            price_usdc_per_token
+        );
+        Ok(())
+    }
+
+    /// Fixed-price primary sale:
+    /// - user pays USDC into the pool USDC vault
+    /// - program mints Bunker Cash tokens to the user at a strictly fixed price
+    ///
+    /// Price is read from `PrimaryPoolState.price_usdc_per_token`.
+    pub fn buy_primary(ctx: Context<BuyPrimary>, usdc_amount: u64) -> Result<()> {
+        require!(usdc_amount > 0, ErrorCode::InvalidAmount);
+
+        let pool = &ctx.accounts.primary_pool;
+        require!(pool.price_usdc_per_token > 0, ErrorCode::InvalidAmount);
+
+        // Decimal handling:
+        // - `usdc_amount` is in USDC base units (mint.decimals)
+        // - `price_usdc_per_token` is USDC base units per 1 whole token
+        // - minted `token_amount` is in token base units (mint.decimals)
+        let token_decimals = ctx.accounts.bunkercash_mint.decimals;
+        let token_scale: u128 = 10u128
+            .checked_pow(token_decimals as u32)
+            .ok_or(ErrorCode::MathError)?;
+
+        let token_amount_u128 = (usdc_amount as u128)
+            .checked_mul(token_scale)
+            .ok_or(ErrorCode::MathError)?
+            .checked_div(pool.price_usdc_per_token as u128)
+            .ok_or(ErrorCode::MathError)?;
+
+        require!(token_amount_u128 > 0, ErrorCode::InvalidAmount);
+        require!(token_amount_u128 <= u64::MAX as u128, ErrorCode::MathError);
+        let token_amount: u64 = token_amount_u128 as u64;
+
+        // Transfer USDC from user to pool vault (Token-2022).
+        token_interface::transfer_checked(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                token_interface::TransferChecked {
+                    from: ctx.accounts.user_usdc.to_account_info(),
+                    to: ctx.accounts.pool_usdc_vault.to_account_info(),
+                    authority: ctx.accounts.user.to_account_info(),
+                    mint: ctx.accounts.usdc_mint.to_account_info(),
+                },
+            ),
+            usdc_amount,
+            ctx.accounts.usdc_mint.decimals,
+        )?;
+
+        // Mint tokens to the user. The mint authority is the `primary_pool` PDA.
+        let seeds = &[b"primary_pool".as_ref(), &[pool.bump]];
+        let signer = &[&seeds[..]];
+
+        token_interface::mint_to(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                token_interface::MintTo {
+                    mint: ctx.accounts.bunkercash_mint.to_account_info(),
+                    to: ctx.accounts.user_bunkercash.to_account_info(),
+                    authority: ctx.accounts.primary_pool.to_account_info(),
+                },
+                signer,
+            ),
+            token_amount,
+        )?;
+
+        emit!(PrimaryPurchaseEvent {
+            user: ctx.accounts.user.key(),
+            usdc_amount,
+            token_amount,
+            price_usdc_per_token: pool.price_usdc_per_token,
+        });
+
         Ok(())
     }
 
@@ -373,6 +477,73 @@ pub struct Initialize<'info> {
 }
 
 #[derive(Accounts)]
+pub struct InitializePrimarySale<'info> {
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + PrimaryPoolState::INIT_SPACE,
+        seeds = [b"primary_pool"],
+        bump
+    )]
+    pub primary_pool: Account<'info, PrimaryPoolState>,
+
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    pub usdc_mint: InterfaceAccount<'info, Mint>,
+    #[account(mut)]
+    pub bunkercash_mint: InterfaceAccount<'info, Mint>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct BuyPrimary<'info> {
+    #[account(
+        mut,
+        seeds = [b"primary_pool"],
+        bump = primary_pool.bump
+    )]
+    pub primary_pool: Account<'info, PrimaryPoolState>,
+
+    #[account(mut)]
+    pub user: Signer<'info>,
+
+    #[account(address = primary_pool.usdc_mint)]
+    pub usdc_mint: InterfaceAccount<'info, Mint>,
+
+    #[account(
+        mut,
+        address = primary_pool.bunkercash_mint,
+        constraint = bunkercash_mint.mint_authority == COption::Some(primary_pool.key()) @ ErrorCode::InvalidMintAuthority
+    )]
+    pub bunkercash_mint: InterfaceAccount<'info, Mint>,
+
+    #[account(
+        mut,
+        constraint = user_usdc.owner == user.key() @ ErrorCode::InvalidTokenAccountOwner,
+        constraint = user_usdc.mint == usdc_mint.key() @ ErrorCode::InvalidMint
+    )]
+    pub user_usdc: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        constraint = pool_usdc_vault.owner == primary_pool.key() @ ErrorCode::InvalidTokenAccountOwner,
+        constraint = pool_usdc_vault.mint == usdc_mint.key() @ ErrorCode::InvalidMint
+    )]
+    pub pool_usdc_vault: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        constraint = user_bunkercash.owner == user.key() @ ErrorCode::InvalidTokenAccountOwner,
+        constraint = user_bunkercash.mint == bunkercash_mint.key() @ ErrorCode::InvalidMint
+    )]
+    pub user_bunkercash: InterfaceAccount<'info, TokenAccount>,
+
+    pub token_program: Interface<'info, TokenInterface>,
+}
+
+#[derive(Accounts)]
 pub struct DepositUsdc<'info> {
     #[account(
         mut,
@@ -541,6 +712,18 @@ pub struct Pool {
     pub bump: u8,
 }
 
+/// Separate state for fixed-price primary sales.
+#[account]
+#[derive(InitSpace)]
+pub struct PrimaryPoolState {
+    pub master_wallet: Pubkey,
+    pub usdc_mint: Pubkey,
+    pub bunkercash_mint: Pubkey,
+    /// USDC base units per 1 whole token.
+    pub price_usdc_per_token: u64,
+    pub bump: u8,
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct Claim {
@@ -592,12 +775,30 @@ pub struct MasterCancelWithdrawalEvent {
     pub timestamp: i64,
 }
 
+#[event]
+pub struct PrimaryPurchaseEvent {
+    pub user: Pubkey,
+    pub usdc_amount: u64,
+    pub token_amount: u64,
+    pub price_usdc_per_token: u64,
+}
+
 #[error_code]
 pub enum ErrorCode {
     #[msg("Invalid NAV value")]
     InvalidNAV,
+    #[msg("Invalid amount")]
+    InvalidAmount,
     #[msg("Unauthorized access")]
     Unauthorized,
     #[msg("Repayment amount exceeds withdrawal remaining balance")]
     RepaymentExceedsWithdrawal,
+    #[msg("Math error")]
+    MathError,
+    #[msg("Invalid token account owner")]
+    InvalidTokenAccountOwner,
+    #[msg("Invalid mint")]
+    InvalidMint,
+    #[msg("Invalid mint authority")]
+    InvalidMintAuthority,
 }
