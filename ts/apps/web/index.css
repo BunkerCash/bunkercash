@@ -15,8 +15,8 @@
     --popover: 220 20% 10%;
     --popover-foreground: 220 20% 92%;
 
-    --primary: 162 77% 48%;
-    --primary-foreground: 220 20% 6%;
+    --primary: 166 100% 50%;
+    --primary-foreground: 0 0% 0%;
 
     --secondary: 231 100% 68%;
     --secondary-foreground: 220 20% 92%;
@@ -35,18 +35,18 @@
 
     --border: 220 15% 18%;
     --input: 220 15% 18%;
-    --ring: 162 77% 48%;
+    --ring: 166 100% 50%;
 
     --radius: 0.75rem;
 
     --sidebar-background: 220 20% 6%;
     --sidebar-foreground: 220 15% 65%;
-    --sidebar-primary: 162 77% 48%;
+    --sidebar-primary: 166 100% 50%;
     --sidebar-primary-foreground: 220 20% 6%;
     --sidebar-accent: 220 15% 12%;
     --sidebar-accent-foreground: 220 20% 92%;
     --sidebar-border: 220 15% 18%;
-    --sidebar-ring: 162 77% 48%;
+    --sidebar-ring: 166 100% 50%;
   }
 
   .dark {
@@ -56,8 +56,8 @@
     --card-foreground: 220 20% 92%;
     --popover: 220 20% 10%;
     --popover-foreground: 220 20% 92%;
-    --primary: 162 77% 48%;
-    --primary-foreground: 220 20% 6%;
+    --primary: 166 100% 50%;
+    --primary-foreground: 0 0% 0%;
     --secondary: 231 100% 68%;
     --secondary-foreground: 220 20% 92%;
     --muted: 220 15% 15%;
@@ -68,7 +68,7 @@
     --destructive-foreground: 220 20% 6%;
     --border: 220 15% 18%;
     --input: 220 15% 18%;
-    --ring: 162 77% 48%;
+    --ring: 166 100% 50%;
   }
 }
 
@@ -130,7 +130,7 @@
     transition-timing-function: ease-in-out;
     transition-duration: 200ms;
   }
-  
+
   .nav-link:hover {
     color: hsl(var(--foreground));
   }
@@ -140,7 +140,11 @@
   }
 
   .gradient-text {
-    background-image: linear-gradient(to right, hsl(var(--primary)), hsl(var(--secondary)));
+    background-image: linear-gradient(
+      to right,
+      hsl(var(--primary)),
+      hsl(var(--secondary))
+    );
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
