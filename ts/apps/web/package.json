@@ -9,8 +9,12 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@coral-xyz/anchor": "^0.31.1",
     "@heroicons/react": "^2.2.0",
     "@jup-ag/wallet-adapter": "^0.2.5",
+    "@solana/spl-token": "^0.4.14",
+    "@solana/wallet-adapter-react": "^0.15.39",
+    "@solana/wallet-adapter-wallets": "^0.19.32",
     "@radix-ui/react-dialog": "^1.1.4",
     "@solana/web3.js": "^1.98.4",
     "class-variance-authority": "^0.7.1",

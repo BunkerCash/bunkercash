@@ -5,7 +5,7 @@ use anchor_spl::token::accessor;
 use anchor_lang::solana_program::program_option::COption;
 
 // NOTE: This must match the deployed program id (and `target/deploy/bunkercash-keypair.json`).
-declare_id!("4or1tGUSc8tWixaMcb3yBSRmrjd7jZmC5PDWgAwRQUND");
+declare_id!("66XoVW5tAkopvLUCQ38jbQdysFVFS84VajaNRU7MRNu8");
 
 const TRANSFER_FEE_BASIS_POINTS: u16 = 25; // 0.25%
 
@@ -36,8 +36,8 @@ pub mod bunkercash {
     /// to avoid breaking existing devnet deployments that depend on the old layout.
     ///
     /// `price_usdc_per_token` is stored in **USDC base units per 1 whole token**.
-    /// Example: if USDC has 6 decimals and 1 token costs 1.25 USDC, set
-    /// `price_usdc_per_token = 1_250_000`.
+    /// Example: if USDC has 6 decimals and 1 token = 1 USDC, set
+    /// `price_usdc_per_token = 1_000_000`.
     pub fn initialize_primary_sale(
         ctx: Context<InitializePrimarySale>,
         master_wallet: Pubkey,
@@ -57,6 +57,22 @@ pub mod bunkercash {
             master_wallet,
             price_usdc_per_token
         );
+        Ok(())
+    }
+
+    /// Updates the primary sale price. Only the pool's master_wallet may call this.
+    pub fn update_primary_price(
+        ctx: Context<UpdatePrimaryPrice>,
+        new_price_usdc_per_token: u64,
+    ) -> Result<()> {
+        require!(new_price_usdc_per_token > 0, ErrorCode::InvalidAmount);
+        let pool = &mut ctx.accounts.primary_pool;
+        require!(
+            ctx.accounts.authority.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+        pool.price_usdc_per_token = new_price_usdc_per_token;
+        msg!("Primary price updated to {}", new_price_usdc_per_token);
         Ok(())
     }
 
@@ -90,10 +106,10 @@ pub mod bunkercash {
         require!(token_amount_u128 <= u64::MAX as u128, ErrorCode::MathError);
         let token_amount: u64 = token_amount_u128 as u64;
 
-        // Transfer USDC from user to pool vault (Token-2022).
+        // Transfer USDC from user to pool vault (legacy SPL or Token-2022).
         token_interface::transfer_checked(
             CpiContext::new(
-                ctx.accounts.token_program.to_account_info(),
+                ctx.accounts.usdc_token_program.to_account_info(),
                 token_interface::TransferChecked {
                     from: ctx.accounts.user_usdc.to_account_info(),
                     to: ctx.accounts.pool_usdc_vault.to_account_info(),
@@ -109,6 +125,7 @@ pub mod bunkercash {
         let seeds = &[b"primary_pool".as_ref(), &[pool.bump]];
         let signer = &[&seeds[..]];
 
+        // Mint Bunker Cash to the user (Token-2022).
         token_interface::mint_to(
             CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
@@ -541,7 +558,23 @@ pub struct BuyPrimary<'info> {
     )]
     pub user_bunkercash: InterfaceAccount<'info, TokenAccount>,
 
+    /// Token program for USDC (legacy SPL or Token-2022).
+    pub usdc_token_program: Interface<'info, TokenInterface>,
+    /// Token program for Bunker Cash mint (Token-2022).
     pub token_program: Interface<'info, TokenInterface>,
+}
+
+#[derive(Accounts)]
+pub struct UpdatePrimaryPrice<'info> {
+    #[account(
+        mut,
+        seeds = [b"primary_pool"],
+        bump = primary_pool.bump
+    )]
+    pub primary_pool: Account<'info, PrimaryPoolState>,
+
+    /// Must be the pool's master_wallet.
+    pub authority: Signer<'info>,
 }
 
 #[derive(Accounts)]

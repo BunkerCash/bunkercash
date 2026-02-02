@@ -44,7 +44,7 @@ export default function Home() {
               <FundCard
                 name="bRENT"
                 apy={6}
-                description="Real estate rented out"
+                description="Real estate rented out · Buy at fixed price"
                 issuedAmount="$20,000"
                 href="/brent"
               />

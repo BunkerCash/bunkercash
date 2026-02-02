@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { Provider as JotaiProvider } from 'jotai'
+import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react'
+import { PhantomWalletAdapter } from '@solana/wallet-adapter-wallets'
 import { UnifiedWalletProvider } from '@jup-ag/wallet-adapter'
 
 function getWalletEnv(): 'mainnet-beta' | 'devnet' {
@@ -10,8 +12,11 @@ function getWalletEnv(): 'mainnet-beta' | 'devnet' {
   return cluster === 'mainnet-beta' || cluster === 'mainnet' ? 'mainnet-beta' : 'devnet'
 }
 
+const SOLANA_RPC = process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? 'https://api.devnet.solana.com'
+
 export function Providers({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false)
+  const [wallets] = useState(() => [new PhantomWalletAdapter()])
 
   useEffect(() => {
     setMounted(true)
@@ -22,26 +27,30 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <UnifiedWalletProvider
-      wallets={[]}
-      config={{
-        autoConnect: true,
-        env: getWalletEnv(),
-        metadata: {
-          name: 'BunkerCash',
-          description: 'BunkerCash - Tokenized Commodities',
-          url: 'https://bunkercash.io',
-          iconUrls: ['/icon.png'],
-        },
-        walletlistExplanation: {
-          href: 'https://station.jup.ag/docs/additional-topics/wallet-list',
-        },
-        theme: 'dark',
-      }}
-    >
-      <JotaiProvider>
-        {children}
-      </JotaiProvider>
-    </UnifiedWalletProvider>
+    <ConnectionProvider endpoint={SOLANA_RPC}>
+      <WalletProvider wallets={wallets} autoConnect>
+        <UnifiedWalletProvider
+          wallets={[]}
+          config={{
+            autoConnect: true,
+            env: getWalletEnv(),
+            metadata: {
+              name: 'BunkerCash',
+              description: 'BunkerCash - Tokenized Commodities',
+              url: 'https://bunkercash.io',
+              iconUrls: ['/icon.png'],
+            },
+            walletlistExplanation: {
+              href: 'https://station.jup.ag/docs/additional-topics/wallet-list',
+            },
+            theme: 'dark',
+          }}
+        >
+          <JotaiProvider>
+            {children}
+          </JotaiProvider>
+        </UnifiedWalletProvider>
+      </WalletProvider>
+    </ConnectionProvider>
   )
 }
