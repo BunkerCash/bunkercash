@@ -85,7 +85,7 @@ export default function Home() {
             </div>
 
             {/* Buy Button */}
-            <Button className="w-full mt-6 h-12 text-base font-semibold">
+            <Button className="w-full mt-6 h-12 text-base font-semibold bg-primary text-primary-foreground">
               Buy Token
             </Button>
 

@@ -1,10 +1,7 @@
-'use client'
+"use client";
 
-import { useState, useEffect } from 'react'
-import { Provider as JotaiProvider } from 'jotai'
-import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react'
-import { PhantomWalletAdapter } from '@solana/wallet-adapter-wallets'
-import { UnifiedWalletProvider } from '@jup-ag/wallet-adapter'
+import { Provider as JotaiProvider } from "jotai";
+import { SolanaProvider } from "@/providers/SolanaProvider";
 
 function getWalletEnv(): 'mainnet-beta' | 'devnet' {
   // Default to devnet for now because the Anchor program is deployed there.
@@ -15,42 +12,9 @@ function getWalletEnv(): 'mainnet-beta' | 'devnet' {
 const SOLANA_RPC = process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? 'https://api.devnet.solana.com'
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  const [mounted, setMounted] = useState(false)
-  const [wallets] = useState(() => [new PhantomWalletAdapter()])
-
-  useEffect(() => {
-    setMounted(true)
-  }, [])
-
-  if (!mounted) {
-    return <JotaiProvider>{children}</JotaiProvider>
-  }
-
   return (
-    <ConnectionProvider endpoint={SOLANA_RPC}>
-      <WalletProvider wallets={wallets} autoConnect>
-        <UnifiedWalletProvider
-          wallets={[]}
-          config={{
-            autoConnect: true,
-            env: getWalletEnv(),
-            metadata: {
-              name: 'BunkerCash',
-              description: 'BunkerCash - Tokenized Commodities',
-              url: 'https://bunkercash.io',
-              iconUrls: ['/icon.png'],
-            },
-            walletlistExplanation: {
-              href: 'https://station.jup.ag/docs/additional-topics/wallet-list',
-            },
-            theme: 'dark',
-          }}
-        >
-          <JotaiProvider>
-            {children}
-          </JotaiProvider>
-        </UnifiedWalletProvider>
-      </WalletProvider>
-    </ConnectionProvider>
-  )
+    <SolanaProvider>
+      <JotaiProvider>{children}</JotaiProvider>
+    </SolanaProvider>
+  );
 }
