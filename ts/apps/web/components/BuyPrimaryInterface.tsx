@@ -2,14 +2,15 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
-import { PublicKey } from '@solana/web3.js'
-import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
+import { PublicKey, Transaction } from '@solana/web3.js'
+import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import { getBunkercashMintPda, getPoolPda, getProgram, PROGRAM_ID } from '@/lib/program'
 import { ArrowDown } from 'lucide-react'
 import { BN } from '@coral-xyz/anchor'
 
 const USDC_DECIMALS = 6
 const BUNKERCASH_DECIMALS = 9
+/** Devnet USDC mint (SPL legacy token). Pay with this USDC testnet directly. */
 const DEFAULT_DEVNET_USDC_MINT = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'
 
 function toUi(amount: bigint, decimals: number): string {
@@ -113,7 +114,34 @@ export function BuyPrimaryInterface() {
         ASSOCIATED_TOKEN_PROGRAM_ID
       )
 
-      const sig = await (program.methods as unknown as { buyPrimary: (amount: BN) => { accounts: (acc: Record<string, PublicKey>) => { rpc: (opts?: { commitment?: string }) => Promise<string> } } }).buyPrimary(new BN(usdcAmountRaw.toString()))
+      // Ensure pool's USDC vault exists (program expects it initialized).
+      const createPoolUsdcVaultIx = createAssociatedTokenAccountIdempotentInstruction(
+        wallet.publicKey,
+        poolUsdcVault,
+        poolPda,
+        usdcMint,
+        TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID
+      )
+      // Ensure user ATAs exist: USDC (SPL legacy) for payment, Bunker Cash (Token-2022) for receipt.
+      const createUserUsdcAtaIx = createAssociatedTokenAccountIdempotentInstruction(
+        wallet.publicKey,
+        userUsdc,
+        wallet.publicKey,
+        usdcMint,
+        TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID
+      )
+      const createUserBunkercashAtaIx = createAssociatedTokenAccountIdempotentInstruction(
+        wallet.publicKey,
+        userBunkercash,
+        wallet.publicKey,
+        bunkercashMintPda,
+        TOKEN_2022_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID
+      )
+
+      const buyPrimaryIx = await (program.methods as unknown as { buyPrimary: (amount: BN) => { accounts: (acc: Record<string, PublicKey>) => { instruction: () => Promise<{ keys: unknown[]; data: Buffer }> } } }).buyPrimary(new BN(usdcAmountRaw.toString()))
         .accounts({
           pool: poolPda,
           bunkercashMint: bunkercashMintPda,
@@ -125,7 +153,10 @@ export function BuyPrimaryInterface() {
           usdcTokenProgram: TOKEN_PROGRAM_ID,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
         })
-        .rpc({ commitment: 'confirmed' })
+        .instruction()
+
+      const tx = new Transaction().add(createPoolUsdcVaultIx, createUserUsdcAtaIx, createUserBunkercashAtaIx, buyPrimaryIx)
+      const sig = await (program.provider as { sendAndConfirm: (tx: Transaction) => Promise<string> }).sendAndConfirm(tx)
 
       setTxSig(sig)
       setUsdcAmount('')
@@ -277,7 +308,7 @@ npx ts-node -P tsconfig.json scripts/bootstrap-fixed-price.ts`}
       </button>
 
       <div className="text-center text-xs text-neutral-600">
-        Fixed-price primary sale · USDC → Bunker Cash
+        Pay with USDC (SPL legacy) testnet · Fixed-price primary sale → Bunker Cash
       </div>
     </div>
   )

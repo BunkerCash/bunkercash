@@ -1,15 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { StatCard } from "@/components/ui/StatCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowDown, Info } from "lucide-react";
+import { FundCard } from "@/components/FundCard";
+import { Info } from "lucide-react";
 
 export default function Home() {
   const [usdcAmount, setUsdcAmount] = useState("");
+  const [showFunds, setShowFunds] = useState(false);
   const marketPrice = 1.24;
+
+  useEffect(() => {
+    setShowFunds(true);
+  }, []);
 
   const estimatedTokens = usdcAmount
     ? (parseFloat(usdcAmount) / marketPrice).toFixed(4)
