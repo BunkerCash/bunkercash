@@ -1,12 +1,13 @@
 [toolchain]
 package_manager = "yarn"
+anchor_version = "0.31.1"
 
 [features]
 resolution = true
 skip-lint = false
 
 [programs.localnet]
-bunkercash = "HaPTPu1ZWhMV1t7VtKDmytXpRhwhgxe3tdFMGpPueDsX"
+bunkercash = "4or1tGUSc8tWixaMcb3yBSRmrjd7jZmC5PDWgAwRQUND"
 
 [registry]
 url = "https://api.apr.dev"
