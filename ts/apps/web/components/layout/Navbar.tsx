@@ -3,9 +3,11 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Wallet, Menu, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Image from "next/image";
+import { useWallet } from "@solana/wallet-adapter-react";
+import WalletButton from "@/components/wallet/WalletButton";
 
 import { cn } from "@/lib/utils";
 
@@ -19,7 +21,7 @@ const navItems = [
 
 export const Navbar = () => {
   const pathname = usePathname();
-  const [isConnected, setIsConnected] = useState(false);
+  const { connected } = useWallet();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   return (
@@ -27,16 +29,10 @@ export const Navbar = () => {
       <div className="container mx-auto px-4">
         <div className="flex h-16 items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
-            {/* <div className="h-8 w-8 rounded-lg bg-primary/20 flex items-center justify-center">
+            <div className="h-8 w-8 rounded-lg bg-primary/20 flex items-center justify-center">
               <span className="text-primary font-bold text-lg">B</span>
-            </div> */}
-            <Image
-              src="/logo.svg"
-              alt="BunkerCash"
-              width={120}
-              height={32}
-              className="h-8 w-auto"
-            />
+            </div>
+            <span className="font-semibold text-foreground">Bunker Cash</span>
           </Link>
 
           {/* Desktop Navigation */}
@@ -57,15 +53,9 @@ export const Navbar = () => {
 
           {/* Wallet Button */}
           <div className="flex items-center gap-4">
-            <Button
-              variant={isConnected ? "outline" : "default"}
-              size="sm"
-              onClick={() => setIsConnected(!isConnected)}
-              className="hidden sm:flex"
-            >
-              <Wallet className="h-4 w-4 mr-2" />
-              {isConnected ? "0x7a3...f92" : "Connect Wallet"}
-            </Button>
+            <div className="hidden sm:flex">
+              <WalletButton />
+            </div>
 
             {/* Mobile Menu Button */}
             <button
@@ -100,15 +90,9 @@ export const Navbar = () => {
                   {item.label}
                 </Link>
               ))}
-              <Button
-                variant={isConnected ? "outline" : "default"}
-                size="sm"
-                onClick={() => setIsConnected(!isConnected)}
-                className="mx-4 mt-2 sm:hidden"
-              >
-                <Wallet className="h-4 w-4 mr-2" />
-                {isConnected ? "0x7a3...f92" : "Connect Wallet"}
-              </Button>
+              <div className="mx-4 mt-2 sm:hidden">
+                <WalletButton />
+              </div>
             </div>
           </div>
         )}
