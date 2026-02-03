@@ -1,81 +1,119 @@
-'use client'
+"use client";
 
-import { Header } from '@/components/Header'
-import { FundCard } from '@/components/FundCard'
-import { useEffect, useState } from 'react'
+import { useState } from "react";
+import { Layout } from "@/components/layout/Layout";
+import { StatCard } from "@/components/ui/StatCard";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { ArrowDown, Info } from "lucide-react";
 
 export default function Home() {
-  const [showHero, setShowHero] = useState(false)
-  const [showFunds, setShowFunds] = useState(false)
+  const [usdcAmount, setUsdcAmount] = useState("");
+  const marketPrice = 1.24;
 
-  useEffect(() => {
-    setShowHero(true)
-    const timer = setTimeout(() => setShowFunds(true), 300)
-    return () => clearTimeout(timer)
-  }, [])
+  const estimatedTokens = usdcAmount
+    ? (parseFloat(usdcAmount) / marketPrice).toFixed(4)
+    : "0.0000";
 
   return (
-    <div className="min-h-screen">
-      <Header />
-
-      <main className="container mx-auto px-6 py-20">
-        <section className={`mb-32 text-center transition-all duration-1000 ${showHero ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-          <h1 className="text-5xl md:text-6xl font-bold mb-6">
-            BunkerCash
-          </h1>
-          <p className="text-xl md:text-2xl text-neutral-400 mb-4 max-w-3xl mx-auto">
-            Bridges real estate and DeFi — turning property yield into on-chain liquidity.
-          </p>
-          <div className="text-[#00FFB2] text-lg font-medium mb-2">
-            Backed by overcollateralized, transparent real estate assets.
+    <Layout>
+      <div className="container mx-auto px-4 py-12">
+        <div className="max-w-2xl mx-auto">
+          {/* Header */}
+          <div className="text-center mb-10 animate-fade-in">
+            <h1 className="text-3xl font-bold text-foreground mb-4">
+              Buy Token
+            </h1>
+            <p className="text-muted-foreground max-w-xl mx-auto">
+              Bunker Cash is a freely tradable digital token. The token price is
+              determined exclusively by open market activity. There is no
+              guarantee of value, liquidity, or future price development.
+            </p>
           </div>
-          <p className="text-neutral-600 text-sm max-w-2xl mx-auto">
-            Mint. Trade. Earn. Own real yield on Solana.
-          </p>
-        </section>
 
-        <section id="about" className="mb-20">
-          <h2 className={`text-2xl font-medium mb-16 text-center text-neutral-300 transition-all duration-700 ${showFunds ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-            Pick a BunkerCash Fund to Continue
-          </h2>
+          {/* Market Price Card */}
+          <div
+            className="mb-8 animate-slide-up"
+            style={{ animationDelay: "0.1s" }}
+          >
+            <StatCard
+              label="Current Market Price"
+              value={
+                <span className="text-primary">
+                  ${marketPrice.toFixed(2)} USD
+                </span>
+              }
+              note="Market price is determined by supply and demand."
+              className="glow-primary"
+            />
+          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-7xl mx-auto">
-            <div className={`transition-all duration-700 delay-100 ${showFunds ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
-              <FundCard
-                name="bRENT"
-                apy={6}
-                description="Real estate rented out"
-                issuedAmount="$20,000"
-                href="/brent"
-              />
+          {/* Buy Card */}
+          <div
+            className="glass-card p-6 animate-slide-up"
+            style={{ animationDelay: "0.2s" }}
+          >
+            <h2 className="text-lg font-semibold mb-6">Purchase Tokens</h2>
+
+            {/* Input Section */}
+            <div className="space-y-4">
+              <div>
+                <label className="stat-label block mb-2">You Pay</label>
+                <div className="relative">
+                  <Input
+                    type="number"
+                    placeholder="0.00"
+                    value={usdcAmount}
+                    onChange={(e: any) => setUsdcAmount(e.target.value)}
+                    className="pr-16 h-14 text-lg bg-transparent"
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">
+                    USDC
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex justify-center">
+                <div className="p-2 rounded-full bg-muted/50">
+                  <ArrowDown className="h-4 w-4 text-muted-foreground" />
+                </div>
+              </div>
+
+              <div>
+                <label className="stat-label block mb-2">
+                  You Receive (Estimated)
+                </label>
+                <div className="relative">
+                  <Input
+                    type="text"
+                    value={estimatedTokens}
+                    readOnly
+                    className="pr-20 h-14 text-lg bg-transparent"
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">
+                    BNKR
+                  </span>
+                </div>
+              </div>
             </div>
 
-            <div className={`transition-all duration-700 delay-300 ${showFunds ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
-              <FundCard
-                name="bBUILD"
-                targetApy={10}
-                description="Real estate project development"
-                comingSoon
-              />
-            </div>
+            {/* Buy Button */}
+            <Button className="w-full mt-6 h-12 text-base font-semibold bg-primary text-primary-foreground">
+              Buy Token
+            </Button>
 
-            <div className={`transition-all duration-700 delay-500 ${showFunds ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
-              <FundCard
-                name="bPRIME"
-                description="The most diversified RWA basket — combining real estate rental yield, development projects, and external monetary funds"
-                comingSoon
-                comingSoonText="COMING 2026"
-              />
+            {/* Disclaimer */}
+            <div className="flex items-start gap-2 mt-4 p-3 rounded-lg bg-muted/30">
+              <Info className="h-4 w-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-muted-foreground">
+                Tokens are purchased via open market liquidity using your
+                connected wallet. Actual amount received may vary due to market
+                conditions.
+              </p>
             </div>
           </div>
-        </section>
-
-        <section className="text-center text-neutral-600 text-sm max-w-2xl mx-auto py-16">
-          <p>
-            Semi-liquid, DeFi-native real-estate yield tokens on Solana
-          </p>
-        </section>
-      </main>
-    </div>
-  )
+        </div>
+      </div>
+    </Layout>
+  );
 }
