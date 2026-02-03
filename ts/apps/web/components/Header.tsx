@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils'
 export function Header() {
   const pathname = usePathname()
   const isHome = pathname === '/'
-  const isBrent = pathname === '/brent' || pathname === '/bRENT'
+  const isBrent = pathname === '/brent'
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {

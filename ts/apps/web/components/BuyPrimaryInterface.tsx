@@ -4,12 +4,13 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { PublicKey } from '@solana/web3.js'
 import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
-import { getProgram, getPrimaryPoolPda, PROGRAM_ID } from '@/lib/program'
+import { getBunkercashMintPda, getPoolPda, getProgram, PROGRAM_ID } from '@/lib/program'
 import { ArrowDown } from 'lucide-react'
 import { BN } from '@coral-xyz/anchor'
 
 const USDC_DECIMALS = 6
 const BUNKERCASH_DECIMALS = 9
+const DEFAULT_DEVNET_USDC_MINT = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'
 
 function toUi(amount: bigint, decimals: number): string {
   const s = amount.toString().padStart(decimals + 1, '0')
@@ -27,48 +28,38 @@ export function BuyPrimaryInterface() {
   const [txSig, setTxSig] = useState<string | null>(null)
   const [poolState, setPoolState] = useState<{
     priceUsdcPerToken: BN
-    usdcMint: PublicKey
-    bunkercashMint: PublicKey
+    admin: PublicKey
   } | null>(null)
   const [poolError, setPoolError] = useState<string | null>(null)
-  /** Token program for USDC (legacy or Token-2022), derived from mint owner. */
-  const [usdcTokenProgram, setUsdcTokenProgram] = useState<PublicKey | null>(null)
 
   const program = useMemo(() => (wallet.publicKey ? getProgram(connection, wallet) : null), [connection, wallet])
-  const primaryPoolPda = useMemo(() => getPrimaryPoolPda(PROGRAM_ID), [])
+  const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), [])
+  const bunkercashMintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), [])
+  const usdcMint = useMemo(
+    () => new PublicKey(process.env.NEXT_PUBLIC_USDC_MINT ?? DEFAULT_DEVNET_USDC_MINT),
+    []
+  )
 
   const fetchPoolState = useCallback(async () => {
     if (!program || !connection) return
     try {
       const state = await (
         program.account as {
-          primaryPoolState: {
-            fetch: (
-              key: PublicKey
-            ) => Promise<{ priceUsdcPerToken: BN; usdcMint: PublicKey; bunkercashMint: PublicKey }>
+          poolState: {
+            fetch: (key: PublicKey) => Promise<{ priceUsdcPerToken: BN; admin: PublicKey }>
           }
         }
-      ).primaryPoolState.fetch(primaryPoolPda)
-      const usdcMint = state.usdcMint as PublicKey
+      ).poolState.fetch(poolPda)
       setPoolState({
         priceUsdcPerToken: state.priceUsdcPerToken as BN,
-        usdcMint,
-        bunkercashMint: state.bunkercashMint as PublicKey,
+        admin: state.admin as PublicKey,
       })
       setPoolError(null)
-      // Resolve USDC token program from mint account owner (legacy SPL vs Token-2022).
-      const mintInfo = await connection.getAccountInfo(usdcMint)
-      if (mintInfo?.owner) {
-        setUsdcTokenProgram(new PublicKey(mintInfo.owner))
-      } else {
-        setUsdcTokenProgram(TOKEN_PROGRAM_ID)
-      }
     } catch {
       setPoolError('not_initialized')
       setPoolState(null)
-      setUsdcTokenProgram(null)
     }
-  }, [program, primaryPoolPda, connection])
+  }, [program, poolPda, connection])
 
   useEffect(() => {
     void fetchPoolState()
@@ -95,27 +86,27 @@ export function BuyPrimaryInterface() {
   const tokenAmountUi = tokenAmountRaw != null ? toUi(tokenAmountRaw, BUNKERCASH_DECIMALS) : ''
 
   const handleBuy = async () => {
-    if (!program || !wallet.publicKey || !poolState || !usdcAmountRaw || usdcAmountRaw <= BigInt(0) || !usdcTokenProgram) return
+    if (!program || !wallet.publicKey || !poolState || !usdcAmountRaw || usdcAmountRaw <= BigInt(0)) return
     setError(null)
     setTxSig(null)
     setLoading(true)
     try {
       const userUsdc = getAssociatedTokenAddressSync(
-        poolState.usdcMint,
+        usdcMint,
         wallet.publicKey,
         false,
-        usdcTokenProgram,
+        TOKEN_PROGRAM_ID,
         ASSOCIATED_TOKEN_PROGRAM_ID
       )
       const poolUsdcVault = getAssociatedTokenAddressSync(
-        poolState.usdcMint,
-        primaryPoolPda,
+        usdcMint,
+        poolPda,
         true,
-        usdcTokenProgram,
+        TOKEN_PROGRAM_ID,
         ASSOCIATED_TOKEN_PROGRAM_ID
       )
       const userBunkercash = getAssociatedTokenAddressSync(
-        poolState.bunkercashMint,
+        bunkercashMintPda,
         wallet.publicKey,
         false,
         TOKEN_2022_PROGRAM_ID,
@@ -124,14 +115,14 @@ export function BuyPrimaryInterface() {
 
       const sig = await (program.methods as unknown as { buyPrimary: (amount: BN) => { accounts: (acc: Record<string, PublicKey>) => { rpc: (opts?: { commitment?: string }) => Promise<string> } } }).buyPrimary(new BN(usdcAmountRaw.toString()))
         .accounts({
-          primaryPool: primaryPoolPda,
+          pool: poolPda,
+          bunkercashMint: bunkercashMintPda,
           user: wallet.publicKey,
-          usdcMint: poolState.usdcMint,
-          bunkercashMint: poolState.bunkercashMint,
+          usdcMint,
           userUsdc,
           poolUsdcVault,
           userBunkercash,
-          usdcTokenProgram,
+          usdcTokenProgram: TOKEN_PROGRAM_ID,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
         })
         .rpc({ commitment: 'confirmed' })
@@ -176,17 +167,17 @@ export function BuyPrimaryInterface() {
                 <span className="text-neutral-500">Program:</span> {PROGRAM_ID.toBase58()}
               </div>
               <div>
-                <span className="text-neutral-500">Primary pool PDA:</span> {primaryPoolPda.toBase58()}
+                <span className="text-neutral-500">Pool PDA:</span> {poolPda.toBase58()}
               </div>
             </div>
             <pre className="bg-neutral-900 border border-neutral-700 rounded-lg p-4 text-xs text-neutral-300 overflow-x-auto text-left">
               {`cd rs
 export ANCHOR_PROVIDER_URL=https://api.devnet.solana.com
 export ANCHOR_WALLET=~/.config/solana/id.json
-npx ts-node -P tsconfig.json scripts/devnet-buy-primary.ts`}
+npx ts-node -P tsconfig.json scripts/bootstrap-fixed-price.ts`}
             </pre>
             <p className="text-neutral-500 text-sm">
-              That script creates test USDC and Bunker Cash mints, initializes the primary pool (1 USDC = 1 BRENT), and runs one test buy. After that, this page will show the fixed price and you can buy from the web app.
+              That script initializes the pool and Bunker Cash mint at a fixed price (1 USDC = 1 token) and can run a test buy. After that, this page will show the fixed price and you can buy from the web app using your devnet USDC.
             </p>
             <div className="flex items-center justify-between gap-3">
               <button
@@ -210,7 +201,7 @@ npx ts-node -P tsconfig.json scripts/devnet-buy-primary.ts`}
   return (
     <div className="space-y-8">
 
-      
+
       <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-6">
         <div className="grid grid-cols-2 gap-6">
           <div>

@@ -1,10 +1,10 @@
 import { Program, AnchorProvider, type Idl } from '@coral-xyz/anchor'
 import { Connection, PublicKey } from '@solana/web3.js'
 import type { WalletContextState } from '@solana/wallet-adapter-react'
-import idlJson from './bunkercash.idl.json'
+import idlJson from './bunkercash.fixed.idl.json'
 
-const idl = idlJson as Idl
-const PROGRAM_ID = new PublicKey((idlJson as { address: string }).address)
+const idl = idlJson as unknown as Idl
+const PROGRAM_ID = new PublicKey((idlJson as any).address)
 
 export type BunkercashIDL = Idl
 
@@ -19,9 +19,17 @@ export function getProgram(connection: Connection, wallet: WalletContextState): 
   return new Program(idl, provider)
 }
 
-export function getPrimaryPoolPda(programId: PublicKey = PROGRAM_ID): PublicKey {
+export function getPoolPda(programId: PublicKey = PROGRAM_ID): PublicKey {
   const [pda] = PublicKey.findProgramAddressSync(
-    [Buffer.from('primary_pool')],
+    [Buffer.from('bunkercash_pool')],
+    programId
+  )
+  return pda
+}
+
+export function getBunkercashMintPda(programId: PublicKey = PROGRAM_ID): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [Buffer.from('bunkercash_mint')],
     programId
   )
   return pda

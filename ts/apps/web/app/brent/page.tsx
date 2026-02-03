@@ -1,16 +1,13 @@
 'use client'
 
 import { Header } from '@/components/Header'
-import { SwapInterface } from '@/components/SwapInterface'
 import { BuyPrimaryInterface } from '@/components/BuyPrimaryInterface'
 import { WithdrawInterface } from '@/components/WithdrawInterface'
-import { NAVPerformance } from '@/components/NAVPerformance'
-import { PoolStats } from '@/components/PoolStats'
 import { PoolTransactions } from '@/components/PoolTransactions'
 import { useState } from 'react'
 
 export default function BrentPage() {
-  const [activeTab, setActiveTab] = useState<'buy-primary' | 'swap' | 'withdraw' | 'performance' | 'transactions'>('buy-primary')
+  const [activeTab, setActiveTab] = useState<'buy-primary' | 'withdraw' | 'transactions'>('buy-primary')
 
   return (
     <div className="min-h-screen">
@@ -48,16 +45,6 @@ export default function BrentPage() {
                   Buy Primary
                 </button>
                 <button
-                  onClick={() => setActiveTab('swap')}
-                  className={`flex-shrink-0 px-5 py-4 text-sm font-medium transition-colors border-b-2 md:border-b-0 md:border-r border-neutral-800 ${
-                    activeTab === 'swap'
-                      ? 'bg-neutral-900 text-[#00FFB2] border-[#00FFB2]'
-                      : 'text-neutral-500 hover:text-white border-transparent'
-                  }`}
-                >
-                  Swap
-                </button>
-                <button
                   onClick={() => setActiveTab('withdraw')}
                   className={`flex-shrink-0 px-5 py-4 text-sm font-medium transition-colors border-b-2 md:border-b-0 md:border-r border-neutral-800 ${
                     activeTab === 'withdraw'
@@ -66,16 +53,6 @@ export default function BrentPage() {
                   }`}
                 >
                   Withdraw
-                </button>
-                <button
-                  onClick={() => setActiveTab('performance')}
-                  className={`flex-shrink-0 px-5 py-4 text-sm font-medium transition-colors border-b-2 md:border-b-0 md:border-r border-neutral-800 ${
-                    activeTab === 'performance'
-                      ? 'bg-neutral-900 text-[#00FFB2] border-[#00FFB2]'
-                      : 'text-neutral-500 hover:text-white border-transparent'
-                  }`}
-                >
-                  Performance
                 </button>
                 <button
                   onClick={() => setActiveTab('transactions')}
@@ -96,16 +73,10 @@ export default function BrentPage() {
                     <BuyPrimaryInterface />
                   </>
                 )}
-                {activeTab === 'swap' && <SwapInterface />}
                 {activeTab === 'withdraw' && <WithdrawInterface />}
-                {activeTab === 'performance' && <NAVPerformance />}
                 {activeTab === 'transactions' && <PoolTransactions />}
               </div>
             </div>
-          </div>
-
-          <div className="lg:col-span-1">
-            <PoolStats />
           </div>
         </div>
       </main>
