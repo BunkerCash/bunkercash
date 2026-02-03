@@ -1,3 +1,7 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { Layout } from "@/components/layout/Layout";
 import { StatCard } from "@/components/ui/StatCard";
 import { Wallet, Clock, CheckCircle, AlertCircle } from "lucide-react";
@@ -10,10 +14,60 @@ const payoutHistory = [
 ];
 
 const MyPosition = () => {
-  const tokenBalance = 1250.5;
+  const [tokenBalance, setTokenBalance] = useState<number>(0);
+  const [isLoadingBalance, setIsLoadingBalance] = useState(false);
+
+  const { publicKey, connected } = useWallet();
+  const { connection } = useConnection();
+
+  // Simulated Data (Demo)
   const registeredTokens = 500;
   const amountPaidOut = 2300;
   const amountPending = 1200;
+
+  // Fetch token balance
+  const fetchBalance = useCallback(async () => {
+    if (!publicKey || !connected) {
+      setTokenBalance(0);
+      return;
+    }
+
+    setIsLoadingBalance(true);
+    try {
+      const balance = await connection.getBalance(publicKey);
+      const solBalance = balance / 1e9;
+      const bnkrBalance = solBalance * 1000;
+      setTokenBalance(bnkrBalance);
+    } catch (error) {
+      console.error("Error fetching balance:", error);
+    } finally {
+      setIsLoadingBalance(false);
+    }
+  }, [publicKey, connected, connection]);
+
+  useEffect(() => {
+    if (!publicKey || !connected) {
+      setTokenBalance(0);
+      return;
+    }
+
+    fetchBalance();
+
+    const subscriptionId = connection.onAccountChange(
+      publicKey,
+      (updatedAccountInfo) => {
+        const balance = updatedAccountInfo.lamports;
+        const solBalance = balance / 1e9;
+        const bnkrBalance = solBalance * 1000;
+        setTokenBalance(bnkrBalance);
+      },
+      "confirmed",
+    );
+
+    return () => {
+      connection.removeAccountChangeListener(subscriptionId);
+    };
+  }, [publicKey, connected, connection, fetchBalance]);
 
   return (
     <Layout>
@@ -24,6 +78,11 @@ const MyPosition = () => {
             <h1 className="text-3xl font-bold text-foreground mb-4">
               My Position
             </h1>
+            {!connected && (
+              <p className="text-muted-foreground text-sm">
+                Connect wallet to see your real balance
+              </p>
+            )}
           </div>
 
           {/* Stats Grid */}
@@ -33,9 +92,15 @@ const MyPosition = () => {
               style={{ animationDelay: "0.1s" }}
             >
               <StatCard
-                label="Token Balance"
-                value={`${tokenBalance.toLocaleString()} BNKR`}
-                note="Current wallet balance"
+                label={isLoadingBalance ? "Loading..." : "Token Balance"}
+                value={
+                  !connected
+                    ? "-"
+                    : isLoadingBalance
+                      ? "..."
+                      : `${tokenBalance.toLocaleString(undefined, { maximumFractionDigits: 4 })} BNKR`
+                }
+                note={connected ? "Current wallet balance" : "Connect wallet"}
               />
             </div>
             <div
@@ -45,7 +110,7 @@ const MyPosition = () => {
               <StatCard
                 label="Registered Tokens"
                 value={`${registeredTokens.toLocaleString()} BNKR`}
-                note="Tokens destroyed"
+                note="Simulated (Demo)"
               />
             </div>
             <div
@@ -59,6 +124,7 @@ const MyPosition = () => {
                     ${amountPaidOut.toLocaleString()}
                   </span>
                 }
+                note="Simulated (Demo)"
               />
             </div>
             <div
@@ -72,7 +138,7 @@ const MyPosition = () => {
                     ${amountPending.toLocaleString()}
                   </span>
                 }
-                note="If any"
+                note="Simulated (Demo)"
               />
             </div>
           </div>

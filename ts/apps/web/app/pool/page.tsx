@@ -43,7 +43,7 @@ const PoolStatus = () => {
                     ${poolLiquidity.toLocaleString()} USDC
                   </span>
                 }
-                note="Current liquidity available for optional sell registrations"
+                note="Current liquidity available for optional sell registrations - Simulated (Demo)"
                 className="glow-primary h-full"
               />
             </div>
@@ -79,7 +79,12 @@ const PoolStatus = () => {
             >
               <div className="flex items-center gap-2 mb-6">
                 <DollarSign className="h-5 w-5 text-primary" />
-                <h2 className="text-lg font-semibold">Liquidity Additions</h2>
+                <h2 className="text-lg font-semibold">
+                  Liquidity Additions{" "}
+                  <span className="text-xs font-normal text-muted-foreground">
+                    (Simulated Demo)
+                  </span>
+                </h2>
               </div>
               <div className="space-y-3">
                 {liquidityHistory.map((item, index) => (
@@ -105,7 +110,12 @@ const PoolStatus = () => {
             >
               <div className="flex items-center gap-2 mb-6">
                 <Flame className="h-5 w-5 text-destructive" />
-                <h2 className="text-lg font-semibold">Token Burns</h2>
+                <h2 className="text-lg font-semibold">
+                  Token Burns{" "}
+                  <span className="text-xs font-normal text-muted-foreground">
+                    (Simulated Demo)
+                  </span>
+                </h2>
               </div>
               <div className="space-y-3">
                 {burnHistory.map((item, index) => (
