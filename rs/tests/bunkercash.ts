@@ -13,12 +13,14 @@
  * Requires: ANCHOR_PROVIDER_URL, ANCHOR_WALLET (keypair with SOL on devnet).
  */
 import * as anchor from "@coral-xyz/anchor";
-import { AnchorProvider, BN, Program, type Idl } from "@coral-xyz/anchor";
+import type { Idl } from "@coral-xyz/anchor";
+import BN from "bn.js";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
+import { createRequire } from "node:module";
 
 // Use the web app's fixed IDL so tests match the current program (bunkercash_pool, initialize, buy_primary, etc.)
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+const require = createRequire(import.meta.url);
 const idlJson = require("../../ts/apps/web/lib/bunkercash.fixed.idl.json") as {
   address: string;
 } & Idl;
@@ -31,7 +33,7 @@ describe("bunkercash", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const program = new Program(idlJson as unknown as Idl, provider);
+  const program = new anchor.Program(idlJson as unknown as Idl, provider);
   const wallet = provider.wallet.publicKey;
 
   it("initializes the pool and Bunker Cash mint (or skips if already initialized)", async () => {

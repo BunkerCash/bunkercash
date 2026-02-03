@@ -7,7 +7,6 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "lib"]
 name = "bunkercash"
-path = "src/program.rs"
 
 [features]
 default = ["init-if-needed"]
@@ -17,6 +16,10 @@ no-idl = []
 no-log-ix-name = []
 idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 init-if-needed = ["anchor-lang/init-if-needed"]
+# Optional features used by anchor-lang macros (silence unexpected_cfgs).
+custom-heap = []
+custom-panic = []
+anchor-debug = []
 
 
 [dependencies]
