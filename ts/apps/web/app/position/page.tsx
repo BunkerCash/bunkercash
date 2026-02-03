@@ -16,6 +16,7 @@ const payoutHistory = [
 const MyPosition = () => {
   const [tokenBalance, setTokenBalance] = useState<number>(0);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   const { publicKey, connected } = useWallet();
   const { connection } = useConnection();
@@ -29,10 +30,12 @@ const MyPosition = () => {
   const fetchBalance = useCallback(async () => {
     if (!publicKey || !connected) {
       setTokenBalance(0);
+      setFetchError(null);
       return;
     }
 
     setIsLoadingBalance(true);
+    setFetchError(null);
     try {
       const balance = await connection.getBalance(publicKey);
       const solBalance = balance / 1e9;
@@ -40,6 +43,7 @@ const MyPosition = () => {
       setTokenBalance(bnkrBalance);
     } catch (error) {
       console.error("Error fetching balance:", error);
+      setFetchError("Failed to fetch balance");
     } finally {
       setIsLoadingBalance(false);
     }
@@ -53,19 +57,31 @@ const MyPosition = () => {
 
     fetchBalance();
 
-    const subscriptionId = connection.onAccountChange(
-      publicKey,
-      (updatedAccountInfo) => {
-        const balance = updatedAccountInfo.lamports;
-        const solBalance = balance / 1e9;
-        const bnkrBalance = solBalance * 1000;
-        setTokenBalance(bnkrBalance);
-      },
-      "confirmed",
-    );
+    let subscriptionId: number | undefined;
+
+    try {
+      subscriptionId = connection.onAccountChange(
+        publicKey,
+        (updatedAccountInfo) => {
+          const balance = updatedAccountInfo.lamports;
+          const solBalance = balance / 1e9;
+          const bnkrBalance = solBalance * 1000;
+          setTokenBalance(bnkrBalance);
+        },
+        "confirmed",
+      );
+    } catch (error) {
+      console.error("Failed to subscribe to account changes:", error);
+    }
 
     return () => {
-      connection.removeAccountChangeListener(subscriptionId);
+      if (subscriptionId !== undefined) {
+        try {
+          connection.removeAccountChangeListener(subscriptionId);
+        } catch (e) {
+          console.error("Error removing listener:", e);
+        }
+      }
     };
   }, [publicKey, connected, connection, fetchBalance]);
 
@@ -92,15 +108,31 @@ const MyPosition = () => {
               style={{ animationDelay: "0.1s" }}
             >
               <StatCard
-                label={isLoadingBalance ? "Loading..." : "Token Balance"}
+                label={
+                  isLoadingBalance
+                    ? "Loading..."
+                    : fetchError
+                      ? "Error"
+                      : "Token Balance"
+                }
                 value={
                   !connected
                     ? "-"
                     : isLoadingBalance
                       ? "..."
-                      : `${tokenBalance.toLocaleString(undefined, { maximumFractionDigits: 4 })} BNKR`
+                      : fetchError
+                        ? "N/A"
+                        : `${tokenBalance.toLocaleString(undefined, { maximumFractionDigits: 4 })} BNKR`
                 }
-                note={connected ? "Current wallet balance" : "Connect wallet"}
+                note={
+                  fetchError ? (
+                    <span className="text-destructive">Network Error</span>
+                  ) : connected ? (
+                    "Current wallet balance"
+                  ) : (
+                    "Connect wallet"
+                  )
+                }
               />
             </div>
             <div

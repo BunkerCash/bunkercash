@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 interface StatCardProps {
   label: string;
   value: string | ReactNode;
-  note?: string;
+  note?: string | ReactNode;
   className?: string;
 }
 
