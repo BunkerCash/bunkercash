@@ -4,14 +4,13 @@ import { Provider as JotaiProvider } from "jotai";
 import { SolanaProvider } from "@/providers/SolanaProvider";
 
 function getWalletEnv(): "mainnet-beta" | "devnet" | "testnet" {
-  // Default to testnet as requested
-  return "testnet";
+  // Default to devnet (program is deployed there)
+  return "devnet";
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <SolanaProvider
-      wallets={[]}
       config={{
         autoConnect: true,
         env: getWalletEnv(),

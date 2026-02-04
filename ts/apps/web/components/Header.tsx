@@ -4,13 +4,13 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
-import { UnifiedWalletButton } from '@jup-ag/wallet-adapter'
+import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import { cn } from '@/lib/utils'
 
 export function Header() {
   const pathname = usePathname()
   const isHome = pathname === '/'
-  const isBrent = pathname === '/bRENT'
+  const isBrent = pathname === '/brent'
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
@@ -49,9 +49,8 @@ export function Header() {
           </div>
 
           {mounted ? (
-            <UnifiedWalletButton 
-              buttonClassName="!bg-[#00FFB2] !text-black hover:!bg-[#00FFB2]/90 !transition-all !rounded-lg !font-semibold !px-6"
-              currentUserClassName="!bg-[#00FFB2] !text-black"
+            <WalletMultiButton
+              className="!bg-[#00FFB2] !text-black hover:!bg-[#00FFB2]/90 !transition-all !rounded-lg !font-semibold !px-6 !h-10"
             />
           ) : (
             <div className="h-10 w-32 bg-neutral-800 rounded-lg animate-pulse" />
