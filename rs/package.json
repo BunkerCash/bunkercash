@@ -1,6 +1,8 @@
 {
   "license": "ISC",
   "scripts": {
+    "check:pool": "ts-node -P tsconfig.json scripts/check-pool-balances.ts",
+    "e2e": "ts-node -P tsconfig.json scripts/e2e-buy-sell.ts",
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check"
   },
