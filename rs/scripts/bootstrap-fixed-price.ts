@@ -156,6 +156,27 @@ async function main() {
     const v = Number(process.env.TEST_BUY_USDC);
     if (!Number.isFinite(v) || v <= 0) throw new Error("Invalid TEST_BUY_USDC");
     const usdcAmount = new BN(Math.round(v * 1_000_000));
+
+    // Preflight: ensure wallet has enough devnet USDC in the ATA.
+    const balResp = await provider.connection.getTokenAccountBalance(
+      userUsdcAta,
+      "confirmed"
+    );
+    const bal = new BN(balResp.value.amount);
+    if (bal.lt(usdcAmount)) {
+      const have = Number(bal.toString()) / 1_000_000;
+      const need = Number(usdcAmount.toString()) / 1_000_000;
+      console.error(
+        `Insufficient devnet USDC for test buy. Have ${have} USDC, need ${need} USDC.`
+      );
+      console.error("Fund this wallet on devnet, then re-run:");
+      console.error("  Wallet:", wallet.toBase58());
+      console.error("  USDC mint:", DEVNET_USDC_MINT.toBase58());
+      console.error("  USDC ATA:", userUsdcAta.toBase58());
+      process.exitCode = 1;
+      return;
+    }
+
     const sig = await (program.methods as any)
       .buyPrimary(usdcAmount)
       .accounts({
