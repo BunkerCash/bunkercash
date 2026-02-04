@@ -360,22 +360,25 @@ async function main() {
   const sellUi = process.env.SELL_BNKR ?? "0.1";
   const sellAmount = uiToBaseUnits(sellUi, BNKR_DECIMALS);
 
-  const poolState = await (program.account as any).poolState.fetch(poolPda);
-  const claimCounter: BN = poolState.claimCounter as BN;
-  const nextId = claimCounter.add(new BN(1));
-  const [claimPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("claim"), poolPda.toBuffer(), bnU64LE(nextId)],
-    program.programId
-  );
-
+  // Derive the Claim PDA from the latest on-chain counter.
+  // This avoids failures if we have to retry due to blockhash/RPC hiccups.
+  let claimPda: PublicKey | null = null;
   const sellSig = await rpcWithBlockhashRetry("register_sell", async () => {
+    const poolState = await (program.account as any).poolState.fetch(poolPda);
+    const claimCounter: BN = poolState.claimCounter as BN;
+    const nextId = claimCounter.add(new BN(1));
+    const [pda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("claim"), poolPda.toBuffer(), bnU64LE(nextId)],
+      program.programId
+    );
+    claimPda = pda;
     return await (program.methods as any)
       .registerSell(sellAmount)
       .accounts({
         pool: poolPda,
         poolSigner: poolSignerPda,
         bunkercashMint: bunkercashMintPda,
-        claim: claimPda,
+        claim: pda,
         user: wallet,
         userBunkercash: userBnkrAta,
         escrowBunkercashVault: escrowBnkrVaultAta,
@@ -385,6 +388,7 @@ async function main() {
       .rpc({ commitment: "confirmed" });
   });
   console.log("\nregister_sell tx:", sellSig);
+  if (!claimPda) throw new Error("Claim PDA was not computed.");
   console.log("Claim PDA:", claimPda.toBase58());
 
   await printSnapshot({

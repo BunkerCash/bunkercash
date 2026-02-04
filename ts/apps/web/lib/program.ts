@@ -35,4 +35,12 @@ export function getBunkercashMintPda(programId: PublicKey = PROGRAM_ID): PublicK
   return pda
 }
 
+export function getPoolSignerPda(poolPda: PublicKey, programId: PublicKey = PROGRAM_ID): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [Buffer.from('bunkercash_pool_signer'), poolPda.toBuffer()],
+    programId
+  )
+  return pda
+}
+
 export { PROGRAM_ID }
