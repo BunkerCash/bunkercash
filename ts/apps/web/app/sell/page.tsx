@@ -103,7 +103,7 @@ const SellRegistration = () => {
               <WalletButton />
               {connected && (
                 <div className="text-xs text-muted-foreground">
-                  Connected to Solana Testnet
+                  Connected to Solana Devnet
                 </div>
               )}
             </div>

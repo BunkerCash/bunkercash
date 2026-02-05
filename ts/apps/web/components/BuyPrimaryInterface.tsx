@@ -308,7 +308,7 @@ npx ts-node -P tsconfig.json scripts/bootstrap-fixed-price.ts`}
       </button>
 
       <div className="text-center text-xs text-neutral-600">
-        Pay with USDC (SPL legacy) testnet · Fixed-price primary sale → Bunker Cash
+        Pay with USDC (SPL legacy) devnet · Fixed-price primary sale → Bunker Cash
       </div>
     </div>
   )
