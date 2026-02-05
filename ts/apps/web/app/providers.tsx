@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Provider as JotaiProvider } from "jotai";
 import { SolanaProvider } from "@/providers/SolanaProvider";
 
@@ -8,7 +9,7 @@ function getWalletEnv(): "mainnet-beta" | "devnet" | "testnet" {
   return "testnet";
 }
 
-export function Providers({ children }: { children: React.ReactNode }) {
+export function Providers({ children }: { children: ReactNode }) {
   return (
     <SolanaProvider
       wallets={[]}

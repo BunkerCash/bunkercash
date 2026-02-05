@@ -1,15 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { StatCard } from "@/components/ui/StatCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowDown, Info } from "lucide-react";
+import { FundCard } from "@/components/FundCard";
+import { Info } from "lucide-react";
 
 export default function Home() {
   const [usdcAmount, setUsdcAmount] = useState("");
+  const [showFunds, setShowFunds] = useState(false);
   const marketPrice = 1.24;
+
+  useEffect(() => {
+    setShowFunds(true);
+  }, []);
 
   const estimatedTokens = usdcAmount
     ? (parseFloat(usdcAmount) / marketPrice).toFixed(4)
@@ -55,29 +61,16 @@ export default function Home() {
           >
             <h2 className="text-lg font-semibold mb-6">Purchase Tokens</h2>
 
-            {/* Input Section */}
-            <div className="space-y-4">
-              <div>
-                <label className="stat-label block mb-2">You Pay</label>
-                <div className="relative">
-                  <Input
-                    type="number"
-                    placeholder="0.00"
-                    value={usdcAmount}
-                    onChange={(e: any) => setUsdcAmount(e.target.value)}
-                    className="pr-16 h-14 text-lg bg-transparent"
-                  />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">
-                    USDC
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex justify-center">
-                <div className="p-2 rounded-full bg-muted/50">
-                  <ArrowDown className="h-4 w-4 text-muted-foreground" />
-                </div>
-              </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-7xl mx-auto">
+            <div className={`transition-all duration-700 delay-100 ${showFunds ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+              <FundCard
+                name="bRENT"
+                apy={6}
+                description="Real estate rented out · Buy at fixed price"
+                issuedAmount="$20,000"
+                href="/brent"
+              />
+            </div>
 
               <div>
                 <label className="stat-label block mb-2">
