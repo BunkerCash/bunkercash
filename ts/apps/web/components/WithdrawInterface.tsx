@@ -72,12 +72,12 @@ export function WithdrawInterface() {
 
   const fetchClaims = useCallback(async () => {
     if (!program || !wallet.publicKey) return
-    // ClaimState layout: discriminator(8) + id(u64=8) + user(pubkey=32) ...
-    const userOffset = 8 + 8
-    const all = await (program.account as any).claimState.all([
-      { memcmp: { offset: userOffset, bytes: wallet.publicKey.toBase58() } },
-    ])
-    const normalized = all
+    // ClaimState: fetch all and filter by user (memcmp on pubkey varies by RPC)
+    const all = await (program.account as any).claimState.all()
+    const mine = all.filter(
+      (x: any) => (x.account.user as PublicKey)?.toBase58?.() === wallet.publicKey.toBase58()
+    )
+    const normalized = mine
       .map((x: any) => ({
         pubkey: x.publicKey as PublicKey,
         id: x.account.id?.toString?.() ?? String(x.account.id),
