@@ -1,8 +1,8 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program_option::COption;
+use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token as spl_token;
 use anchor_spl::token::{Mint as SplMint, Token as SplToken, TokenAccount as SplTokenAccount};
-use anchor_spl::token_2022 as token2022;
 use anchor_spl::token_2022::Token2022;
 use anchor_spl::token_interface as token_interface;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
@@ -28,6 +28,21 @@ pub const TOKEN_METADATA_PROGRAM_ID: Pubkey =
 pub const MAX_TOKEN_NAME_LEN: usize = 32;
 pub const MAX_TOKEN_SYMBOL_LEN: usize = 10;
 pub const MAX_TOKEN_URI_LEN: usize = 200;
+
+fn owed_usdc_base_units(price_usdc_per_token: u64, token_amount_locked: u64) -> Result<u64> {
+    // token_amount_locked has BUNKERCASH_DECIMALS decimals.
+    // price_usdc_per_token is USDC base units per 1 whole token.
+    let token_scale: u128 = 10u128
+        .checked_pow(BUNKERCASH_DECIMALS as u32)
+        .ok_or(ErrorCode::MathError)?;
+    let owed_u128 = (token_amount_locked as u128)
+        .checked_mul(price_usdc_per_token as u128)
+        .ok_or(ErrorCode::MathError)?
+        .checked_div(token_scale)
+        .ok_or(ErrorCode::MathError)?;
+    require!(owed_u128 <= u64::MAX as u128, ErrorCode::MathError);
+    Ok(owed_u128 as u64)
+}
 
 #[program]
 pub mod bunkercash {
@@ -62,7 +77,7 @@ pub mod bunkercash {
     }
 
     /// Fixed-price primary buy:
-    /// - transfer `usdc_amount` from user -> pool USDC vault (legacy SPL token)
+    /// - transfer `usdc_amount` from user -> payout USDC vault (legacy SPL token; owned by Pool Signer PDA)
     /// - mint Bunker Cash tokens to user (Token-2022) at fixed price
     pub fn buy_primary(ctx: Context<BuyPrimary>, usdc_amount: u64) -> Result<()> {
         require!(usdc_amount > 0, ErrorCode::InvalidAmount);
@@ -88,13 +103,13 @@ pub mod bunkercash {
         require!(token_amount_u128 <= u64::MAX as u128, ErrorCode::MathError);
         let token_amount: u64 = token_amount_u128 as u64;
 
-        // 1) USDC transfer: user -> pool vault (legacy SPL token program)
+        // 1) USDC transfer: user -> payout vault (legacy SPL token program)
         spl_token::transfer(
             CpiContext::new(
                 ctx.accounts.usdc_token_program.to_account_info(),
                 spl_token::Transfer {
                     from: ctx.accounts.user_usdc.to_account_info(),
-                    to: ctx.accounts.pool_usdc_vault.to_account_info(),
+                    to: ctx.accounts.payout_usdc_vault.to_account_info(),
                     authority: ctx.accounts.user.to_account_info(),
                 },
             ),
@@ -119,6 +134,83 @@ pub mod bunkercash {
         Ok(())
     }
 
+    /// Add USDC liquidity to the protocol payout vault.
+    ///
+    /// - Transfers `usdc_amount` from admin -> payout USDC vault.
+    /// - Vault is an ATA owned by the Pool Signer PDA (deterministic + reusable).
+    pub fn add_liquidity(ctx: Context<AddLiquidity>, usdc_amount: u64) -> Result<()> {
+        require!(usdc_amount > 0, ErrorCode::InvalidAmount);
+        require!(
+            ctx.accounts.admin.key() == ctx.accounts.pool.admin,
+            ErrorCode::Unauthorized
+        );
+
+        spl_token::transfer(
+            CpiContext::new(
+                ctx.accounts.usdc_token_program.to_account_info(),
+                spl_token::Transfer {
+                    from: ctx.accounts.admin_usdc.to_account_info(),
+                    to: ctx.accounts.payout_usdc_vault.to_account_info(),
+                    authority: ctx.accounts.admin.to_account_info(),
+                },
+            ),
+            usdc_amount,
+        )?;
+
+        Ok(())
+    }
+
+    /// Process a claim payout from the protocol payout vault.
+    ///
+    /// - Transfers `usdc_amount` from payout vault -> user's USDC ATA.
+    /// - Only the admin can process payouts.
+    /// - Updates `ClaimState.usdc_paid` and closes the claim once fully paid.
+    pub fn process_claims(ctx: Context<ProcessClaims>, usdc_amount: u64) -> Result<()> {
+        require!(usdc_amount > 0, ErrorCode::InvalidAmount);
+        require!(
+            ctx.accounts.admin.key() == ctx.accounts.pool.admin,
+            ErrorCode::Unauthorized
+        );
+
+        let claim = &mut ctx.accounts.claim;
+        require!(!claim.is_closed, ErrorCode::ClaimClosed);
+        require_keys_eq!(claim.user, ctx.accounts.user.key(), ErrorCode::InvalidClaimUser);
+
+        let owed_total = owed_usdc_base_units(ctx.accounts.pool.price_usdc_per_token, claim.token_amount_locked)?;
+        let remaining = owed_total
+            .checked_sub(claim.usdc_paid)
+            .ok_or(ErrorCode::MathError)?;
+        require!(usdc_amount <= remaining, ErrorCode::InvalidAmount);
+
+        // Transfer from the program-owned payout vault (authority = pool signer PDA).
+        let pool_key = ctx.accounts.pool.key();
+        let signer_seeds: &[&[u8]] = &[
+            POOL_SIGNER_SEED,
+            pool_key.as_ref(),
+            &[ctx.bumps.pool_signer],
+        ];
+
+        spl_token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.usdc_token_program.to_account_info(),
+                spl_token::Transfer {
+                    from: ctx.accounts.payout_usdc_vault.to_account_info(),
+                    to: ctx.accounts.user_usdc.to_account_info(),
+                    authority: ctx.accounts.pool_signer.to_account_info(),
+                },
+                &[signer_seeds],
+            ),
+            usdc_amount,
+        )?;
+
+        claim.usdc_paid = claim.usdc_paid.checked_add(usdc_amount).ok_or(ErrorCode::MathError)?;
+        if claim.usdc_paid >= owed_total {
+            claim.is_closed = true;
+        }
+
+        Ok(())
+    }
+
     /// Irreversible sell registration:
     /// - transfer `token_amount` of Bunker Cash from the user into a program-owned escrow vault (Token-2022)
     /// - create a ClaimState record
@@ -134,10 +226,10 @@ pub mod bunkercash {
         );
 
         // 1) Lock user's Bunker Cash tokens into the escrow vault (Token-2022).
-        token2022::transfer_checked(
+        token_interface::transfer_checked(
             CpiContext::new(
                 ctx.accounts.token_program.to_account_info(),
-                token2022::TransferChecked {
+                token_interface::TransferChecked {
                     from: ctx.accounts.user_bunkercash.to_account_info(),
                     to: ctx.accounts.escrow_bunkercash_vault.to_account_info(),
                     authority: ctx.accounts.user.to_account_info(),
@@ -300,6 +392,14 @@ pub struct BuyPrimary<'info> {
     )]
     pub pool: Account<'info, PoolState>,
 
+    /// PDA that owns all program vault ATAs (escrow + payout).
+    /// CHECK: PDA is derived and used only as a vault owner/authority.
+    #[account(
+        seeds = [POOL_SIGNER_SEED, pool.key().as_ref()],
+        bump
+    )]
+    pub pool_signer: UncheckedAccount<'info>,
+
     #[account(
         mut,
         seeds = [BUNKERCASH_MINT_SEED],
@@ -321,11 +421,13 @@ pub struct BuyPrimary<'info> {
     pub user_usdc: Account<'info, SplTokenAccount>,
 
     #[account(
-        mut,
-        constraint = pool_usdc_vault.owner == pool.key() @ ErrorCode::InvalidTokenAccountOwner,
-        constraint = pool_usdc_vault.mint == usdc_mint.key() @ ErrorCode::InvalidMint
+        init_if_needed,
+        payer = user,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = pool_signer,
+        associated_token::token_program = usdc_token_program
     )]
-    pub pool_usdc_vault: Account<'info, SplTokenAccount>,
+    pub payout_usdc_vault: Account<'info, SplTokenAccount>,
 
     #[account(
         mut,
@@ -337,6 +439,96 @@ pub struct BuyPrimary<'info> {
     pub usdc_token_program: Program<'info, SplToken>,
     /// Token program for Bunker Cash mint (Token-2022).
     pub token_program: Interface<'info, TokenInterface>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct AddLiquidity<'info> {
+    #[account(
+        seeds = [POOL_SEED],
+        bump = pool.bump
+    )]
+    pub pool: Account<'info, PoolState>,
+
+    /// PDA that owns all program vault ATAs (escrow + payout).
+    /// CHECK: PDA is derived and used only as a vault owner/authority.
+    #[account(
+        seeds = [POOL_SIGNER_SEED, pool.key().as_ref()],
+        bump
+    )]
+    pub pool_signer: UncheckedAccount<'info>,
+
+    pub usdc_mint: Account<'info, SplMint>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    #[account(
+        mut,
+        constraint = admin_usdc.owner == admin.key() @ ErrorCode::InvalidTokenAccountOwner,
+        constraint = admin_usdc.mint == usdc_mint.key() @ ErrorCode::InvalidMint
+    )]
+    pub admin_usdc: Account<'info, SplTokenAccount>,
+
+    #[account(
+        init_if_needed,
+        payer = admin,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = pool_signer,
+        associated_token::token_program = usdc_token_program
+    )]
+    pub payout_usdc_vault: Account<'info, SplTokenAccount>,
+
+    pub usdc_token_program: Program<'info, SplToken>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct ProcessClaims<'info> {
+    #[account(
+        seeds = [POOL_SEED],
+        bump = pool.bump
+    )]
+    pub pool: Account<'info, PoolState>,
+
+    /// PDA that owns all program vault ATAs (escrow + payout).
+    /// CHECK: PDA is derived and used only as a vault owner/authority.
+    #[account(
+        seeds = [POOL_SIGNER_SEED, pool.key().as_ref()],
+        bump
+    )]
+    pub pool_signer: UncheckedAccount<'info>,
+
+    pub usdc_mint: Account<'info, SplMint>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    #[account(
+        mut,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = pool_signer,
+        associated_token::token_program = usdc_token_program
+    )]
+    pub payout_usdc_vault: Account<'info, SplTokenAccount>,
+
+    /// The claim to pay (must belong to `user`).
+    #[account(mut)]
+    pub claim: Account<'info, ClaimState>,
+
+    /// The claim owner (destination authority for `user_usdc`).
+    pub user: UncheckedAccount<'info>,
+
+    #[account(
+        mut,
+        constraint = user_usdc.owner == user.key() @ ErrorCode::InvalidTokenAccountOwner,
+        constraint = user_usdc.mint == usdc_mint.key() @ ErrorCode::InvalidMint
+    )]
+    pub user_usdc: Account<'info, SplTokenAccount>,
+
+    pub usdc_token_program: Program<'info, SplToken>,
 }
 
 #[derive(Accounts)]
@@ -348,7 +540,7 @@ pub struct RegisterSell<'info> {
     )]
     pub pool: Account<'info, PoolState>,
 
-    /// PDA used to own escrow vault(s).
+    /// PDA that owns all program vault ATAs (escrow + payout).
     /// CHECK: PDA is derived and used only as a vault owner.
     #[account(
         seeds = [POOL_SIGNER_SEED, pool.key().as_ref()],
@@ -384,14 +576,17 @@ pub struct RegisterSell<'info> {
     pub user_bunkercash: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
-        mut,
-        constraint = escrow_bunkercash_vault.owner == pool_signer.key() @ ErrorCode::InvalidTokenAccountOwner,
-        constraint = escrow_bunkercash_vault.mint == bunkercash_mint.key() @ ErrorCode::InvalidMint
+        init_if_needed,
+        payer = user,
+        associated_token::mint = bunkercash_mint,
+        associated_token::authority = pool_signer,
+        associated_token::token_program = token_program
     )]
     pub escrow_bunkercash_vault: InterfaceAccount<'info, TokenAccount>,
 
-    /// Token-2022 program.
-    pub token_program: Program<'info, Token2022>,
+    /// Token program for the Bunker Cash mint (Token-2022).
+    pub token_program: Interface<'info, TokenInterface>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }
 
@@ -477,5 +672,9 @@ pub enum ErrorCode {
     InvalidMetadataProgram,
     #[msg("Invalid token metadata PDA")]
     InvalidMetadataPda,
+    #[msg("Claim is already closed")]
+    ClaimClosed,
+    #[msg("Claim user does not match provided user")]
+    InvalidClaimUser,
 }
 

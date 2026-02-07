@@ -151,7 +151,7 @@ async function printSnapshot(params: {
   poolSignerPda: PublicKey;
   usdcMint: PublicKey;
   userUsdcAta: PublicKey;
-  poolUsdcVaultAta: PublicKey;
+  payoutUsdcVaultAta: PublicKey;
   userBnkrAta: PublicKey;
   escrowBnkrVaultAta: PublicKey;
 }) {
@@ -163,7 +163,7 @@ async function printSnapshot(params: {
     poolSignerPda,
     usdcMint,
     userUsdcAta,
-    poolUsdcVaultAta,
+    payoutUsdcVaultAta,
     userBnkrAta,
     escrowBnkrVaultAta,
   } = params;
@@ -189,7 +189,7 @@ async function printSnapshot(params: {
   }
 
   const uUsdc = await tokenBalRaw(provider, userUsdcAta);
-  const pUsdc = await tokenBalRaw(provider, poolUsdcVaultAta);
+  const pUsdc = await tokenBalRaw(provider, payoutUsdcVaultAta);
   const uBnkr = await tokenBalRaw(provider, userBnkrAta);
   const eBnkr = await tokenBalRaw(provider, escrowBnkrVaultAta);
 
@@ -199,9 +199,9 @@ async function printSnapshot(params: {
     "acct=" + userUsdcAta.toBase58()
   );
   console.log(
-    "Pool USDC vault (legacy):",
+    "Payout USDC vault (legacy, Pool Signer ATA):",
     pUsdc ? `${formatUnits(pUsdc, USDC_DECIMALS)} (${pUsdc.toString()} raw)` : "(missing)",
-    "acct=" + poolUsdcVaultAta.toBase58()
+    "acct=" + payoutUsdcVaultAta.toBase58()
   );
   console.log(
     "User BNKR (Token-2022):",
@@ -272,11 +272,11 @@ async function main() {
     allowOwnerOffCurve: false,
     tokenProgram: TOKEN_PROGRAM_ID,
   });
-  const poolUsdcVaultAta = await ensureAta({
+  const payoutUsdcVaultAta = await ensureAta({
     provider,
     payer,
     mint: usdcMint,
-    owner: poolPda,
+    owner: poolSignerPda,
     allowOwnerOffCurve: true,
     tokenProgram: TOKEN_PROGRAM_ID,
   });
@@ -305,7 +305,7 @@ async function main() {
     poolSignerPda,
     usdcMint,
     userUsdcAta,
-    poolUsdcVaultAta,
+    payoutUsdcVaultAta,
     userBnkrAta,
     escrowBnkrVaultAta,
   });
@@ -330,14 +330,17 @@ async function main() {
       .buyPrimary(buyAmount)
       .accounts({
         pool: poolPda,
+        poolSigner: poolSignerPda,
         bunkercashMint: bunkercashMintPda,
         user: wallet,
         usdcMint,
         userUsdc: userUsdcAta,
-        poolUsdcVault: poolUsdcVaultAta,
+        payoutUsdcVault: payoutUsdcVaultAta,
         userBunkercash: userBnkrAta,
         usdcTokenProgram: TOKEN_PROGRAM_ID,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
       })
       .rpc({ commitment: "confirmed" });
   });
@@ -351,7 +354,7 @@ async function main() {
     poolSignerPda,
     usdcMint,
     userUsdcAta,
-    poolUsdcVaultAta,
+    payoutUsdcVaultAta,
     userBnkrAta,
     escrowBnkrVaultAta,
   });
@@ -383,6 +386,7 @@ async function main() {
         userBunkercash: userBnkrAta,
         escrowBunkercashVault: escrowBnkrVaultAta,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
       .rpc({ commitment: "confirmed" });
@@ -399,7 +403,7 @@ async function main() {
     poolSignerPda,
     usdcMint,
     userUsdcAta,
-    poolUsdcVaultAta,
+    payoutUsdcVaultAta,
     userBnkrAta,
     escrowBnkrVaultAta,
   });

@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
-import { PublicKey, Transaction } from '@solana/web3.js'
+import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js'
 import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
-import { getBunkercashMintPda, getPoolPda, getProgram, PROGRAM_ID } from '@/lib/program'
+import { getBunkercashMintPda, getPoolPda, getPoolSignerPda, getProgram, PROGRAM_ID } from '@/lib/program'
 import { ArrowDown } from 'lucide-react'
 import { BN } from '@coral-xyz/anchor'
 
@@ -36,6 +36,7 @@ export function BuyPrimaryInterface() {
   const program = useMemo(() => (wallet.publicKey ? getProgram(connection, wallet) : null), [connection, wallet])
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), [])
   const bunkercashMintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), [])
+  const poolSignerPda = useMemo(() => getPoolSignerPda(poolPda, PROGRAM_ID), [poolPda])
   const usdcMint = useMemo(
     () => new PublicKey(process.env.NEXT_PUBLIC_USDC_MINT ?? DEFAULT_DEVNET_USDC_MINT),
     []
@@ -99,9 +100,9 @@ export function BuyPrimaryInterface() {
         TOKEN_PROGRAM_ID,
         ASSOCIATED_TOKEN_PROGRAM_ID
       )
-      const poolUsdcVault = getAssociatedTokenAddressSync(
+      const payoutUsdcVault = getAssociatedTokenAddressSync(
         usdcMint,
-        poolPda,
+        poolSignerPda,
         true,
         TOKEN_PROGRAM_ID,
         ASSOCIATED_TOKEN_PROGRAM_ID
@@ -114,15 +115,6 @@ export function BuyPrimaryInterface() {
         ASSOCIATED_TOKEN_PROGRAM_ID
       )
 
-      // Ensure pool's USDC vault exists (program expects it initialized).
-      const createPoolUsdcVaultIx = createAssociatedTokenAccountIdempotentInstruction(
-        wallet.publicKey,
-        poolUsdcVault,
-        poolPda,
-        usdcMint,
-        TOKEN_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      )
       // Ensure user ATAs exist: USDC (SPL legacy) for payment, Bunker Cash (Token-2022) for receipt.
       const createUserUsdcAtaIx = createAssociatedTokenAccountIdempotentInstruction(
         wallet.publicKey,
@@ -141,21 +133,25 @@ export function BuyPrimaryInterface() {
         ASSOCIATED_TOKEN_PROGRAM_ID
       )
 
-      const buyPrimaryIx = await (program.methods as unknown as { buyPrimary: (amount: BN) => { accounts: (acc: Record<string, PublicKey>) => { instruction: () => Promise<{ keys: unknown[]; data: Buffer }> } } }).buyPrimary(new BN(usdcAmountRaw.toString()))
+      const buyPrimaryIx = await (program.methods as any)
+        .buyPrimary(new BN(usdcAmountRaw.toString()))
         .accounts({
           pool: poolPda,
+          poolSigner: poolSignerPda,
           bunkercashMint: bunkercashMintPda,
           user: wallet.publicKey,
           usdcMint,
           userUsdc,
-          poolUsdcVault,
+          payoutUsdcVault,
           userBunkercash,
           usdcTokenProgram: TOKEN_PROGRAM_ID,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
         })
         .instruction()
 
-      const tx = new Transaction().add(createPoolUsdcVaultIx, createUserUsdcAtaIx, createUserBunkercashAtaIx, buyPrimaryIx)
+      const tx = new Transaction().add(createUserUsdcAtaIx, createUserBunkercashAtaIx, buyPrimaryIx)
       const sig = await (program.provider as { sendAndConfirm: (tx: Transaction) => Promise<string> }).sendAndConfirm(tx)
 
       setTxSig(sig)

@@ -32,6 +32,7 @@ const idlJson = require("../../ts/apps/web/lib/bunkercash.fixed.idl.json") as {
 const PROGRAM_ID = new PublicKey(idlJson.address);
 const POOL_SEED = "bunkercash_pool";
 const MINT_SEED = "bunkercash_mint";
+const POOL_SIGNER_SEED = "bunkercash_pool_signer";
 
 const DEVNET_USDC_MINT = new PublicKey(
   process.env.USDC_MINT ?? "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
@@ -94,8 +95,13 @@ async function main() {
     [Buffer.from(MINT_SEED)],
     program.programId
   );
+  const [poolSignerPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from(POOL_SIGNER_SEED), poolPda.toBuffer()],
+    program.programId
+  );
 
   console.log("Pool PDA:", poolPda.toBase58());
+  console.log("Pool signer PDA:", poolSignerPda.toBase58());
   console.log("Bunker Cash mint PDA:", bunkercashMintPda.toBase58());
   console.log("USDC mint:", DEVNET_USDC_MINT.toBase58());
 
@@ -129,11 +135,11 @@ async function main() {
     tokenProgram: TOKEN_PROGRAM_ID,
   });
 
-  const poolUsdcVaultAta = await ensureAta({
+  const payoutUsdcVaultAta = await ensureAta({
     provider,
     payer,
     mint: DEVNET_USDC_MINT,
-    owner: poolPda,
+    owner: poolSignerPda,
     allowOwnerOffCurve: true,
     tokenProgram: TOKEN_PROGRAM_ID,
   });
@@ -148,7 +154,7 @@ async function main() {
   });
 
   console.log("User USDC ATA:", userUsdcAta.toBase58());
-  console.log("Pool USDC vault ATA:", poolUsdcVaultAta.toBase58());
+  console.log("Payout USDC vault ATA (Pool Signer):", payoutUsdcVaultAta.toBase58());
   console.log("User Bunker Cash ATA:", userBunkercashAta.toBase58());
 
   // Optional test buy (set TEST_BUY_USDC=2.5 to buy 2.5 USDC worth).
@@ -181,14 +187,17 @@ async function main() {
       .buyPrimary(usdcAmount)
       .accounts({
         pool: poolPda,
+        poolSigner: poolSignerPda,
         bunkercashMint: bunkercashMintPda,
         user: wallet,
         usdcMint: DEVNET_USDC_MINT,
         userUsdc: userUsdcAta,
-        poolUsdcVault: poolUsdcVaultAta,
+        payoutUsdcVault: payoutUsdcVaultAta,
         userBunkercash: userBunkercashAta,
         usdcTokenProgram: TOKEN_PROGRAM_ID,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
       })
       .rpc({ commitment: "confirmed" });
 
