@@ -4,76 +4,26 @@
     "name": "bunkercash",
     "version": "0.1.0",
     "spec": "0.1.0",
-    "description": "Fixed-price primary buy + fixed-price redemption"
+    "description": "Created with Anchor"
   },
   "instructions": [
-    {
-      "name": "initialize",
-      "docs": ["Initializes the protocol state and creates the Bunker Cash mint."],
-      "discriminator": [175, 175, 109, 31, 13, 152, 155, 237],
-      "accounts": [
-        {
-          "name": "pool",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [98, 117, 110, 107, 101, 114, 99, 97, 115, 104, 95, 112, 111, 111, 108]
-              }
-            ]
-          }
-        },
-        {
-          "name": "bunkercash_mint",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [98, 117, 110, 107, 101, 114, 99, 97, 115, 104, 95, 109, 105, 110, 116]
-              }
-            ]
-          }
-        },
-        { "name": "payer", "writable": true, "signer": true },
-        { "name": "token_program" },
-        { "name": "system_program", "address": "11111111111111111111111111111111" }
-      ],
-      "args": [
-        { "name": "admin", "type": "pubkey" },
-        { "name": "price_usdc_per_token", "type": "u64" }
-      ]
-    },
-    {
-      "name": "update_price",
-      "docs": ["Updates the fixed price (USDC base units per 1 whole token)."],
-      "discriminator": [61, 34, 117, 155, 75, 34, 123, 208],
-      "accounts": [
-        {
-          "name": "pool",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [98, 117, 110, 107, 101, 114, 99, 97, 115, 104, 95, 112, 111, 111, 108]
-              }
-            ]
-          }
-        },
-        { "name": "admin", "signer": true }
-      ],
-      "args": [{ "name": "new_price_usdc_per_token", "type": "u64" }]
-    },
     {
       "name": "buy_primary",
       "docs": [
         "Fixed-price primary buy:",
-        "- transfer USDC from user -> pool USDC vault",
-        "- mint Bunker Cash tokens to user at fixed price"
+        "- transfer `usdc_amount` from user -> pool USDC vault (legacy SPL token)",
+        "- mint Bunker Cash tokens to user (Token-2022) at fixed price"
       ],
-      "discriminator": [89, 86, 227, 49, 41, 118, 66, 248],
+      "discriminator": [
+        89,
+        86,
+        227,
+        49,
+        41,
+        118,
+        66,
+        248
+      ],
       "accounts": [
         {
           "name": "pool",
@@ -82,7 +32,23 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [98, 117, 110, 107, 101, 114, 99, 97, 115, 104, 95, 112, 111, 111, 108]
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
               }
             ]
           }
@@ -94,30 +60,185 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [98, 117, 110, 107, 101, 114, 99, 97, 115, 104, 95, 109, 105, 110, 116]
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
               }
             ]
           }
         },
-        { "name": "user", "writable": true, "signer": true },
-        { "name": "usdc_mint" },
-        { "name": "user_usdc", "writable": true },
-        { "name": "pool_usdc_vault", "writable": true },
-        { "name": "user_bunkercash", "writable": true },
-        { "name": "usdc_token_program", "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" },
-        { "name": "token_program" }
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "user_usdc",
+          "writable": true
+        },
+        {
+          "name": "pool_usdc_vault",
+          "writable": true
+        },
+        {
+          "name": "user_bunkercash",
+          "writable": true
+        },
+        {
+          "name": "usdc_token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "Token program for Bunker Cash mint (Token-2022)."
+          ]
+        }
       ],
-      "args": [{ "name": "usdc_amount", "type": "u64" }]
+      "args": [
+        {
+          "name": "usdc_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "initialize",
+      "docs": [
+        "Initializes the protocol state and creates the Bunker Cash mint.",
+        "All mint/redeem operations use a strict fixed price (`price_usdc_per_token`)."
+      ],
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "bunkercash_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "Token program for Bunker Cash mint (Token-2022)."
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "admin",
+          "type": "pubkey"
+        },
+        {
+          "name": "price_usdc_per_token",
+          "type": "u64"
+        }
+      ]
     },
     {
       "name": "register_sell",
       "docs": [
-        "Fixed-price redemption:",
-        "- burn user tokens",
-        "- transfer owed USDC from pool vault -> user",
-        "- record claim and increment claim_counter"
+        "Irreversible sell registration:",
+        "- transfer `token_amount` of Bunker Cash from the user into a program-owned escrow vault (Token-2022)",
+        "- create a ClaimState record",
+        "- increment `claim_counter`",
+        "",
+        "IMPORTANT: No burn is allowed in this flow."
       ],
-      "discriminator": [220, 250, 100, 136, 104, 188, 72, 230],
+      "discriminator": [
+        220,
+        250,
+        100,
+        136,
+        104,
+        188,
+        72,
+        230
+      ],
       "accounts": [
         {
           "name": "pool",
@@ -126,7 +247,64 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [98, 117, 110, 107, 101, 114, 99, 97, 115, 104, 95, 112, 111, 111, 108]
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_signer",
+          "docs": [
+            "PDA used to own escrow vault(s)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  115,
+                  105,
+                  103,
+                  110,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
               }
             ]
           }
@@ -138,78 +316,248 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [98, 117, 110, 107, 101, 114, 99, 97, 115, 104, 95, 109, 105, 110, 116]
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
               }
             ]
           }
         },
         {
           "name": "claim",
+          "writable": true
+        },
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "user_bunkercash",
+          "writable": true
+        },
+        {
+          "name": "escrow_bunkercash_vault",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "Token-2022 program."
+          ],
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "token_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "update_price",
+      "docs": [
+        "Updates the fixed price (USDC base units per 1 whole token)."
+      ],
+      "discriminator": [
+        61,
+        34,
+        117,
+        155,
+        75,
+        34,
+        123,
+        208
+      ],
+      "accounts": [
+        {
+          "name": "pool",
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [99, 108, 97, 105, 109] },
-              { "kind": "account", "path": "pool", "account": "PoolState" },
-              { "kind": "account", "path": "pool.claim_counter", "account": "PoolState" }
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
             ]
           }
         },
-        { "name": "user", "writable": true, "signer": true },
-        { "name": "usdc_mint" },
-        { "name": "user_usdc", "writable": true },
-        { "name": "pool_usdc_vault", "writable": true },
-        { "name": "user_bunkercash", "writable": true },
-        { "name": "usdc_token_program", "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" },
-        { "name": "token_program" },
-        { "name": "system_program", "address": "11111111111111111111111111111111" }
+        {
+          "name": "admin",
+          "signer": true
+        }
       ],
-      "args": [{ "name": "token_amount", "type": "u64" }]
+      "args": [
+        {
+          "name": "new_price_usdc_per_token",
+          "type": "u64"
+        }
+      ]
     }
   ],
   "accounts": [
     {
-      "name": "PoolState",
-      "discriminator": [247, 237, 227, 245, 215, 195, 222, 70]
+      "name": "ClaimState",
+      "discriminator": [
+        71,
+        73,
+        19,
+        83,
+        53,
+        228,
+        242,
+        53
+      ]
     },
     {
-      "name": "Claim",
-      "discriminator": [155, 70, 22, 176, 123, 215, 246, 102]
+      "name": "PoolState",
+      "discriminator": [
+        247,
+        237,
+        227,
+        245,
+        215,
+        195,
+        222,
+        70
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidAmount",
+      "msg": "Invalid amount"
+    },
+    {
+      "code": 6001,
+      "name": "Unauthorized",
+      "msg": "Unauthorized"
+    },
+    {
+      "code": 6002,
+      "name": "MathError",
+      "msg": "Math error"
+    },
+    {
+      "code": 6003,
+      "name": "InsufficientVaultFunds",
+      "msg": "Insufficient USDC in vault"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidTokenAccountOwner",
+      "msg": "Invalid token account owner"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidMint",
+      "msg": "Invalid mint"
+    },
+    {
+      "code": 6006,
+      "name": "InvalidMintAuthority",
+      "msg": "Invalid mint authority"
     }
   ],
   "types": [
     {
-      "name": "PoolState",
+      "name": "ClaimState",
       "type": {
         "kind": "struct",
         "fields": [
-          { "name": "admin", "type": "pubkey" },
-          { "name": "price_usdc_per_token", "type": "u64" },
-          { "name": "claim_counter", "type": "u64" },
-          { "name": "bump", "type": "u8" }
+          {
+            "name": "id",
+            "type": "u64"
+          },
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_amount_locked",
+            "type": "u64"
+          },
+          {
+            "name": "usdc_paid",
+            "type": "u64"
+          },
+          {
+            "name": "is_closed",
+            "type": "bool"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
         ]
       }
     },
     {
-      "name": "Claim",
+      "name": "PoolState",
       "type": {
         "kind": "struct",
         "fields": [
-          { "name": "user", "type": "pubkey" },
-          { "name": "token_amount", "type": "u64" },
-          { "name": "usdc_amount", "type": "u64" },
-          { "name": "bump", "type": "u8" }
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "price_usdc_per_token",
+            "docs": [
+              "USDC base units per 1 whole token."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "claim_counter",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
         ]
       }
     }
-  ],
-  "errors": [
-    { "code": 6000, "name": "InvalidAmount", "msg": "Invalid amount" },
-    { "code": 6001, "name": "Unauthorized", "msg": "Unauthorized" },
-    { "code": 6002, "name": "MathError", "msg": "Math error" },
-    { "code": 6003, "name": "InsufficientVaultFunds", "msg": "Insufficient USDC in vault" },
-    { "code": 6004, "name": "InvalidTokenAccountOwner", "msg": "Invalid token account owner" },
-    { "code": 6005, "name": "InvalidMint", "msg": "Invalid mint" },
-    { "code": 6006, "name": "InvalidMintAuthority", "msg": "Invalid mint authority" }
   ]
 }
-

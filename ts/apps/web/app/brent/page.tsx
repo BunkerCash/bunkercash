@@ -52,7 +52,7 @@ export default function BrentPage() {
                       : 'text-neutral-500 hover:text-white border-transparent'
                   }`}
                 >
-                  Withdraw
+                  Sell
                 </button>
                 <button
                   onClick={() => setActiveTab('transactions')}
@@ -73,7 +73,12 @@ export default function BrentPage() {
                     <BuyPrimaryInterface />
                   </>
                 )}
-                {activeTab === 'withdraw' && <WithdrawInterface />}
+                {activeTab === 'withdraw' && (
+                  <>
+                    <h3 className="mb-6 text-lg font-semibold text-[#00FFB2]">Register sell (escrow lock)</h3>
+                    <WithdrawInterface />
+                  </>
+                )}
                 {activeTab === 'transactions' && <PoolTransactions />}
               </div>
             </div>
