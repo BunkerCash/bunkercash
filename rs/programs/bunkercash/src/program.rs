@@ -7,6 +7,7 @@ use anchor_spl::token_2022::Token2022;
 use anchor_spl::token_interface as token_interface;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 use mpl_token_metadata::types::TokenStandard;
+use std::io::Cursor;
 
 // NOTE: This must match the deployed program id (and `target/deploy/bunkercash-keypair.json`).
 declare_id!("66XoVW5tAkopvLUCQ38jbQdysFVFS84VajaNRU7MRNu8");
@@ -162,25 +163,83 @@ pub mod bunkercash {
 
     /// Process a claim payout from the protocol payout vault.
     ///
-    /// - Transfers `usdc_amount` from payout vault -> user's USDC ATA.
+    /// - Distributes the payout vault's available USDC pro-rata across open claims.
     /// - Only the admin can process payouts.
-    /// - Updates `ClaimState.usdc_paid` and closes the claim once fully paid.
-    pub fn process_claims(ctx: Context<ProcessClaims>, usdc_amount: u64) -> Result<()> {
-        require!(usdc_amount > 0, ErrorCode::InvalidAmount);
+    /// - Updates `ClaimState.usdc_paid`. Partial payouts are allowed.
+    ///
+    /// Remaining accounts (passed by the admin) must include:
+    /// - all `claim` accounts to be processed (writable ClaimState accounts, owned by this program)
+    /// - each unique `user_usdc` token account once (writable SPL token accounts, mint = payout_usdc_vault.mint)
+    ///
+    /// The program matches each claim to a `user_usdc` account by verifying:
+    /// - token_account.owner == claim.user
+    /// - token_account.mint == payout_usdc_vault.mint
+    ///
+    /// Note: To treat *all* open claims equally, the admin should pass *all* open claims
+    /// in a single transaction (subject to tx size/compute constraints).
+    pub fn process_claims<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ProcessClaims<'info>>,
+    ) -> Result<()> {
         require!(
             ctx.accounts.admin.key() == ctx.accounts.pool.admin,
             ErrorCode::Unauthorized
         );
 
-        let claim = &mut ctx.accounts.claim;
-        require!(!claim.is_closed, ErrorCode::ClaimClosed);
-        require_keys_eq!(claim.user, ctx.accounts.user.key(), ErrorCode::InvalidClaimUser);
+        let remaining_len = ctx.remaining_accounts.len();
+        require!(remaining_len > 0, ErrorCode::InvalidRemainingAccounts);
 
-        let owed_total = owed_usdc_base_units(ctx.accounts.pool.price_usdc_per_token, claim.token_amount_locked)?;
-        let remaining = owed_total
-            .checked_sub(claim.usdc_paid)
-            .ok_or(ErrorCode::MathError)?;
-        require!(usdc_amount <= remaining, ErrorCode::InvalidAmount);
+        // Split remaining accounts into:
+        // - claim accounts (owned by this program)
+        // - user USDC token accounts (owned by the SPL token program)
+        let mut claim_idxs: Vec<usize> = Vec::new();
+        let mut user_usdc_idxs: Vec<usize> = Vec::new();
+        let token_program_id = ctx.accounts.usdc_token_program.key();
+        let usdc_mint_key = ctx.accounts.payout_usdc_vault.mint;
+        for (idx, ai) in ctx.remaining_accounts.iter().enumerate() {
+            if ai.owner == &crate::ID {
+                claim_idxs.push(idx);
+            } else if ai.owner == &token_program_id {
+                user_usdc_idxs.push(idx);
+            }
+        }
+        require!(!claim_idxs.is_empty(), ErrorCode::InvalidRemainingAccounts);
+        require!(!user_usdc_idxs.is_empty(), ErrorCode::InvalidRemainingAccounts);
+
+        // Build a mapping: user pubkey -> user_usdc account index.
+        // (We only need one USDC token account per user; payouts are aggregated by user.)
+        let mut user_usdc_map: Vec<(Pubkey, usize)> = Vec::new();
+        for idx in user_usdc_idxs.iter().copied() {
+            let ai = &ctx.remaining_accounts[idx];
+            require!(ai.is_writable, ErrorCode::UserUsdcNotWritable);
+            let ta: Account<SplTokenAccount> = Account::try_from(ai)?;
+            require_keys_eq!(ta.mint, usdc_mint_key, ErrorCode::InvalidMint);
+            if user_usdc_map.iter().all(|(u, _)| *u != ta.owner) {
+                user_usdc_map.push((ta.owner, idx));
+            }
+        }
+
+        // 1) Read total locked tokens across open claims (first pass).
+        let mut total_locked: u128 = 0;
+        for idx in claim_idxs.iter().copied() {
+            let claim_ai = &ctx.remaining_accounts[idx];
+            require_keys_eq!(*claim_ai.owner, crate::ID, ErrorCode::InvalidClaimAccount);
+            let claim: ClaimState = ClaimState::try_deserialize(&mut &claim_ai.data.borrow()[..])?;
+            if claim.is_closed {
+                continue;
+            }
+            total_locked = total_locked
+                .checked_add(claim.token_amount_locked as u128)
+                .ok_or(ErrorCode::MathError)?;
+        }
+
+        let available_usdc: u64 = ctx.accounts.payout_usdc_vault.amount;
+        if total_locked == 0 || available_usdc == 0 {
+            return Ok(());
+        }
+
+        // 2) Distribute pro-rata: payout_i = floor(available_usdc * locked_i / total_locked)
+        // This guarantees total payouts <= available_usdc (any remainder stays in the vault).
+        let available_usdc_u128: u128 = available_usdc as u128;
 
         // Transfer from the program-owned payout vault (authority = pool signer PDA).
         let pool_key = ctx.accounts.pool.key();
@@ -190,22 +249,91 @@ pub mod bunkercash {
             &[ctx.bumps.pool_signer],
         ];
 
-        spl_token::transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.usdc_token_program.to_account_info(),
-                spl_token::Transfer {
-                    from: ctx.accounts.payout_usdc_vault.to_account_info(),
-                    to: ctx.accounts.user_usdc.to_account_info(),
-                    authority: ctx.accounts.pool_signer.to_account_info(),
-                },
-                &[signer_seeds],
-            ),
-            usdc_amount,
-        )?;
+        // Aggregate transfers by user to reduce compute:
+        // - still updates each claim's `usdc_paid` pro-rata
+        // - performs at most 1 SPL transfer per unique user
+        let mut recipients: Vec<(Pubkey, u64)> = Vec::new(); // (user, amount)
 
-        claim.usdc_paid = claim.usdc_paid.checked_add(usdc_amount).ok_or(ErrorCode::MathError)?;
-        if claim.usdc_paid >= owed_total {
-            claim.is_closed = true;
+        for claim_idx in claim_idxs.iter().copied() {
+            let claim_ai = &ctx.remaining_accounts[claim_idx];
+
+            require!(claim_ai.is_writable, ErrorCode::InvalidClaimAccount);
+            require_keys_eq!(*claim_ai.owner, crate::ID, ErrorCode::InvalidClaimAccount);
+            let mut claim: ClaimState =
+                ClaimState::try_deserialize(&mut &claim_ai.data.borrow()[..])?;
+            if claim.is_closed {
+                continue;
+            }
+
+            let payout_u128 = available_usdc_u128
+                .checked_mul(claim.token_amount_locked as u128)
+                .ok_or(ErrorCode::MathError)?
+                .checked_div(total_locked)
+                .ok_or(ErrorCode::MathError)?;
+
+            if payout_u128 == 0 {
+                continue;
+            }
+            require!(payout_u128 <= u64::MAX as u128, ErrorCode::MathError);
+            let payout: u64 = payout_u128 as u64;
+
+            claim.usdc_paid = claim.usdc_paid.checked_add(payout).ok_or(ErrorCode::MathError)?;
+
+            // IMPORTANT: claim accounts are passed via `remaining_accounts`, so Anchor will NOT
+            // automatically persist changes. We must write the account data back manually.
+            let mut data = claim_ai.try_borrow_mut_data()?;
+            let mut cursor = Cursor::new(&mut data[..]);
+            claim.try_serialize(&mut cursor)?;
+
+            if payout > 0 {
+                if let Some(pos) = recipients.iter().position(|(u, _)| *u == claim.user) {
+                    recipients[pos].1 = recipients[pos]
+                        .1
+                        .checked_add(payout)
+                        .ok_or(ErrorCode::MathError)?;
+                } else {
+                    recipients.push((claim.user, payout));
+                }
+            }
+        }
+
+        let mut total_paid: u64 = 0;
+        for (_, amt) in recipients.iter() {
+            total_paid = total_paid.checked_add(*amt).ok_or(ErrorCode::MathError)?;
+        }
+        require!(total_paid <= available_usdc, ErrorCode::InsufficientVaultFunds);
+
+        // Execute transfers (one per user).
+        for (user_pk, amt) in recipients.into_iter() {
+            if amt == 0 {
+                continue;
+            }
+            let (_, user_usdc_idx) = user_usdc_map
+                .iter()
+                .find(|(u, _)| *u == user_pk)
+                .ok_or(ErrorCode::InvalidClaimUserTokenAccount)?;
+
+            let user_usdc_ai = &ctx.remaining_accounts[*user_usdc_idx];
+            let user_usdc: Account<SplTokenAccount> = Account::try_from(user_usdc_ai)?;
+            require_keys_eq!(user_usdc.owner, user_pk, ErrorCode::InvalidClaimUserTokenAccount);
+            require_keys_eq!(
+                user_usdc.mint,
+                usdc_mint_key,
+                ErrorCode::InvalidMint
+            );
+
+            spl_token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.usdc_token_program.to_account_info(),
+                    spl_token::Transfer {
+                        from: ctx.accounts.payout_usdc_vault.to_account_info(),
+                        to: user_usdc.to_account_info(),
+                        authority: ctx.accounts.pool_signer.to_account_info(),
+                    },
+                    &[signer_seeds],
+                ),
+                amt,
+            )?;
         }
 
         Ok(())
@@ -501,32 +629,14 @@ pub struct ProcessClaims<'info> {
     )]
     pub pool_signer: UncheckedAccount<'info>,
 
-    pub usdc_mint: Account<'info, SplMint>,
-
     #[account(mut)]
     pub admin: Signer<'info>,
 
     #[account(
         mut,
-        associated_token::mint = usdc_mint,
-        associated_token::authority = pool_signer,
-        associated_token::token_program = usdc_token_program
+        constraint = payout_usdc_vault.owner == pool_signer.key() @ ErrorCode::InvalidTokenAccountOwner
     )]
     pub payout_usdc_vault: Account<'info, SplTokenAccount>,
-
-    /// The claim to pay (must belong to `user`).
-    #[account(mut)]
-    pub claim: Account<'info, ClaimState>,
-
-    /// The claim owner (destination authority for `user_usdc`).
-    pub user: UncheckedAccount<'info>,
-
-    #[account(
-        mut,
-        constraint = user_usdc.owner == user.key() @ ErrorCode::InvalidTokenAccountOwner,
-        constraint = user_usdc.mint == usdc_mint.key() @ ErrorCode::InvalidMint
-    )]
-    pub user_usdc: Account<'info, SplTokenAccount>,
 
     pub usdc_token_program: Program<'info, SplToken>,
 }
@@ -676,5 +786,13 @@ pub enum ErrorCode {
     ClaimClosed,
     #[msg("Claim user does not match provided user")]
     InvalidClaimUser,
+    #[msg("Invalid remaining accounts for pro-rata payouts")]
+    InvalidRemainingAccounts,
+    #[msg("Provided user USDC account does not belong to claim user")]
+    InvalidClaimUserTokenAccount,
+    #[msg("Invalid claim account")]
+    InvalidClaimAccount,
+    #[msg("User USDC token account must be writable")]
+    UserUsdcNotWritable,
 }
 

@@ -631,9 +631,20 @@
       "docs": [
         "Process a claim payout from the protocol payout vault.",
         "",
-        "- Transfers `usdc_amount` from payout vault -> user's USDC ATA.",
+        "- Distributes the payout vault's available USDC pro-rata across open claims.",
         "- Only the admin can process payouts.",
-        "- Updates `ClaimState.usdc_paid` and closes the claim once fully paid."
+        "- Updates `ClaimState.usdc_paid`. Partial payouts are allowed.",
+        "",
+        "Remaining accounts (passed by the admin) must include:",
+        "- all `claim` accounts to be processed (writable ClaimState accounts, owned by this program)",
+        "- each unique `user_usdc` token account once (writable SPL token accounts, mint = payout_usdc_vault.mint)",
+        "",
+        "The program matches each claim to a `user_usdc` account by verifying:",
+        "- token_account.owner == claim.user",
+        "- token_account.mint == payout_usdc_vault.mint",
+        "",
+        "Note: To treat *all* open claims equally, the admin should pass *all* open claims",
+        "in a single transaction (subject to tx size/compute constraints)."
       ],
       "discriminator": [
         171,
@@ -715,85 +726,12 @@
           }
         },
         {
-          "name": "usdc_mint"
-        },
-        {
           "name": "admin",
           "writable": true,
           "signer": true
         },
         {
           "name": "payout_usdc_vault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "account",
-                "path": "pool_signer"
-              },
-              {
-                "kind": "account",
-                "path": "usdc_token_program"
-              },
-              {
-                "kind": "account",
-                "path": "usdc_mint"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
-              ]
-            }
-          }
-        },
-        {
-          "name": "claim",
-          "docs": [
-            "The claim to pay (must belong to `user`)."
-          ],
-          "writable": true
-        },
-        {
-          "name": "user",
-          "docs": [
-            "The claim owner (destination authority for `user_usdc`)."
-          ]
-        },
-        {
-          "name": "user_usdc",
           "writable": true
         },
         {
@@ -801,12 +739,7 @@
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
-      "args": [
-        {
-          "name": "usdc_amount",
-          "type": "u64"
-        }
-      ]
+      "args": []
     },
     {
       "name": "register_sell",
@@ -1163,6 +1096,26 @@
       "code": 6011,
       "name": "InvalidClaimUser",
       "msg": "Claim user does not match provided user"
+    },
+    {
+      "code": 6012,
+      "name": "InvalidRemainingAccounts",
+      "msg": "Invalid remaining accounts for pro-rata payouts"
+    },
+    {
+      "code": 6013,
+      "name": "InvalidClaimUserTokenAccount",
+      "msg": "Provided user USDC account does not belong to claim user"
+    },
+    {
+      "code": 6014,
+      "name": "InvalidClaimAccount",
+      "msg": "Invalid claim account"
+    },
+    {
+      "code": 6015,
+      "name": "UserUsdcNotWritable",
+      "msg": "User USDC token account must be writable"
     }
   ],
   "types": [
