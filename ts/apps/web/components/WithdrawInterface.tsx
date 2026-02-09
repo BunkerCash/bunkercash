@@ -202,7 +202,7 @@ export function WithdrawInterface() {
               Irreversible escrow lock
             </p>
             <p className="text-xs text-neutral-500">
-              Registering a sell transfers your bRENT into a program-owned
+              Registering a sell transfers your Banker Cash into a program-owned
               escrow vault. No burn happens, but the lock is irreversible.
             </p>
           </div>
