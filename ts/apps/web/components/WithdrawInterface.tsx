@@ -18,6 +18,7 @@ export function WithdrawInterface() {
   const [activeView, setActiveView] = useState<'register' | 'history'>('register')
   const [amountUi, setAmountUi] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState<string | null>(null)
   const [txSig, setTxSig] = useState<string | null>(null)
   const [tokenBalanceUi, setTokenBalanceUi] = useState<string>('0')
@@ -241,6 +242,24 @@ export function WithdrawInterface() {
             </div>
           </div>
 
+          <div className="flex items-start gap-3 px-1">
+            <input
+              type="checkbox"
+              id="confirm-sell"
+              checked={confirmed}
+              onChange={(e) => setConfirmed(e.target.checked)}
+              className="mt-1 h-4 w-4 rounded border-neutral-700 bg-neutral-800 text-[#00FFB2] focus:ring-[#00FFB2]"
+            />
+            <label
+              htmlFor="confirm-sell"
+              className="text-sm text-neutral-400 cursor-pointer select-none"
+            >
+              I understand that this action is{" "}
+              <span className="text-red-400 font-semibold">irreversible</span>.
+              Registered tokens will be permanently locked in the escrow vault.
+            </label>
+          </div>
+
           {error && (
             <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
               {error}
@@ -254,7 +273,9 @@ export function WithdrawInterface() {
 
           <button
             onClick={() => void handleRegisterSell()}
-            disabled={submitting || !amountUi || parseFloat(amountUi) <= 0}
+            disabled={
+              submitting || !amountUi || parseFloat(amountUi) <= 0 || !confirmed
+            }
             className="w-full bg-[#00FFB2] hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600 text-black font-semibold py-5 rounded-xl transition-all text-lg"
           >
             {submitting ? "Registering…" : "Register Sell"}
