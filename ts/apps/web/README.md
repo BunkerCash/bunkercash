@@ -2,6 +2,17 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
+## Configuration (devnet)
+
+- Copy `./.env.example` to `./.env.local`
+- `NEXT_PUBLIC_USDC_MINT` controls which USDC-like mint is used for `buy_primary` on the current cluster.
+
+## Production note (dynamic user address)
+
+In production, **never hardcode a user address**. The app uses the connected wallet (`wallet.publicKey`) at runtime, so purchases are always made using the real user’s token accounts.
+
+Also, production should target a single canonical mint (e.g. mainnet USDC), not multiple “dev USDC” mints.
+
 First, run the development server:
 
 ```bash

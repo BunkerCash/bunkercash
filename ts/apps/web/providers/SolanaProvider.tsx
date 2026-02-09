@@ -40,7 +40,7 @@ export const SolanaProvider: FC<SolanaProviderProps> = ({
 }) => {
   // Configure endpoint based on config.env or default to devnet
   const endpoint = useMemo(() => {
-    const env = config?.env ?? "devnet";
+    const env = config?.env ?? "testnet";
     return clusterApiUrl(env);
   }, [config?.env]);
 

@@ -4,7 +4,13 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { PublicKey, Transaction } from '@solana/web3.js'
 import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
-import { getBunkercashMintPda, getPoolPda, getProgram, PROGRAM_ID } from '@/lib/program'
+import {
+  getBunkercashMintPda,
+  getPoolPda,
+  getPoolSignerPda,
+  getProgram,
+  PROGRAM_ID,
+} from "@/lib/program";
 import { ArrowDown } from 'lucide-react'
 import { BN } from '@coral-xyz/anchor'
 
@@ -27,6 +33,7 @@ export function BuyPrimaryInterface() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [txSig, setTxSig] = useState<string | null>(null)
+  const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
   const [poolState, setPoolState] = useState<{
     priceUsdcPerToken: BN
     admin: PublicKey
@@ -65,6 +72,42 @@ export function BuyPrimaryInterface() {
   useEffect(() => {
     void fetchPoolState()
   }, [fetchPoolState])
+
+  useEffect(() => {
+    if (!wallet.publicKey || !connection || !usdcMint) return;
+    const fetchBalance = async () => {
+      try {
+        const userUsdc = getAssociatedTokenAddressSync(
+          usdcMint,
+          wallet.publicKey!,
+          false,
+          TOKEN_PROGRAM_ID,
+          ASSOCIATED_TOKEN_PROGRAM_ID,
+        );
+        const balance = await connection.getTokenAccountBalance(userUsdc);
+        setUsdcBalance(balance.value.uiAmountString ?? "0");
+      } catch {
+        setUsdcBalance("0");
+      }
+    };
+    void fetchBalance();
+    const id = connection.onAccountChange(
+      getAssociatedTokenAddressSync(
+        usdcMint,
+        wallet.publicKey!,
+        false,
+        TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+      ),
+      (info) => {
+        // For simplicity, just refetch or parse info. Here avoiding intricate parsing for speed.
+        void fetchBalance();
+      },
+    );
+    return () => {
+      connection.removeAccountChangeListener(id);
+    };
+  }, [wallet.publicKey, connection, usdcMint]);
 
   const pricePerToken = poolState
     ? Number(poolState.priceUsdcPerToken) / 10 ** USDC_DECIMALS
@@ -141,19 +184,39 @@ export function BuyPrimaryInterface() {
         ASSOCIATED_TOKEN_PROGRAM_ID
       )
 
-      const buyPrimaryIx = await (program.methods as unknown as { buyPrimary: (amount: BN) => { accounts: (acc: Record<string, PublicKey>) => { instruction: () => Promise<{ keys: unknown[]; data: Buffer }> } } }).buyPrimary(new BN(usdcAmountRaw.toString()))
-        .accounts({
-          pool: poolPda,
-          bunkercashMint: bunkercashMintPda,
-          user: wallet.publicKey,
-          usdcMint,
-          userUsdc,
-          poolUsdcVault,
-          userBunkercash,
-          usdcTokenProgram: TOKEN_PROGRAM_ID,
-          tokenProgram: TOKEN_2022_PROGRAM_ID,
-        })
-        .instruction()
+        const poolSigner = getPoolSignerPda(poolPda, PROGRAM_ID);
+        const treasuryTokenVault = getAssociatedTokenAddressSync(
+          bunkercashMintPda,
+          poolSigner,
+          true,
+          TOKEN_2022_PROGRAM_ID,
+          ASSOCIATED_TOKEN_PROGRAM_ID,
+        );
+
+        const buyPrimaryIx = await (
+          program.methods as unknown as {
+            buyPrimary: (amount: BN) => {
+              accounts: (acc: Record<string, PublicKey>) => {
+                instruction: () => Promise<{ keys: unknown[]; data: Buffer }>;
+              };
+            };
+          }
+        )
+          .buyPrimary(new BN(usdcAmountRaw.toString()))
+          .accounts({
+            pool: poolPda,
+            poolSigner,
+            bunkercashMint: bunkercashMintPda,
+            treasuryTokenVault,
+            user: wallet.publicKey,
+            usdcMint,
+            userUsdc,
+            poolUsdcVault,
+            userBunkercash,
+            usdcTokenProgram: TOKEN_PROGRAM_ID,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
+          })
+          .instruction();
 
       const tx = new Transaction().add(createPoolUsdcVaultIx, createUserUsdcAtaIx, createUserBunkercashAtaIx, buyPrimaryIx)
       const sig = await (program.provider as { sendAndConfirm: (tx: Transaction) => Promise<string> }).sendAndConfirm(tx)
@@ -231,18 +294,21 @@ npx ts-node -P tsconfig.json scripts/bootstrap-fixed-price.ts`}
 
   return (
     <div className="space-y-8">
-
-
       <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-6">
         <div className="grid grid-cols-2 gap-6">
           <div>
-            <div className="mb-2 text-xs uppercase tracking-wider text-neutral-500">Fixed price</div>
+            <div className="mb-2 text-xs uppercase tracking-wider text-neutral-500">
+              Fixed price
+            </div>
             <div className="text-2xl font-bold text-[#00FFB2]">
-              ${pricePerToken != null ? pricePerToken.toFixed(4) : '—'} per token
+              ${pricePerToken != null ? pricePerToken.toFixed(4) : "—"} per
+              token
             </div>
           </div>
           <div>
-            <div className="mb-2 text-xs uppercase tracking-wider text-neutral-500">Primary sale</div>
+            <div className="mb-2 text-xs uppercase tracking-wider text-neutral-500">
+              Primary sale
+            </div>
             <div className="text-2xl font-bold">Fixed-price mint</div>
           </div>
         </div>
@@ -251,7 +317,12 @@ npx ts-node -P tsconfig.json scripts/bootstrap-fixed-price.ts`}
       <div className="space-y-3">
         <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
           <div className="mb-4 flex items-center justify-between">
-            <span className="text-xs uppercase tracking-wider text-neutral-500">You pay</span>
+            <span className="text-xs uppercase tracking-wider text-neutral-500">
+              You pay
+            </span>
+            <span className="text-xs uppercase tracking-wider text-neutral-500">
+              Balance: {usdcBalance ?? "—"}
+            </span>
           </div>
           <div className="flex flex-1 items-center gap-4">
             <input
@@ -275,14 +346,18 @@ npx ts-node -P tsconfig.json scripts/bootstrap-fixed-price.ts`}
 
         <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
           <div className="mb-4 flex items-center justify-between">
-            <span className="text-xs uppercase tracking-wider text-neutral-500">You receive</span>
+            <span className="text-xs uppercase tracking-wider text-neutral-500">
+              You receive
+            </span>
           </div>
           <div className="flex items-center gap-4">
             <div className="flex-1 bg-transparent text-3xl font-bold text-neutral-300">
-              {tokenAmountUi || '0'}
+              {tokenAmountUi || "0"}
             </div>
             <div className="flex items-center gap-2 rounded-xl border-2 border-[#00FFB2] bg-[#00FFB2]/10 px-5 py-3">
-              <span className="text-sm font-semibold text-[#00FFB2]">Bunker Cash</span>
+              <span className="text-sm font-semibold text-[#00FFB2]">
+                Bunker Cash
+              </span>
             </div>
           </div>
         </div>
@@ -304,12 +379,13 @@ npx ts-node -P tsconfig.json scripts/bootstrap-fixed-price.ts`}
         disabled={loading || !usdcAmountRaw || usdcAmountRaw <= BigInt(0)}
         className="w-full rounded-xl bg-[#00FFB2] py-5 text-lg font-semibold text-black transition-all hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600"
       >
-        {loading ? 'Processing…' : 'Buy Bunker Cash'}
+        {loading ? "Processing…" : "Buy Bunker Cash"}
       </button>
 
       <div className="text-center text-xs text-neutral-600">
-        Pay with USDC (SPL legacy) devnet · Fixed-price primary sale → Bunker Cash
+        Pay with USDC (SPL legacy) devnet · Fixed-price primary sale → Bunker
+        Cash
       </div>
     </div>
-  )
+  );
 }
