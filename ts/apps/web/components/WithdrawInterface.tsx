@@ -18,6 +18,7 @@ export function WithdrawInterface() {
   const [activeView, setActiveView] = useState<'register' | 'history'>('register')
   const [amountUi, setAmountUi] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState<string | null>(null)
   const [txSig, setTxSig] = useState<string | null>(null)
   const [tokenBalanceUi, setTokenBalanceUi] = useState<string>('0')
@@ -167,40 +168,47 @@ export function WithdrawInterface() {
     <div className="space-y-8">
       <div className="flex gap-2 bg-neutral-900 p-1 rounded-xl">
         <button
-          onClick={() => setActiveView('register')}
+          onClick={() => setActiveView("register")}
           className={`flex-1 px-4 py-3 text-sm rounded-lg transition-all ${
-            activeView === 'register'
-              ? 'bg-[#00FFB2] text-black font-semibold'
-              : 'text-neutral-500 hover:text-white'
+            activeView === "register"
+              ? "bg-[#00FFB2] text-black font-semibold"
+              : "text-neutral-500 hover:text-white"
           }`}
         >
           Register Sell
         </button>
         <button
-          onClick={() => setActiveView('history')}
+          onClick={() => setActiveView("history")}
           className={`flex-1 px-4 py-3 text-sm rounded-lg transition-all ${
-            activeView === 'history'
-              ? 'bg-[#00FFB2] text-black font-semibold'
-              : 'text-neutral-500 hover:text-white'
+            activeView === "history"
+              ? "bg-[#00FFB2] text-black font-semibold"
+              : "text-neutral-500 hover:text-white"
           }`}
         >
           History
         </button>
       </div>
 
-      {activeView === 'register' ? (
+      {activeView === "register" ? (
         <div className="space-y-6">
           <div className="bg-neutral-900/50 rounded-xl p-4 border border-neutral-800">
-            <p className="text-sm text-neutral-300 font-semibold mb-1">Irreversible escrow lock</p>
+            <p className="text-sm text-neutral-300 font-semibold mb-1">
+              Irreversible escrow lock
+            </p>
             <p className="text-xs text-neutral-500">
-              Registering a sell transfers your bRENT into a program-owned escrow vault. No burn happens, but the lock is irreversible.
+              Registering a sell transfers your Banker Cash into a program-owned
+              escrow vault. No burn happens, but the lock is irreversible.
             </p>
           </div>
 
           <div className="bg-neutral-900 rounded-2xl p-6 border border-neutral-800">
             <div className="flex justify-between items-center mb-4">
-              <span className="text-xs uppercase tracking-wider text-neutral-500">Amount</span>
-              <span className="text-xs text-neutral-600">Balance: {tokenBalanceUi} bRENT</span>
+              <span className="text-xs uppercase tracking-wider text-neutral-500">
+                Amount
+              </span>
+              <span className="text-xs text-neutral-600">
+                Balance: {tokenBalanceUi} Banker Cash
+              </span>
             </div>
             <div className="flex items-center gap-4">
               <input
@@ -211,7 +219,9 @@ export function WithdrawInterface() {
                 className="bg-transparent text-3xl font-bold flex-1 outline-none placeholder:text-neutral-800"
               />
               <div className="flex items-center gap-2 bg-[#00FFB2]/10 border-2 border-[#00FFB2] px-5 py-3 rounded-xl">
-                <span className="font-semibold text-sm text-[#00FFB2]">bRENT</span>
+                <span className="font-semibold text-sm text-[#00FFB2]">
+                  Banker Cash
+                </span>
               </div>
             </div>
             <div className="mt-3 flex justify-end">
@@ -223,6 +233,24 @@ export function WithdrawInterface() {
                 MAX
               </button>
             </div>
+          </div>
+
+          <div className="flex items-start gap-3 px-1">
+            <input
+              type="checkbox"
+              id="confirm-sell"
+              checked={confirmed}
+              onChange={(e) => setConfirmed(e.target.checked)}
+              className="mt-1 h-4 w-4 rounded border-neutral-700 bg-neutral-800 text-[#00FFB2] focus:ring-[#00FFB2]"
+            />
+            <label
+              htmlFor="confirm-sell"
+              className="text-sm text-neutral-400 cursor-pointer select-none"
+            >
+              I understand that this action is{" "}
+              <span className="text-red-400 font-semibold">irreversible</span>.
+              Registered tokens will be permanently locked in the escrow vault.
+            </label>
           </div>
 
           {error && (
@@ -238,10 +266,12 @@ export function WithdrawInterface() {
 
           <button
             onClick={() => void handleRegisterSell()}
-            disabled={submitting || !amountUi || parseFloat(amountUi) <= 0}
+            disabled={
+              submitting || !amountUi || parseFloat(amountUi) <= 0 || !confirmed
+            }
             className="w-full bg-[#00FFB2] hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600 text-black font-semibold py-5 rounded-xl transition-all text-lg"
           >
-            {submitting ? 'Registering…' : 'Register Sell'}
+            {submitting ? "Registering…" : "Register Sell"}
           </button>
         </div>
       ) : (
@@ -262,29 +292,32 @@ export function WithdrawInterface() {
               >
                 <div className="flex justify-between items-start mb-3">
                   <div>
-                    <div className="text-lg font-semibold">
-                      Claim #{c.id}
-                    </div>
+                    <div className="text-lg font-semibold">Claim #{c.id}</div>
                     <div className="text-sm text-neutral-500">
                       Locked: {Number(c.tokenAmountLocked) / 1e9} bRENT
                     </div>
                   </div>
                   <div
                     className={`px-3 py-1 rounded-full text-xs font-medium ${
-                      c.isClosed ? 'bg-[#00FFB2]/20 text-[#00FFB2]' : 'bg-neutral-800 text-neutral-400'
+                      c.isClosed
+                        ? "bg-[#00FFB2]/20 text-[#00FFB2]"
+                        : "bg-neutral-800 text-neutral-400"
                     }`}
                   >
-                    {c.isClosed ? 'closed' : 'open'}
+                    {c.isClosed ? "closed" : "open"}
                   </div>
                 </div>
                 <div className="mt-2 flex justify-between text-sm">
                   <span className="text-neutral-500">USDC paid</span>
-                  <span className="text-neutral-300">{Number(c.usdcPaid) / 1e6} USDC</span>
+                  <span className="text-neutral-300">
+                    {Number(c.usdcPaid) / 1e6} USDC
+                  </span>
                 </div>
                 <div className="mt-1 flex justify-between text-sm">
                   <span className="text-neutral-500">Claim account</span>
                   <span className="text-neutral-500 font-mono">
-                    {c.pubkey.toBase58().slice(0, 4)}…{c.pubkey.toBase58().slice(-4)}
+                    {c.pubkey.toBase58().slice(0, 4)}…
+                    {c.pubkey.toBase58().slice(-4)}
                   </span>
                 </div>
               </div>
@@ -293,5 +326,5 @@ export function WithdrawInterface() {
         </div>
       )}
     </div>
-  )
+  );
 }
