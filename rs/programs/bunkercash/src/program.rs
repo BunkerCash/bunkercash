@@ -140,23 +140,33 @@ pub mod bunkercash {
     /// - Transfers `usdc_amount` from admin -> payout USDC vault.
     /// - Vault is an ATA owned by the Pool Signer PDA (deterministic + reusable).
     pub fn add_liquidity(ctx: Context<AddLiquidity>, usdc_amount: u64) -> Result<()> {
-        require!(usdc_amount > 0, ErrorCode::InvalidAmount);
         require!(
             ctx.accounts.admin.key() == ctx.accounts.pool.admin,
             ErrorCode::Unauthorized
         );
 
-        spl_token::transfer(
-            CpiContext::new(
-                ctx.accounts.usdc_token_program.to_account_info(),
-                spl_token::Transfer {
-                    from: ctx.accounts.admin_usdc.to_account_info(),
-                    to: ctx.accounts.payout_usdc_vault.to_account_info(),
-                    authority: ctx.accounts.admin.to_account_info(),
-                },
-            ),
-            usdc_amount,
-        )?;
+        // No minimum / guarantee logic: allow `usdc_amount == 0` so the admin can
+        // create/verify the vault ATA without necessarily funding it.
+        if usdc_amount > 0 {
+            spl_token::transfer(
+                CpiContext::new(
+                    ctx.accounts.usdc_token_program.to_account_info(),
+                    spl_token::Transfer {
+                        from: ctx.accounts.admin_usdc.to_account_info(),
+                        to: ctx.accounts.payout_usdc_vault.to_account_info(),
+                        authority: ctx.accounts.admin.to_account_info(),
+                    },
+                ),
+                usdc_amount,
+            )?;
+
+            emit!(LiquidityAdded {
+                admin: ctx.accounts.admin.key(),
+                usdc_mint: ctx.accounts.usdc_mint.key(),
+                payout_usdc_vault: ctx.accounts.payout_usdc_vault.key(),
+                usdc_amount,
+            });
+        }
 
         Ok(())
     }
@@ -604,7 +614,8 @@ pub struct AddLiquidity<'info> {
         payer = admin,
         associated_token::mint = usdc_mint,
         associated_token::authority = pool_signer,
-        associated_token::token_program = usdc_token_program
+        associated_token::token_program = usdc_token_program,
+        constraint = payout_usdc_vault.owner == pool_signer.key() @ ErrorCode::InvalidTokenAccountOwner
     )]
     pub payout_usdc_vault: Account<'info, SplTokenAccount>,
 
@@ -794,5 +805,14 @@ pub enum ErrorCode {
     InvalidClaimAccount,
     #[msg("User USDC token account must be writable")]
     UserUsdcNotWritable,
+}
+
+/// Emitted when the admin deposits USDC into the payout vault.
+#[event]
+pub struct LiquidityAdded {
+    pub admin: Pubkey,
+    pub usdc_mint: Pubkey,
+    pub payout_usdc_vault: Pubkey,
+    pub usdc_amount: u64,
 }
 
