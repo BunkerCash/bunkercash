@@ -80,9 +80,9 @@ async function main() {
     TOKEN_PROGRAM_ID,
     ASSOCIATED_TOKEN_PROGRAM_ID
   );
-  const poolUsdcVaultAta = getAssociatedTokenAddressSync(
+  const payoutUsdcVaultAta = getAssociatedTokenAddressSync(
     usdcMint,
-    poolPda,
+    poolSignerPda,
     true,
     TOKEN_PROGRAM_ID,
     ASSOCIATED_TOKEN_PROGRAM_ID
@@ -125,7 +125,7 @@ async function main() {
   }
 
   console.log(await balanceOrMissing(provider, userUsdcAta, "User USDC (legacy)"));
-  console.log(await balanceOrMissing(provider, poolUsdcVaultAta, "Pool USDC vault (legacy)"));
+  console.log(await balanceOrMissing(provider, payoutUsdcVaultAta, "Payout USDC vault (legacy, Pool Signer ATA)"));
   console.log(await balanceOrMissing(provider, userBunkercashAta, "User BNKR (Token-2022)"));
   console.log(await balanceOrMissing(provider, escrowBunkercashVaultAta, "Escrow BNKR vault (Token-2022)"));
 }

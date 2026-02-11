@@ -151,7 +151,7 @@ async function printSnapshot(params: {
   poolSignerPda: PublicKey;
   usdcMint: PublicKey;
   userUsdcAta: PublicKey;
-  poolUsdcVaultAta: PublicKey;
+  payoutUsdcVaultAta: PublicKey;
   userBnkrAta: PublicKey;
   escrowBnkrVaultAta: PublicKey;
 }) {
@@ -163,7 +163,7 @@ async function printSnapshot(params: {
     poolSignerPda,
     usdcMint,
     userUsdcAta,
-    poolUsdcVaultAta,
+    payoutUsdcVaultAta,
     userBnkrAta,
     escrowBnkrVaultAta,
   } = params;
@@ -189,7 +189,7 @@ async function printSnapshot(params: {
   }
 
   const uUsdc = await tokenBalRaw(provider, userUsdcAta);
-  const pUsdc = await tokenBalRaw(provider, poolUsdcVaultAta);
+  const pUsdc = await tokenBalRaw(provider, payoutUsdcVaultAta);
   const uBnkr = await tokenBalRaw(provider, userBnkrAta);
   const eBnkr = await tokenBalRaw(provider, escrowBnkrVaultAta);
 
@@ -199,9 +199,9 @@ async function printSnapshot(params: {
     "acct=" + userUsdcAta.toBase58()
   );
   console.log(
-    "Pool USDC vault (legacy):",
+    "Payout USDC vault (legacy, Pool Signer ATA):",
     pUsdc ? `${formatUnits(pUsdc, USDC_DECIMALS)} (${pUsdc.toString()} raw)` : "(missing)",
-    "acct=" + poolUsdcVaultAta.toBase58()
+    "acct=" + payoutUsdcVaultAta.toBase58()
   );
   console.log(
     "User BNKR (Token-2022):",
@@ -272,11 +272,11 @@ async function main() {
     allowOwnerOffCurve: false,
     tokenProgram: TOKEN_PROGRAM_ID,
   });
-  const poolUsdcVaultAta = await ensureAta({
+  const payoutUsdcVaultAta = await ensureAta({
     provider,
     payer,
     mint: usdcMint,
-    owner: poolPda,
+    owner: poolSignerPda,
     allowOwnerOffCurve: true,
     tokenProgram: TOKEN_PROGRAM_ID,
   });
@@ -305,7 +305,7 @@ async function main() {
     poolSignerPda,
     usdcMint,
     userUsdcAta,
-    poolUsdcVaultAta,
+    payoutUsdcVaultAta,
     userBnkrAta,
     escrowBnkrVaultAta,
   });
@@ -313,6 +313,9 @@ async function main() {
   // BUY
   const buyUi = process.env.BUY_USDC ?? "1";
   const buyAmount = uiToBaseUnits(buyUi, USDC_DECIMALS);
+  if (buyAmount.lte(new BN(0))) {
+    console.log(`\nSkipping buy_primary (BUY_USDC=${buyUi})`);
+  } else {
   const userUsdcBefore = await tokenBalRaw(provider, userUsdcAta);
   if (!userUsdcBefore || userUsdcBefore.lt(buyAmount)) {
     console.error(
@@ -330,14 +333,17 @@ async function main() {
       .buyPrimary(buyAmount)
       .accounts({
         pool: poolPda,
+        poolSigner: poolSignerPda,
         bunkercashMint: bunkercashMintPda,
         user: wallet,
         usdcMint,
         userUsdc: userUsdcAta,
-        poolUsdcVault: poolUsdcVaultAta,
+        payoutUsdcVault: payoutUsdcVaultAta,
         userBunkercash: userBnkrAta,
         usdcTokenProgram: TOKEN_PROGRAM_ID,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
       })
       .rpc({ commitment: "confirmed" });
   });
@@ -351,45 +357,55 @@ async function main() {
     poolSignerPda,
     usdcMint,
     userUsdcAta,
-    poolUsdcVaultAta,
+    payoutUsdcVaultAta,
     userBnkrAta,
     escrowBnkrVaultAta,
   });
+  }
 
-  // SELL (register_sell escrow lock)
-  const sellUi = process.env.SELL_BNKR ?? "0.1";
-  const sellAmount = uiToBaseUnits(sellUi, BNKR_DECIMALS);
+  // SELL (register_sell escrow lock) - create multiple claims for pro-rata testing.
+  const sellUi1 = process.env.SELL_BNKR_1 ?? process.env.SELL_BNKR ?? "0.1";
+  const sellUi2 = process.env.SELL_BNKR_2 ?? "0.3";
+  const sellAmounts: Array<{ label: string; amount: BN }> = [
+    { label: "sell1", amount: uiToBaseUnits(sellUi1, BNKR_DECIMALS) },
+    { label: "sell2", amount: uiToBaseUnits(sellUi2, BNKR_DECIMALS) },
+  ].filter((x) => x.amount.gt(new BN(0)));
 
-  // Derive the Claim PDA from the latest on-chain counter.
-  // This avoids failures if we have to retry due to blockhash/RPC hiccups.
-  let claimPda: PublicKey | null = null;
-  const sellSig = await rpcWithBlockhashRetry("register_sell", async () => {
-    const poolState = await (program.account as any).poolState.fetch(poolPda);
-    const claimCounter: BN = poolState.claimCounter as BN;
-    const nextId = claimCounter.add(new BN(1));
-    const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("claim"), poolPda.toBuffer(), bnU64LE(nextId)],
-      program.programId
-    );
-    claimPda = pda;
-    return await (program.methods as any)
-      .registerSell(sellAmount)
-      .accounts({
-        pool: poolPda,
-        poolSigner: poolSignerPda,
-        bunkercashMint: bunkercashMintPda,
-        claim: pda,
-        user: wallet,
-        userBunkercash: userBnkrAta,
-        escrowBunkercashVault: escrowBnkrVaultAta,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc({ commitment: "confirmed" });
-  });
-  console.log("\nregister_sell tx:", sellSig);
-  if (!claimPda) throw new Error("Claim PDA was not computed.");
-  console.log("Claim PDA:", claimPda.toBase58());
+  const createdClaims: PublicKey[] = [];
+  for (const s of sellAmounts) {
+    // Derive the Claim PDA from the latest on-chain counter.
+    // This avoids failures if we have to retry due to blockhash/RPC hiccups.
+    let claimPda: PublicKey | null = null;
+    const sellSig = await rpcWithBlockhashRetry(`register_sell(${s.label})`, async () => {
+      const poolState = await (program.account as any).poolState.fetch(poolPda);
+      const claimCounter: BN = poolState.claimCounter as BN;
+      const nextId = claimCounter.add(new BN(1));
+      const [pda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("claim"), poolPda.toBuffer(), bnU64LE(nextId)],
+        program.programId
+      );
+      claimPda = pda;
+      return await (program.methods as any)
+        .registerSell(s.amount)
+        .accounts({
+          pool: poolPda,
+          poolSigner: poolSignerPda,
+          bunkercashMint: bunkercashMintPda,
+          claim: pda,
+          user: wallet,
+          userBunkercash: userBnkrAta,
+          escrowBunkercashVault: escrowBnkrVaultAta,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc({ commitment: "confirmed" });
+    });
+    console.log(`\nregister_sell(${s.label}) tx:`, sellSig);
+    if (!claimPda) throw new Error("Claim PDA was not computed.");
+    console.log("Claim PDA:", claimPda.toBase58());
+    createdClaims.push(claimPda);
+  }
 
   await printSnapshot({
     provider,
@@ -399,20 +415,119 @@ async function main() {
     poolSignerPda,
     usdcMint,
     userUsdcAta,
-    poolUsdcVaultAta,
+    payoutUsdcVaultAta,
     userBnkrAta,
     escrowBnkrVaultAta,
   });
 
-  const claim = await (program.account as any).claimState.fetch(claimPda);
-  console.log("\nClaimState:", {
-    id: claim.id?.toString?.() ?? String(claim.id),
-    user: claim.user?.toBase58?.() ?? String(claim.user),
-    tokenAmountLocked: claim.tokenAmountLocked?.toString?.() ?? String(claim.tokenAmountLocked),
-    usdcPaid: claim.usdcPaid?.toString?.() ?? String(claim.usdcPaid),
-    isClosed: claim.isClosed,
-    createdAt: claim.createdAt?.toString?.() ?? String(claim.createdAt),
+  // Optional: add extra liquidity before pro-rata distribution.
+  // (This transfers from admin's USDC ATA to the payout vault.)
+  if (process.env.LIQ_USDC) {
+    const liqAmount = uiToBaseUnits(process.env.LIQ_USDC, USDC_DECIMALS);
+    const addSig = await rpcWithBlockhashRetry("add_liquidity", async () => {
+      return await (program.methods as any)
+        .addLiquidity(liqAmount)
+        .accounts({
+          pool: poolPda,
+          poolSigner: poolSignerPda,
+          usdcMint,
+          admin: wallet,
+          adminUsdc: userUsdcAta,
+          payoutUsdcVault: payoutUsdcVaultAta,
+          usdcTokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc({ commitment: "confirmed" });
+    });
+    console.log("\nadd_liquidity tx:", addSig);
+  }
+
+  // PRO-RATA PAYOUTS: process_claims
+  {
+    const allClaims = await (program.account as any).claimState.all();
+    const open = allClaims.filter((x: any) => !x.account.isClosed);
+    console.log(`\nOpen claims: ${open.length}`);
+    for (const c of open) {
+      console.log(
+        "-",
+        (c.publicKey as PublicKey).toBase58(),
+        "user=" + (c.account.user as PublicKey).toBase58(),
+        "locked=" + (c.account.tokenAmountLocked?.toString?.() ?? String(c.account.tokenAmountLocked)),
+        "paid=" + (c.account.usdcPaid?.toString?.() ?? String(c.account.usdcPaid))
+      );
+    }
+
+    // Ensure each claim user's USDC ATA exists, then pass:
+    // - all claim accounts (writable)
+    // - each unique user's USDC ATA once (writable)
+    const userUsdcByUser = new Map<string, PublicKey>();
+    for (const c of open) {
+      const userPk = c.account.user as PublicKey;
+      const ata = await ensureAta({
+        provider,
+        payer,
+        mint: usdcMint,
+        owner: userPk,
+        allowOwnerOffCurve: false,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      });
+      userUsdcByUser.set(userPk.toBase58(), ata);
+    }
+
+    const remaining: anchor.web3.AccountMeta[] = [];
+    for (const c of open) {
+      remaining.push({ pubkey: c.publicKey as PublicKey, isWritable: true, isSigner: false });
+    }
+    for (const ata of userUsdcByUser.values()) {
+      remaining.push({ pubkey: ata, isWritable: true, isSigner: false });
+    }
+
+    if (remaining.length > 0) {
+      const procSig = await rpcWithBlockhashRetry("process_claims", async () => {
+        return await (program.methods as any)
+          .processClaims()
+          .accounts({
+            pool: poolPda,
+            poolSigner: poolSignerPda,
+            admin: wallet,
+            payoutUsdcVault: payoutUsdcVaultAta,
+            usdcTokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .remainingAccounts(remaining)
+          .rpc({ commitment: "confirmed" });
+      });
+      console.log("\nprocess_claims tx:", procSig);
+    } else {
+      console.log("\nprocess_claims: skipped (no open claims)");
+    }
+  }
+
+  await printSnapshot({
+    provider,
+    program,
+    poolPda,
+    bunkercashMintPda,
+    poolSignerPda,
+    usdcMint,
+    userUsdcAta,
+    payoutUsdcVaultAta,
+    userBnkrAta,
+    escrowBnkrVaultAta,
   });
+
+  // Print created claim states (if any).
+  for (const pk of createdClaims) {
+    const claim = await (program.account as any).claimState.fetch(pk);
+    console.log("\nClaimState:", pk.toBase58(), {
+      id: claim.id?.toString?.() ?? String(claim.id),
+      user: claim.user?.toBase58?.() ?? String(claim.user),
+      tokenAmountLocked: claim.tokenAmountLocked?.toString?.() ?? String(claim.tokenAmountLocked),
+      usdcPaid: claim.usdcPaid?.toString?.() ?? String(claim.usdcPaid),
+      isClosed: claim.isClosed,
+      createdAt: claim.createdAt?.toString?.() ?? String(claim.createdAt),
+    });
+  }
 }
 
 main().catch((e) => {
