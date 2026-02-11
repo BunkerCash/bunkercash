@@ -1,89 +1,33 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { useWallet, useConnection } from "@solana/wallet-adapter-react";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { Layout } from "@/components/layout/Layout";
 import { StatCard } from "@/components/ui/StatCard";
 import { Wallet, Clock, CheckCircle, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-
-const payoutHistory = [
-  { date: "2024-01-14", amount: 1500, status: "completed" },
-  { date: "2024-01-10", amount: 800, status: "completed" },
-  { date: "2024-01-05", amount: 1200, status: "pending" },
-];
+import { useTokenBalance } from "@/hooks/useTokenBalance";
+import { useMyClaims } from "@/hooks/useMyClaims";
 
 const MyPosition = () => {
-  const [tokenBalance, setTokenBalance] = useState<number>(0);
-  const [isLoadingBalance, setIsLoadingBalance] = useState(false);
-  const [fetchError, setFetchError] = useState<string | null>(null);
+  const { connected } = useWallet();
+  const {
+    balance: tokenBalance,
+    loading: isLoadingBalance,
+    error: fetchError,
+  } = useTokenBalance();
+  const { claims, loading: isLoadingClaims } = useMyClaims();
 
-  const { publicKey, connected } = useWallet();
-  const { connection } = useConnection();
+  // Calculate derived stats
+  const lockedTokens = claims
+    .filter((c) => !c.isClosed)
+    .reduce((acc, c) => acc + Number(c.tokenAmountLocked) / 1e9, 0);
 
-  // Simulated Data (Demo)
-  const registeredTokens = 500;
-  const amountPaidOut = 2300;
-  const amountPending = 1200;
+  const totalUsdcPaid = claims.reduce(
+    (acc, c) => acc + Number(c.usdcPaid) / 1e6,
+    0,
+  );
 
-  // Fetch token balance
-  const fetchBalance = useCallback(async () => {
-    if (!publicKey || !connected) {
-      setTokenBalance(0);
-      setFetchError(null);
-      return;
-    }
-
-    setIsLoadingBalance(true);
-    setFetchError(null);
-    try {
-      const balance = await connection.getBalance(publicKey);
-      const solBalance = balance / 1e9;
-      const bnkrBalance = solBalance * 1000;
-      setTokenBalance(bnkrBalance);
-    } catch (error) {
-      console.error("Error fetching balance:", error);
-      setFetchError("Failed to fetch balance");
-    } finally {
-      setIsLoadingBalance(false);
-    }
-  }, [publicKey, connected, connection]);
-
-  useEffect(() => {
-    if (!publicKey || !connected) {
-      setTokenBalance(0);
-      return;
-    }
-
-    fetchBalance();
-
-    let subscriptionId: number | undefined;
-
-    try {
-      subscriptionId = connection.onAccountChange(
-        publicKey,
-        (updatedAccountInfo) => {
-          const balance = updatedAccountInfo.lamports;
-          const solBalance = balance / 1e9;
-          const bnkrBalance = solBalance * 1000;
-          setTokenBalance(bnkrBalance);
-        },
-        "confirmed",
-      );
-    } catch (error) {
-      console.error("Failed to subscribe to account changes:", error);
-    }
-
-    return () => {
-      if (subscriptionId !== undefined) {
-        try {
-          connection.removeAccountChangeListener(subscriptionId);
-        } catch (e) {
-          console.error("Error removing listener:", e);
-        }
-      }
-    };
-  }, [publicKey, connected, connection, fetchBalance]);
+  const totalClaims = claims.length;
 
   return (
     <Layout>
@@ -122,7 +66,7 @@ const MyPosition = () => {
                       ? "..."
                       : fetchError
                         ? "N/A"
-                        : `${tokenBalance.toLocaleString(undefined, { maximumFractionDigits: 4 })} BNKR`
+                        : `${tokenBalance} BNKR`
                 }
                 note={
                   fetchError ? (
@@ -140,9 +84,11 @@ const MyPosition = () => {
               style={{ animationDelay: "0.15s" }}
             >
               <StatCard
-                label="Registered Tokens"
-                value={`${registeredTokens.toLocaleString()} BNKR`}
-                note="Simulated (Demo)"
+                label="Locked Tokens"
+                value={
+                  !connected ? "-" : `${lockedTokens.toLocaleString()} BNKR`
+                }
+                note="In open claims"
               />
             </div>
             <div
@@ -150,13 +96,17 @@ const MyPosition = () => {
               style={{ animationDelay: "0.2s" }}
             >
               <StatCard
-                label="Amount Paid Out"
+                label="Total USDC Paid"
                 value={
-                  <span className="text-primary">
-                    ${amountPaidOut.toLocaleString()}
-                  </span>
+                  !connected ? (
+                    "-"
+                  ) : (
+                    <span className="text-primary">
+                      ${totalUsdcPaid.toLocaleString()}
+                    </span>
+                  )
                 }
-                note="Simulated (Demo)"
+                note="Lifetime earnings"
               />
             </div>
             <div
@@ -164,37 +114,36 @@ const MyPosition = () => {
               style={{ animationDelay: "0.25s" }}
             >
               <StatCard
-                label="Amount Pending"
-                value={
-                  <span className="text-secondary">
-                    ${amountPending.toLocaleString()}
-                  </span>
-                }
-                note="Simulated (Demo)"
+                label="Total Claims"
+                value={!connected ? "-" : totalClaims.toString()}
+                note="Registered sells"
               />
             </div>
           </div>
 
-          {/* Payout History */}
+          {/* Claims History */}
           <div
             className="glass-card p-6 animate-slide-up"
             style={{ animationDelay: "0.3s" }}
           >
             <div className="flex items-center gap-2 mb-6">
               <Clock className="h-5 w-5 text-muted-foreground" />
-              <h2 className="text-lg font-semibold">Payout History</h2>
+              <h2 className="text-lg font-semibold">Registered Sells</h2>
             </div>
 
-            {payoutHistory.length > 0 ? (
+            {claims.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-border/50">
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                        Date
+                        ID
                       </th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                        Amount
+                        Locked Amount
+                      </th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                        USDC Paid
                       </th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
                         Status
@@ -202,36 +151,38 @@ const MyPosition = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {payoutHistory.map((item, index) => (
+                    {claims.map((claim) => (
                       <tr
-                        key={index}
+                        key={claim.id}
                         className="border-b border-border/30 last:border-0"
                       >
                         <td className="py-4 px-4 text-sm text-muted-foreground">
-                          {item.date}
+                          #{claim.id}
                         </td>
                         <td className="py-4 px-4 text-sm font-medium text-foreground">
-                          ${item.amount.toLocaleString()}
+                          {(
+                            Number(claim.tokenAmountLocked) / 1e9
+                          ).toLocaleString()}{" "}
+                          BNKR
+                        </td>
+                        <td className="py-4 px-4 text-sm font-medium text-foreground">
+                          ${(Number(claim.usdcPaid) / 1e6).toLocaleString()}
                         </td>
                         <td className="py-4 px-4">
                           <Badge
-                            variant={
-                              item.status === "completed"
-                                ? "default"
-                                : "secondary"
-                            }
+                            variant={claim.isClosed ? "secondary" : "default"}
                             className={
-                              item.status === "completed"
-                                ? "bg-primary/20 text-primary hover:bg-primary/30"
-                                : "bg-secondary/20 text-secondary hover:bg-secondary/30"
+                              claim.isClosed
+                                ? "bg-secondary/20 text-secondary hover:bg-secondary/30"
+                                : "bg-primary/20 text-primary hover:bg-primary/30"
                             }
                           >
-                            {item.status === "completed" ? (
+                            {claim.isClosed ? (
                               <CheckCircle className="h-3 w-3 mr-1" />
                             ) : (
                               <AlertCircle className="h-3 w-3 mr-1" />
                             )}
-                            {item.status}
+                            {claim.isClosed ? "Closed" : "Open"}
                           </Badge>
                         </td>
                       </tr>
@@ -243,7 +194,9 @@ const MyPosition = () => {
               <div className="text-center py-12">
                 <Wallet className="h-12 w-12 text-muted-foreground/50 mx-auto mb-4" />
                 <p className="text-muted-foreground">
-                  No payout history available
+                  {!connected
+                    ? "Connect wallet to view claims"
+                    : "No registered sells found"}
                 </p>
               </div>
             )}
@@ -252,6 +205,6 @@ const MyPosition = () => {
       </div>
     </Layout>
   );
-};
+};;
 
 export default MyPosition;
