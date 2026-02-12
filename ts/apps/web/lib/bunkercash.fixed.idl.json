@@ -1,5 +1,5 @@
 {
-  "address": "66XoVW5tAkopvLUCQ38jbQdysFVFS84VajaNRU7MRNu8",
+  "address": "8BXDkzYBdYroXuMR57P3DbBoexpsKwhCL66HRYFpQMFS",
   "metadata": {
     "name": "bunkercash",
     "version": "0.1.0",
@@ -15,16 +15,7 @@
         "- Transfers `usdc_amount` from admin -> payout USDC vault.",
         "- Vault is an ATA owned by the Pool Signer PDA (deterministic + reusable)."
       ],
-      "discriminator": [
-        181,
-        157,
-        89,
-        67,
-        143,
-        182,
-        52,
-        72
-      ],
+      "discriminator": [181, 157, 89, 67, 143, 182, 52, 72],
       "accounts": [
         {
           "name": "pool",
@@ -33,21 +24,8 @@
               {
                 "kind": "const",
                 "value": [
-                  98,
-                  117,
-                  110,
-                  107,
-                  101,
-                  114,
-                  99,
-                  97,
-                  115,
-                  104,
-                  95,
-                  112,
-                  111,
-                  111,
-                  108
+                  98, 117, 110, 107, 101, 114, 99, 97, 115, 104, 95, 112, 111,
+                  111, 108
                 ]
               }
             ]
@@ -55,36 +33,14 @@
         },
         {
           "name": "pool_signer",
-          "docs": [
-            "PDA that owns all program vault ATAs (escrow + payout)."
-          ],
+          "docs": ["PDA that owns all program vault ATAs (escrow + payout)."],
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  98,
-                  117,
-                  110,
-                  107,
-                  101,
-                  114,
-                  99,
-                  97,
-                  115,
-                  104,
-                  95,
-                  112,
-                  111,
-                  111,
-                  108,
-                  95,
-                  115,
-                  105,
-                  103,
-                  110,
-                  101,
-                  114
+                  98, 117, 110, 107, 101, 114, 99, 97, 115, 104, 95, 112, 111,
+                  111, 108, 95, 115, 105, 103, 110, 101, 114
                 ]
               },
               {
@@ -127,38 +83,9 @@
             "program": {
               "kind": "const",
               "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
+                140, 151, 37, 143, 78, 36, 137, 241, 187, 61, 16, 41, 20, 142,
+                13, 131, 11, 90, 19, 153, 218, 255, 16, 132, 4, 142, 123, 216,
+                219, 233, 248, 89
               ]
             }
           }
@@ -190,16 +117,7 @@
         "- transfer `usdc_amount` from user -> payout USDC vault (legacy SPL token; owned by Pool Signer PDA)",
         "- mint Bunker Cash tokens to user (Token-2022) at fixed price"
       ],
-      "discriminator": [
-        89,
-        86,
-        227,
-        49,
-        41,
-        118,
-        66,
-        248
-      ],
+      "discriminator": [89, 86, 227, 49, 41, 118, 66, 248],
       "accounts": [
         {
           "name": "pool",
@@ -209,21 +127,8 @@
               {
                 "kind": "const",
                 "value": [
-                  98,
-                  117,
-                  110,
-                  107,
-                  101,
-                  114,
-                  99,
-                  97,
-                  115,
-                  104,
-                  95,
-                  112,
-                  111,
-                  111,
-                  108
+                  98, 117, 110, 107, 101, 114, 99, 97, 115, 104, 95, 112, 111,
+                  111, 108
                 ]
               }
             ]
@@ -231,36 +136,14 @@
         },
         {
           "name": "pool_signer",
-          "docs": [
-            "PDA that owns all program vault ATAs (escrow + payout)."
-          ],
+          "docs": ["PDA that owns all program vault ATAs (escrow + payout)."],
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  98,
-                  117,
-                  110,
-                  107,
-                  101,
-                  114,
-                  99,
-                  97,
-                  115,
-                  104,
-                  95,
-                  112,
-                  111,
-                  111,
-                  108,
-                  95,
-                  115,
-                  105,
-                  103,
-                  110,
-                  101,
-                  114
+                  98, 117, 110, 107, 101, 114, 99, 97, 115, 104, 95, 112, 111,
+                  111, 108, 95, 115, 105, 103, 110, 101, 114
                 ]
               },
               {
@@ -278,21 +161,8 @@
               {
                 "kind": "const",
                 "value": [
-                  98,
-                  117,
-                  110,
-                  107,
-                  101,
-                  114,
-                  99,
-                  97,
-                  115,
-                  104,
-                  95,
-                  109,
-                  105,
-                  110,
-                  116
+                  98, 117, 110, 107, 101, 114, 99, 97, 115, 104, 95, 109, 105,
+                  110, 116
                 ]
               }
             ]
@@ -331,38 +201,9 @@
             "program": {
               "kind": "const",
               "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
+                140, 151, 37, 143, 78, 36, 137, 241, 187, 61, 16, 41, 20, 142,
+                13, 131, 11, 90, 19, 153, 218, 255, 16, 132, 4, 142, 123, 216,
+                219, 233, 248, 89
               ]
             }
           }
@@ -377,9 +218,7 @@
         },
         {
           "name": "token_program",
-          "docs": [
-            "Token program for Bunker Cash mint (Token-2022)."
-          ]
+          "docs": ["Token program for Bunker Cash mint (Token-2022)."]
         },
         {
           "name": "associated_token_program",
@@ -409,16 +248,7 @@
         "- Mint authority is the pool PDA, so we must CPI from this program to sign as the PDA.",
         "- Restricted to the pool admin."
       ],
-      "discriminator": [
-        149,
-        67,
-        32,
-        110,
-        123,
-        83,
-        192,
-        165
-      ],
+      "discriminator": [149, 67, 32, 110, 123, 83, 192, 165],
       "accounts": [
         {
           "name": "pool",
@@ -427,21 +257,8 @@
               {
                 "kind": "const",
                 "value": [
-                  98,
-                  117,
-                  110,
-                  107,
-                  101,
-                  114,
-                  99,
-                  97,
-                  115,
-                  104,
-                  95,
-                  112,
-                  111,
-                  111,
-                  108
+                  98, 117, 110, 107, 101, 114, 99, 97, 115, 104, 95, 112, 111,
+                  111, 108
                 ]
               }
             ]
@@ -455,21 +272,8 @@
               {
                 "kind": "const",
                 "value": [
-                  98,
-                  117,
-                  110,
-                  107,
-                  101,
-                  114,
-                  99,
-                  97,
-                  115,
-                  104,
-                  95,
-                  109,
-                  105,
-                  110,
-                  116
+                  98, 117, 110, 107, 101, 114, 99, 97, 115, 104, 95, 109, 105,
+                  110, 116
                 ]
               }
             ]
@@ -482,16 +286,12 @@
         },
         {
           "name": "metadata",
-          "docs": [
-            "Metaplex metadata PDA for the mint."
-          ],
+          "docs": ["Metaplex metadata PDA for the mint."],
           "writable": true
         },
         {
           "name": "token_metadata_program",
-          "docs": [
-            "Metaplex Token Metadata program."
-          ]
+          "docs": ["Metaplex Token Metadata program."]
         },
         {
           "name": "token_program",
@@ -502,9 +302,7 @@
         },
         {
           "name": "sysvar_instructions",
-          "docs": [
-            "Instructions sysvar required by Metaplex CreateV1."
-          ]
+          "docs": ["Instructions sysvar required by Metaplex CreateV1."]
         },
         {
           "name": "system_program",
@@ -532,16 +330,7 @@
         "Initializes the protocol state and creates the Bunker Cash mint.",
         "All mint/redeem operations use a strict fixed price (`price_usdc_per_token`)."
       ],
-      "discriminator": [
-        175,
-        175,
-        109,
-        31,
-        13,
-        152,
-        155,
-        237
-      ],
+      "discriminator": [175, 175, 109, 31, 13, 152, 155, 237],
       "accounts": [
         {
           "name": "pool",
@@ -551,21 +340,8 @@
               {
                 "kind": "const",
                 "value": [
-                  98,
-                  117,
-                  110,
-                  107,
-                  101,
-                  114,
-                  99,
-                  97,
-                  115,
-                  104,
-                  95,
-                  112,
-                  111,
-                  111,
-                  108
+                  98, 117, 110, 107, 101, 114, 99, 97, 115, 104, 95, 112, 111,
+                  111, 108
                 ]
               }
             ]
@@ -579,21 +355,8 @@
               {
                 "kind": "const",
                 "value": [
-                  98,
-                  117,
-                  110,
-                  107,
-                  101,
-                  114,
-                  99,
-                  97,
-                  115,
-                  104,
-                  95,
-                  109,
-                  105,
-                  110,
-                  116
+                  98, 117, 110, 107, 101, 114, 99, 97, 115, 104, 95, 109, 105,
+                  110, 116
                 ]
               }
             ]
@@ -606,9 +369,7 @@
         },
         {
           "name": "token_program",
-          "docs": [
-            "Token program for Bunker Cash mint (Token-2022)."
-          ]
+          "docs": ["Token program for Bunker Cash mint (Token-2022)."]
         },
         {
           "name": "system_program",
@@ -646,16 +407,7 @@
         "Note: To treat *all* open claims equally, the admin should pass *all* open claims",
         "in a single transaction (subject to tx size/compute constraints)."
       ],
-      "discriminator": [
-        171,
-        184,
-        106,
-        236,
-        60,
-        19,
-        18,
-        7
-      ],
+      "discriminator": [171, 184, 106, 236, 60, 19, 18, 7],
       "accounts": [
         {
           "name": "pool",
@@ -664,21 +416,8 @@
               {
                 "kind": "const",
                 "value": [
-                  98,
-                  117,
-                  110,
-                  107,
-                  101,
-                  114,
-                  99,
-                  97,
-                  115,
-                  104,
-                  95,
-                  112,
-                  111,
-                  111,
-                  108
+                  98, 117, 110, 107, 101, 114, 99, 97, 115, 104, 95, 112, 111,
+                  111, 108
                 ]
               }
             ]
@@ -686,36 +425,14 @@
         },
         {
           "name": "pool_signer",
-          "docs": [
-            "PDA that owns all program vault ATAs (escrow + payout)."
-          ],
+          "docs": ["PDA that owns all program vault ATAs (escrow + payout)."],
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  98,
-                  117,
-                  110,
-                  107,
-                  101,
-                  114,
-                  99,
-                  97,
-                  115,
-                  104,
-                  95,
-                  112,
-                  111,
-                  111,
-                  108,
-                  95,
-                  115,
-                  105,
-                  103,
-                  110,
-                  101,
-                  114
+                  98, 117, 110, 107, 101, 114, 99, 97, 115, 104, 95, 112, 111,
+                  111, 108, 95, 115, 105, 103, 110, 101, 114
                 ]
               },
               {
@@ -751,16 +468,7 @@
         "",
         "IMPORTANT: No burn is allowed in this flow."
       ],
-      "discriminator": [
-        220,
-        250,
-        100,
-        136,
-        104,
-        188,
-        72,
-        230
-      ],
+      "discriminator": [220, 250, 100, 136, 104, 188, 72, 230],
       "accounts": [
         {
           "name": "pool",
@@ -770,21 +478,8 @@
               {
                 "kind": "const",
                 "value": [
-                  98,
-                  117,
-                  110,
-                  107,
-                  101,
-                  114,
-                  99,
-                  97,
-                  115,
-                  104,
-                  95,
-                  112,
-                  111,
-                  111,
-                  108
+                  98, 117, 110, 107, 101, 114, 99, 97, 115, 104, 95, 112, 111,
+                  111, 108
                 ]
               }
             ]
@@ -792,36 +487,14 @@
         },
         {
           "name": "pool_signer",
-          "docs": [
-            "PDA that owns all program vault ATAs (escrow + payout)."
-          ],
+          "docs": ["PDA that owns all program vault ATAs (escrow + payout)."],
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  98,
-                  117,
-                  110,
-                  107,
-                  101,
-                  114,
-                  99,
-                  97,
-                  115,
-                  104,
-                  95,
-                  112,
-                  111,
-                  111,
-                  108,
-                  95,
-                  115,
-                  105,
-                  103,
-                  110,
-                  101,
-                  114
+                  98, 117, 110, 107, 101, 114, 99, 97, 115, 104, 95, 112, 111,
+                  111, 108, 95, 115, 105, 103, 110, 101, 114
                 ]
               },
               {
@@ -839,21 +512,8 @@
               {
                 "kind": "const",
                 "value": [
-                  98,
-                  117,
-                  110,
-                  107,
-                  101,
-                  114,
-                  99,
-                  97,
-                  115,
-                  104,
-                  95,
-                  109,
-                  105,
-                  110,
-                  116
+                  98, 117, 110, 107, 101, 114, 99, 97, 115, 104, 95, 109, 105,
+                  110, 116
                 ]
               }
             ]
@@ -893,47 +553,16 @@
             "program": {
               "kind": "const",
               "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
+                140, 151, 37, 143, 78, 36, 137, 241, 187, 61, 16, 41, 20, 142,
+                13, 131, 11, 90, 19, 153, 218, 255, 16, 132, 4, 142, 123, 216,
+                219, 233, 248, 89
               ]
             }
           }
         },
         {
           "name": "token_program",
-          "docs": [
-            "Token program for the Bunker Cash mint (Token-2022)."
-          ]
+          "docs": ["Token program for the Bunker Cash mint (Token-2022)."]
         },
         {
           "name": "associated_token_program",
@@ -953,19 +582,8 @@
     },
     {
       "name": "update_price",
-      "docs": [
-        "Updates the fixed price (USDC base units per 1 whole token)."
-      ],
-      "discriminator": [
-        61,
-        34,
-        117,
-        155,
-        75,
-        34,
-        123,
-        208
-      ],
+      "docs": ["Updates the fixed price (USDC base units per 1 whole token)."],
+      "discriminator": [61, 34, 117, 155, 75, 34, 123, 208],
       "accounts": [
         {
           "name": "pool",
@@ -975,21 +593,8 @@
               {
                 "kind": "const",
                 "value": [
-                  98,
-                  117,
-                  110,
-                  107,
-                  101,
-                  114,
-                  99,
-                  97,
-                  115,
-                  104,
-                  95,
-                  112,
-                  111,
-                  111,
-                  108
+                  98, 117, 110, 107, 101, 114, 99, 97, 115, 104, 95, 112, 111,
+                  111, 108
                 ]
               }
             ]
@@ -1011,44 +616,17 @@
   "accounts": [
     {
       "name": "ClaimState",
-      "discriminator": [
-        71,
-        73,
-        19,
-        83,
-        53,
-        228,
-        242,
-        53
-      ]
+      "discriminator": [71, 73, 19, 83, 53, 228, 242, 53]
     },
     {
       "name": "PoolState",
-      "discriminator": [
-        247,
-        237,
-        227,
-        245,
-        215,
-        195,
-        222,
-        70
-      ]
+      "discriminator": [247, 237, 227, 245, 215, 195, 222, 70]
     }
   ],
   "events": [
     {
       "name": "LiquidityAdded",
-      "discriminator": [
-        154,
-        26,
-        221,
-        108,
-        238,
-        64,
-        217,
-        161
-      ]
+      "discriminator": [154, 26, 221, 108, 238, 64, 217, 161]
     }
   ],
   "errors": [
@@ -1172,9 +750,7 @@
     },
     {
       "name": "LiquidityAdded",
-      "docs": [
-        "Emitted when the admin deposits USDC into the payout vault."
-      ],
+      "docs": ["Emitted when the admin deposits USDC into the payout vault."],
       "type": {
         "kind": "struct",
         "fields": [
@@ -1208,9 +784,7 @@
           },
           {
             "name": "price_usdc_per_token",
-            "docs": [
-              "USDC base units per 1 whole token."
-            ],
+            "docs": ["USDC base units per 1 whole token."],
             "type": "u64"
           },
           {

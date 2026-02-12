@@ -10,7 +10,7 @@ use mpl_token_metadata::types::TokenStandard;
 use std::io::Cursor;
 
 // NOTE: This must match the deployed program id (and `target/deploy/bunkercash-keypair.json`).
-declare_id!("66XoVW5tAkopvLUCQ38jbQdysFVFS84VajaNRU7MRNu8");
+declare_id!("8BXDkzYBdYroXuMR57P3DbBoexpsKwhCL66HRYFpQMFS");
 
 /// PDA seed for the protocol's single pool state.
 pub const POOL_SEED: &[u8] = b"bunkercash_pool";

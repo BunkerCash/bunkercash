@@ -87,7 +87,13 @@ export function BuyPrimaryInterface() {
         );
         const balance = await connection.getTokenAccountBalance(userUsdc);
         setUsdcBalance(balance.value.uiAmountString ?? "0");
-      } catch {
+        console.log("Using USDC Mint:", usdcMint.toString());
+        console.log("User USDC ATA:", userUsdc.toString());
+        console.log("USDC Balance response:", balance);
+      } catch (e) {
+        console.error("Error fetching USDC balance:", e);
+        // If the account doesn't exist, it throws.
+        // We can double check if it's an account-not-found error, but for now defaulting to 0 is safe for UI.
         setUsdcBalance("0");
       }
     };
@@ -203,7 +209,7 @@ export function BuyPrimaryInterface() {
             user: wallet.publicKey,
             usdcMint,
             userUsdc,
-            poolUsdcVault,
+            payoutUsdcVault,
             userBunkercash,
             usdcTokenProgram: TOKEN_PROGRAM_ID,
             tokenProgram: TOKEN_2022_PROGRAM_ID,
