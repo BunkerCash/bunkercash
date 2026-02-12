@@ -61,3 +61,7 @@ NEW_PRICE_USDC_PER_TOKEN=1000000 npx ts-node -P tsconfig.json scripts/update-pri
 
 ## Events
 
+The program emits the following events (see `ts/apps/web/lib/bunkercash.fixed.idl.json`):
+
+- `LiquidityAdded`: emitted when the pool admin transfers USDC into the payout vault via `add_liquidity`.
+

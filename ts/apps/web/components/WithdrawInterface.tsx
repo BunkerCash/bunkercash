@@ -94,14 +94,6 @@ export function WithdrawInterface() {
         TOKEN_2022_PROGRAM_ID,
         ASSOCIATED_TOKEN_PROGRAM_ID
       )
-      const createEscrowAtaIx = createAssociatedTokenAccountIdempotentInstruction(
-        wallet.publicKey,
-        escrowVaultAta,
-        poolSignerPda,
-        mintPda,
-        TOKEN_2022_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      )
 
       const registerIx = await (program.methods as any)
         .registerSell(sellAmount)
@@ -114,11 +106,12 @@ export function WithdrawInterface() {
           userBunkercash: userBunkercashAta,
           escrowBunkercashVault: escrowVaultAta,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .instruction()
 
-      const tx = new Transaction().add(createUserAtaIx, createEscrowAtaIx, registerIx)
+      const tx = new Transaction().add(createUserAtaIx, registerIx)
       const sig = await (program.provider as any).sendAndConfirm(tx)
       setTxSig(sig)
       setAmountUi('')

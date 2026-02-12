@@ -21,7 +21,6 @@ import { PublicKey, SystemProgram } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
-  createAssociatedTokenAccountIdempotentInstruction,
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
 
@@ -44,7 +43,6 @@ async function main() {
   const provider = AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const payer = (provider.wallet as any).payer as anchor.web3.Keypair | undefined;
   const wallet = provider.wallet.publicKey;
 
   const program = new Program(idlJson as unknown as Idl, provider);
@@ -85,29 +83,7 @@ async function main() {
     ASSOCIATED_TOKEN_PROGRAM_ID
   );
 
-  // Ensure escrow ATA exists (payer = wallet).
-  {
-    const info = await provider.connection.getAccountInfo(escrowVaultAta, "confirmed");
-    if (!info) {
-      const ix = createAssociatedTokenAccountIdempotentInstruction(
-        wallet,
-        escrowVaultAta,
-        poolSignerPda,
-        bunkercashMintPda,
-        TOKEN_2022_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      );
-      const tx = new anchor.web3.Transaction().add(ix);
-      // In AnchorProvider.env(), node wallet can sign directly with payer.
-      if (!payer) throw new Error("Provider wallet payer not available; cannot create escrow ATA.");
-      await anchor.web3.sendAndConfirmTransaction(provider.connection, tx, [payer], {
-        commitment: "confirmed",
-      });
-      console.log("Created escrow vault ATA:", escrowVaultAta.toBase58());
-    } else {
-      console.log("Escrow vault ATA exists:", escrowVaultAta.toBase58());
-    }
-  }
+  // Escrow vault ATA is created on-demand by the program (init_if_needed).
 
   // Fetch pool state to compute next claim PDA.
   const poolState = await (program.account as any).poolState.fetch(poolPda);
@@ -140,6 +116,7 @@ async function main() {
       userBunkercash: userBunkercashAta,
       escrowBunkercashVault: escrowVaultAta,
       tokenProgram: TOKEN_2022_PROGRAM_ID,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
     })
     .rpc({ commitment: "confirmed" });
