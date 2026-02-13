@@ -1,23 +1,23 @@
+"use client";
+
 import { Layout } from "@/components/layout/Layout";
 import { StatCard } from "@/components/ui/StatCard";
-import { Info, TrendingUp, Flame, DollarSign } from "lucide-react";
+import { Info } from "lucide-react";
 
-const liquidityHistory = [
-  { date: "2024-01-15", type: "addition", amount: 10000 },
-  { date: "2024-01-10", type: "addition", amount: 15000 },
-  { date: "2024-01-05", type: "addition", amount: 8500 },
-  { date: "2024-01-02", type: "addition", amount: 5000 },
-];
-
-const burnHistory = [
-  { date: "2024-01-14", amount: 2500 },
-  { date: "2024-01-12", amount: 1800 },
-  { date: "2024-01-08", amount: 3200 },
-  { date: "2024-01-03", amount: 950 },
-];
+import { usePayoutVault } from "@/hooks/usePayoutVault";
+import { useOpenClaimsCount } from "@/hooks/useOpenClaimsCount";
 
 const PoolStatus = () => {
-  const poolLiquidity = 38500;
+  const {
+    balance: poolLiquidity,
+    loading: liquidityLoading,
+    error: liquidityError,
+  } = usePayoutVault();
+  const {
+    count: openClaimsCount,
+    loading: claimsLoading,
+    error: claimsError,
+  } = useOpenClaimsCount();
 
   return (
     <Layout>
@@ -28,6 +28,10 @@ const PoolStatus = () => {
             <h1 className="text-3xl font-bold text-foreground mb-4">
               Liquidity Pool Status
             </h1>
+            <p className="text-muted-foreground max-w-2xl mx-auto">
+              Real-time transparency into the payout vault and active claims.
+              This page is read-only.
+            </p>
           </div>
 
           {/* Main Stats */}
@@ -39,11 +43,21 @@ const PoolStatus = () => {
               <StatCard
                 label="Available Pool Liquidity"
                 value={
-                  <span className="text-primary">
-                    ${poolLiquidity.toLocaleString()} USDC
-                  </span>
+                  liquidityLoading ? (
+                    <span className="text-muted-foreground text-2xl animate-pulse">
+                      Loading...
+                    </span>
+                  ) : liquidityError ? (
+                    <span className="text-destructive text-sm">
+                      Error loading balance
+                    </span>
+                  ) : (
+                    <span className="text-primary">
+                      ${Number(poolLiquidity).toLocaleString()} USDC
+                    </span>
+                  )
                 }
-                note="Current liquidity available for optional sell registrations - Simulated (Demo)"
+                note="Current liquidity available for payouts"
                 className="glow-primary h-full"
               />
             </div>
@@ -52,85 +66,38 @@ const PoolStatus = () => {
               className="animate-slide-up"
               style={{ animationDelay: "0.15s" }}
             >
-              <div className="glass-card p-6 h-full">
-                <p className="stat-label mb-2">
-                  Indicative Liquidity-Based Course Support
-                </p>
-                <p className="text-lg text-muted-foreground mb-3">
-                  Currently based on available liquidity
-                </p>
-                <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/30">
-                  <Info className="h-4 w-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-muted-foreground">
-                    This value is not a promise, forecast, or guarantee. It is a
-                    purely informational snapshot based on current liquidity.
-                  </p>
-                </div>
-              </div>
+              <StatCard
+                label="Open Claims"
+                value={
+                  claimsLoading ? (
+                    <span className="text-muted-foreground text-2xl animate-pulse">
+                      Loading...
+                    </span>
+                  ) : claimsError ? (
+                    <span className="text-destructive text-sm">
+                      Error loading claims
+                    </span>
+                  ) : (
+                    <span className="text-foreground">{openClaimsCount}</span>
+                  )
+                }
+                note="Active claims waiting for payout"
+                className="glass-card h-full"
+              />
             </div>
           </div>
 
-          {/* History Section */}
-          <div className="grid md:grid-cols-2 gap-6">
-            {/* Liquidity Additions */}
-            <div
-              className="glass-card p-6 animate-slide-up"
-              style={{ animationDelay: "0.2s" }}
-            >
-              <div className="flex items-center gap-2 mb-6">
-                <DollarSign className="h-5 w-5 text-primary" />
-                <h2 className="text-lg font-semibold">
-                  Liquidity Additions{" "}
-                  <span className="text-xs font-normal text-muted-foreground">
-                    (Simulated Demo)
-                  </span>
-                </h2>
-              </div>
-              <div className="space-y-3">
-                {liquidityHistory.map((item, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between py-3 border-b border-border/50 last:border-0"
-                  >
-                    <span className="text-sm text-muted-foreground">
-                      {item.date}
-                    </span>
-                    <span className="text-sm font-medium text-primary">
-                      +${item.amount.toLocaleString()}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Token Burns */}
-            <div
-              className="glass-card p-6 animate-slide-up"
-              style={{ animationDelay: "0.25s" }}
-            >
-              <div className="flex items-center gap-2 mb-6">
-                <Flame className="h-5 w-5 text-destructive" />
-                <h2 className="text-lg font-semibold">
-                  Token Burns{" "}
-                  <span className="text-xs font-normal text-muted-foreground">
-                    (Simulated Demo)
-                  </span>
-                </h2>
-              </div>
-              <div className="space-y-3">
-                {burnHistory.map((item, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between py-3 border-b border-border/50 last:border-0"
-                  >
-                    <span className="text-sm text-muted-foreground">
-                      {item.date}
-                    </span>
-                    <span className="text-sm font-medium text-destructive">
-                      -{item.amount.toLocaleString()} BNKR
-                    </span>
-                  </div>
-                ))}
+          <div className="grid md:grid-cols-1 gap-6 mb-8">
+            <div className="glass-card p-6 h-full">
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/30">
+                <Info className="h-4 w-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-muted-foreground">
+                  The values shown above are read directly from the Solana
+                  blockchain. "Available Pool Liquidity" represents the USDC
+                  balance in the program's payout vault. "Open Claims"
+                  represents the number of active claim accounts that have not
+                  yet been closed.
+                </p>
               </div>
             </div>
           </div>
