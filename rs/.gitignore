@@ -5,3 +5,16 @@ target
 node_modules
 test-ledger
 .yarn
+.env
+.env.*
+.vscode/
+.idea/
+tmp/
+*.swp
+*.buggy
+keypair.json
+id.json
+wallet.json
+# Binaries and large archives
+*.tar.bz2
+solana-release-*

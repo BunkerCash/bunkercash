@@ -11,6 +11,8 @@ import {
   getAssociatedTokenAddressSync,
 } from '@solana/spl-token'
 import { getBunkercashMintPda, getPoolPda, getPoolSignerPda, getProgram, PROGRAM_ID } from '@/lib/program'
+import { useTokenBalance } from "@/hooks/useTokenBalance";
+import { useMyClaims } from "@/hooks/useMyClaims";
 
 export function WithdrawInterface() {
   const { connection } = useConnection()
@@ -21,22 +23,16 @@ export function WithdrawInterface() {
   const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState<string | null>(null)
   const [txSig, setTxSig] = useState<string | null>(null)
-  const [tokenBalanceUi, setTokenBalanceUi] = useState<string>('0')
-  const [claims, setClaims] = useState<
-    Array<{
-      pubkey: PublicKey
-      id: string
-      tokenAmountLocked: string
-      usdcPaid: string
-      isClosed: boolean
-      createdAt: string
-    }>
-  >([])
+
 
   const program = useMemo(() => (wallet.publicKey ? getProgram(connection, wallet) : null), [connection, wallet])
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), [])
   const mintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), [])
   const poolSignerPda = useMemo(() => getPoolSignerPda(poolPda, PROGRAM_ID), [poolPda])
+
+  const { balance: tokenBalanceUi, refreshBalance: fetchTokenBalance } =
+    useTokenBalance();
+  const { claims, refreshClaims: fetchClaims } = useMyClaims();
 
   const userBunkercashAta = useMemo(() => {
     if (!wallet.publicKey) return null
@@ -60,41 +56,6 @@ export function WithdrawInterface() {
       ),
     [mintPda, poolSignerPda]
   )
-
-  const fetchTokenBalance = useCallback(async () => {
-    if (!connection || !userBunkercashAta) return
-    try {
-      const bal = await connection.getTokenAccountBalance(userBunkercashAta, 'confirmed')
-      setTokenBalanceUi(bal.value.uiAmountString ?? '0')
-    } catch {
-      setTokenBalanceUi('0')
-    }
-  }, [connection, userBunkercashAta])
-
-  const fetchClaims = useCallback(async () => {
-    if (!program || !wallet.publicKey) return
-    // ClaimState: fetch all and filter by user (memcmp on pubkey varies by RPC)
-    const all = await (program.account as any).claimState.all()
-    const mine = all.filter(
-      (x: any) => (x.account.user as PublicKey)?.toBase58?.() === wallet.publicKey.toBase58()
-    )
-    const normalized = mine
-      .map((x: any) => ({
-        pubkey: x.publicKey as PublicKey,
-        id: x.account.id?.toString?.() ?? String(x.account.id),
-        tokenAmountLocked: x.account.tokenAmountLocked?.toString?.() ?? String(x.account.tokenAmountLocked),
-        usdcPaid: x.account.usdcPaid?.toString?.() ?? String(x.account.usdcPaid),
-        isClosed: Boolean(x.account.isClosed),
-        createdAt: x.account.createdAt?.toString?.() ?? String(x.account.createdAt),
-      }))
-      .sort((a: any, b: any) => Number(b.id) - Number(a.id))
-    setClaims(normalized)
-  }, [program, wallet.publicKey])
-
-  useEffect(() => {
-    void fetchTokenBalance()
-    void fetchClaims()
-  }, [fetchTokenBalance, fetchClaims])
 
   function uiToBaseUnits(uiAmount: string, decimals: number): BN {
     const s = uiAmount.trim()

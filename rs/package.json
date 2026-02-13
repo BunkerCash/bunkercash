@@ -9,12 +9,14 @@
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",
-    "bn.js": "^5.2.1",
     "@metaplex-foundation/mpl-token-metadata": "^3.4.0",
     "@metaplex-foundation/umi": "^1.4.1",
     "@metaplex-foundation/umi-bundle-defaults": "^1.4.1",
     "@solana/spl-token": "^0.4.14",
-    "@solana/web3.js": "^1.98.4"
+    "@solana/web3.js": "^1.98.4",
+    "anchor": "^1.4.2",
+    "bn.js": "^5.2.1",
+    "cargo": "^0.8.0"
   },
   "devDependencies": {
     "@types/bn.js": "^5.1.0",

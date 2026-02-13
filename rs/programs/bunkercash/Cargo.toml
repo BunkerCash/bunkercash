@@ -28,4 +28,7 @@ anchor-spl = "0.31.1"
 spl-token-2022 = "6.0.0"
 spl-tlv-account-resolution = "0.8.0"
 mpl-token-metadata = "5.1.1"
+# Pin to avoid edition 2024 incompatibility with Solana's cargo-build-sbf
+constant_time_eq = "=0.3.1"
+
 
