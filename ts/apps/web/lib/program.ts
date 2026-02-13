@@ -44,3 +44,15 @@ export function getPoolSignerPda(poolPda: PublicKey, programId: PublicKey = PROG
 }
 
 export { PROGRAM_ID }
+
+export function getReadonlyProgram(connection: Connection): Program<Idl> {
+  const dummyWallet = {
+    publicKey: PublicKey.default,
+    signTransaction: async (tx: any) => tx,
+    signAllTransactions: async (txs: any[]) => txs,
+  };
+  const provider = new AnchorProvider(connection, dummyWallet, {
+    commitment: "confirmed",
+  });
+  return new Program(idl, provider);
+}
