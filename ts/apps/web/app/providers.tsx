@@ -5,6 +5,10 @@ import { Provider as JotaiProvider } from "jotai";
 import { SolanaProvider } from "@/providers/SolanaProvider";
 
 function getWalletEnv(): "mainnet-beta" | "devnet" | "testnet" {
+  const env = process.env.NEXT_PUBLIC_SOLANA_CLUSTER;
+  if (env === "mainnet-beta" || env === "testnet") {
+    return env;
+  }
   // Default to devnet for development/testing
   return "devnet";
 }
