@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { CreditCard, Building } from "lucide-react";
 import { useAtom } from "jotai";
-import { loansAtom, transactionsAtom } from "@/lib/atoms";
+import { loansAtom } from "@/lib/atoms";
 // import { Loan } from "@/types";
 
 export function AdminDeposit() {
@@ -12,7 +12,7 @@ export function AdminDeposit() {
   const [notes, setNotes] = useState("");
 
   const [loans, setLoans] = useAtom(loansAtom);
-  const [transactions, setTransactions] = useAtom(transactionsAtom);
+
 
   const handleDeposit = () => {
     const loanIndex = loans.findIndex((l) => l.id === selectedLoan);
@@ -21,24 +21,7 @@ export function AdminDeposit() {
     const loan = loans[loanIndex];
     const depositAmount = parseFloat(amount.replace(/[^0-9.]/g, ""));
 
-    // Add transaction
-    setTransactions((prev) => [
-      {
-        id: Math.random().toString(36).substr(2, 9),
-        type: "deposit",
-        amount: depositAmount,
-        project: loan.property,
-        timestamp: new Date(),
-        metadata: {
-          hash: Math.random().toString(36).substr(2, 16), // Mock hash
-          purchasePrice: loan.amount, // Using loan amount as proxy for price context
-          description: `Deposit for loan repayment: ${loan.loanId}`,
-          collateralRatio: loan.ltv,
-          propertyAddress: loan.address,
-        },
-      },
-      ...prev,
-    ]);
+
 
     // Update loan outstanding
     const currentOutstanding = parseFloat(

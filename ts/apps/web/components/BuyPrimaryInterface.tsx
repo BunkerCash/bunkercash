@@ -162,64 +162,78 @@ export function BuyPrimaryInterface() {
         wallet.publicKey,
         false,
         TOKEN_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      )
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+      );
       const payoutUsdcVault = getAssociatedTokenAddressSync(
         usdcMint,
         poolSignerPda,
         true,
         TOKEN_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      )
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+      );
       const userBunkercash = getAssociatedTokenAddressSync(
         bunkercashMintPda,
         wallet.publicKey,
         false,
         TOKEN_2022_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      )
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+      );
 
       // Ensure user ATAs exist: USDC (SPL legacy) for payment, Bunker Cash (Token-2022) for receipt.
-      const createUserUsdcAtaIx = createAssociatedTokenAccountIdempotentInstruction(
-        wallet.publicKey,
-        userUsdc,
-        wallet.publicKey,
-        usdcMint,
-        TOKEN_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      )
-      const createUserBunkercashAtaIx = createAssociatedTokenAccountIdempotentInstruction(
-        wallet.publicKey,
-        userBunkercash,
-        wallet.publicKey,
-        bunkercashMintPda,
-        TOKEN_2022_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      )
+      const createUserUsdcAtaIx =
+        createAssociatedTokenAccountIdempotentInstruction(
+          wallet.publicKey,
+          userUsdc,
+          wallet.publicKey,
+          usdcMint,
+          TOKEN_PROGRAM_ID,
+          ASSOCIATED_TOKEN_PROGRAM_ID,
+        );
+      const createUserBunkercashAtaIx =
+        createAssociatedTokenAccountIdempotentInstruction(
+          wallet.publicKey,
+          userBunkercash,
+          wallet.publicKey,
+          bunkercashMintPda,
+          TOKEN_2022_PROGRAM_ID,
+          ASSOCIATED_TOKEN_PROGRAM_ID,
+        );
 
-        const buyPrimaryIx = await (program.methods as any)
-          .buyPrimary(new BN(usdcAmountRaw.toString()))
-          .accounts({
-            pool: poolPda,
-            poolSigner: poolSignerPda,
-            bunkercashMint: bunkercashMintPda,
-            user: wallet.publicKey,
-            usdcMint,
-            userUsdc,
-            payoutUsdcVault,
-            userBunkercash,
-            usdcTokenProgram: TOKEN_PROGRAM_ID,
-            tokenProgram: TOKEN_2022_PROGRAM_ID,
-            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-            systemProgram: SystemProgram.programId,
-          })
-          .instruction();
+      const buyPrimaryIx = await (program.methods as any)
+        .buyPrimary(new BN(usdcAmountRaw.toString()))
+        .accounts({
+          pool: poolPda,
+          poolSigner: poolSignerPda,
+          bunkercashMint: bunkercashMintPda,
+          user: wallet.publicKey,
+          usdcMint,
+          userUsdc,
+          payoutUsdcVault,
+          userBunkercash,
+          usdcTokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .instruction();
 
-      const tx = new Transaction().add(createUserUsdcAtaIx, createUserBunkercashAtaIx, buyPrimaryIx)
-      const sig = await (program.provider as { sendAndConfirm: (tx: Transaction) => Promise<string> }).sendAndConfirm(tx)
+      const tx = new Transaction().add(
+        createUserUsdcAtaIx,
+        createUserBunkercashAtaIx,
+        buyPrimaryIx,
+      );
+      const sig = await (
+        program.provider as {
+          sendAndConfirm: (tx: Transaction) => Promise<string>;
+        }
+      ).sendAndConfirm(tx);
 
-      setTxSig(sig)
-      setUsdcAmount('')
+      setTxSig(sig);
+      setUsdcAmount("");
+      // Invalidate transactions cache so Transactions tab fetches fresh data
+      const { invalidateTransactionCache } =
+        await import("@/hooks/useMyTransactions");
+      invalidateTransactionCache();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Transaction failed')
     } finally {

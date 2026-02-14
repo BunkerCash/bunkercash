@@ -73,17 +73,17 @@ export function WithdrawInterface() {
     setTxSig(null)
     setSubmitting(true)
     try {
-      const sellAmount = uiToBaseUnits(amountUi, 9)
-      if (sellAmount.lte(new BN(0))) throw new Error('Amount must be > 0')
+      const sellAmount = uiToBaseUnits(amountUi, 9);
+      if (sellAmount.lte(new BN(0))) throw new Error("Amount must be > 0");
 
       // Derive claim PDA from current counter.
-      const poolState = await (program.account as any).poolState.fetch(poolPda)
-      const nextId = new BN(poolState.claimCounter as any).add(new BN(1))
-      const idLe = Uint8Array.from(nextId.toArray('le', 8))
+      const poolState = await (program.account as any).poolState.fetch(poolPda);
+      const nextId = new BN(poolState.claimCounter as any).add(new BN(1));
+      const idLe = Uint8Array.from(nextId.toArray("le", 8));
       const [claimPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('claim'), poolPda.toBuffer(), idLe],
-        PROGRAM_ID
-      )
+        [Buffer.from("claim"), poolPda.toBuffer(), idLe],
+        PROGRAM_ID,
+      );
 
       // Ensure ATAs exist (idempotent).
       const createUserAtaIx = createAssociatedTokenAccountIdempotentInstruction(
@@ -92,8 +92,8 @@ export function WithdrawInterface() {
         wallet.publicKey,
         mintPda,
         TOKEN_2022_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      )
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+      );
 
       const registerIx = await (program.methods as any)
         .registerSell(sellAmount)
@@ -109,15 +109,19 @@ export function WithdrawInterface() {
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
-        .instruction()
+        .instruction();
 
-      const tx = new Transaction().add(createUserAtaIx, registerIx)
-      const sig = await (program.provider as any).sendAndConfirm(tx)
-      setTxSig(sig)
-      setAmountUi('')
-      await fetchTokenBalance()
-      await fetchClaims()
-      setActiveView('history')
+      const tx = new Transaction().add(createUserAtaIx, registerIx);
+      const sig = await (program.provider as any).sendAndConfirm(tx);
+      setTxSig(sig);
+      setAmountUi("");
+      await fetchTokenBalance();
+      await fetchClaims();
+      // Invalidate transactions cache so Transactions tab fetches fresh data
+      const { invalidateTransactionCache } =
+        await import("@/hooks/useMyTransactions");
+      invalidateTransactionCache();
+      setActiveView("history");
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Transaction failed')
     } finally {
