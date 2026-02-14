@@ -4,15 +4,17 @@ import { Layout } from "@/components/layout/Layout";
 import { StatCard } from "@/components/ui/StatCard";
 import { TradeInterface } from "@/components/TradeInterface";
 
+import { useTokenPrice } from "@/hooks/useTokenPrice";
+
 export default function Home() {
-  const marketPrice = 1.24;
+  const { price, loading, error } = useTokenPrice();
 
   return (
     <Layout>
       <div className="container mx-auto px-4 py-12">
         <div className="max-w-2xl mx-auto">
           {/* Header */}
-          <div className="text-center mb-10 animate-fade-in">
+          <div className="text-center mb-10">
             <h1 className="text-3xl font-bold text-foreground mb-4">
               Buy Token
             </h1>
@@ -24,16 +26,23 @@ export default function Home() {
           </div>
 
           {/* Market Price Card */}
-          <div
-            className="mb-8 animate-slide-up"
-            style={{ animationDelay: "0.1s" }}
-          >
+          <div className="mb-8">
             <StatCard
               label="Current Market Price"
               value={
-                <span className="text-primary">
-                  ${marketPrice.toFixed(2)} USD
-                </span>
+                loading ? (
+                  <span className="text-muted-foreground animate-pulse">
+                    Loading...
+                  </span>
+                ) : error ? (
+                  <span className="text-destructive text-sm">
+                    Error loading price
+                  </span>
+                ) : (
+                  <span className="text-primary">
+                    ${price?.toFixed(4) ?? "0.0000"} USD
+                  </span>
+                )
               }
               note="Market price is determined by supply and demand."
               className="glow-primary"
@@ -41,7 +50,7 @@ export default function Home() {
           </div>
 
           {/* Trade Interface */}
-          <div className="animate-slide-up" style={{ animationDelay: "0.2s" }}>
+          <div>
             <TradeInterface hiddenTabs={["withdraw"]} />
           </div>
         </div>

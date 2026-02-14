@@ -34,7 +34,7 @@ const MyPosition = () => {
       <div className="container mx-auto px-4 py-12">
         <div className="max-w-4xl mx-auto">
           {/* Header */}
-          <div className="text-center mb-10 animate-fade-in">
+          <div className="text-center mb-10">
             <h1 className="text-3xl font-bold text-foreground mb-4">
               My Position
             </h1>
@@ -47,10 +47,7 @@ const MyPosition = () => {
 
           {/* Stats Grid */}
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <div
-              className="animate-slide-up"
-              style={{ animationDelay: "0.1s" }}
-            >
+            <div>
               <StatCard
                 label={
                   isLoadingBalance
@@ -79,10 +76,7 @@ const MyPosition = () => {
                 }
               />
             </div>
-            <div
-              className="animate-slide-up"
-              style={{ animationDelay: "0.15s" }}
-            >
+            <div>
               <StatCard
                 label="Locked Tokens"
                 value={
@@ -91,10 +85,7 @@ const MyPosition = () => {
                 note="In open claims"
               />
             </div>
-            <div
-              className="animate-slide-up"
-              style={{ animationDelay: "0.2s" }}
-            >
+            <div>
               <StatCard
                 label="Total USDC Paid"
                 value={
@@ -109,10 +100,7 @@ const MyPosition = () => {
                 note="Lifetime earnings"
               />
             </div>
-            <div
-              className="animate-slide-up"
-              style={{ animationDelay: "0.25s" }}
-            >
+            <div>
               <StatCard
                 label="Total Claims"
                 value={!connected ? "-" : totalClaims.toString()}
@@ -122,10 +110,7 @@ const MyPosition = () => {
           </div>
 
           {/* Claims History */}
-          <div
-            className="glass-card p-6 animate-slide-up"
-            style={{ animationDelay: "0.3s" }}
-          >
+          <div className="glass-card p-6">
             <div className="flex items-center gap-2 mb-6">
               <Clock className="h-5 w-5 text-muted-foreground" />
               <h2 className="text-lg font-semibold">Registered Sells</h2>

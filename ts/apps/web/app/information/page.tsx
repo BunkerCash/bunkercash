@@ -8,7 +8,7 @@ const Information = () => {
       <div className="container mx-auto px-4 py-12">
         <div className="max-w-4xl mx-auto">
           {/* Header */}
-          <div className="text-center mb-10 animate-fade-in">
+          <div className="text-center mb-10">
             <h1 className="text-4xl font-bold text-foreground mb-4">
               Information & Whitepaper
             </h1>
@@ -18,10 +18,7 @@ const Information = () => {
           </div>
 
           {/* Main Warning */}
-          <div
-            className="mb-8 animate-slide-up"
-            style={{ animationDelay: "0.1s" }}
-          >
+          <div className="mb-8">
             <WarningBox title="Please Read Carefully">
               <p>
                 This page contains critical information about the nature of
@@ -35,10 +32,7 @@ const Information = () => {
           {/* Information Sections */}
           <div className="space-y-8">
             {/* Whitepaper Section */}
-            <div
-              className="glass-card p-8 animate-slide-up"
-              style={{ animationDelay: "0.15s" }}
-            >
+            <div className="glass-card p-8">
               <div className="flex items-center gap-3 mb-6">
                 <div className="p-2 rounded-lg bg-primary/10">
                   <BookOpen className="h-6 w-6 text-primary" />
@@ -138,10 +132,7 @@ const Information = () => {
             </div>
 
             {/* Token Nature */}
-            <div
-              className="glass-card p-6 animate-slide-up"
-              style={{ animationDelay: "0.2s" }}
-            >
+            <div className="glass-card p-6">
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-2 rounded-lg bg-secondary/10">
                   <Info className="h-5 w-5 text-secondary" />
@@ -159,10 +150,7 @@ const Information = () => {
             </div>
 
             {/* Asset Separation */}
-            <div
-              className="glass-card p-6 animate-slide-up"
-              style={{ animationDelay: "0.25s" }}
-            >
+            <div className="glass-card p-6">
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-2 rounded-lg bg-primary/10">
                   <Shield className="h-5 w-5 text-primary" />
@@ -182,17 +170,12 @@ const Information = () => {
             </div>
 
             {/* Liquidity Notice */}
-            <div
-              className="glass-card p-6 animate-slide-up"
-              style={{ animationDelay: "0.3s" }}
-            >
+            <div className="glass-card p-6">
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-2 rounded-lg bg-muted">
                   <FileText className="h-5 w-5 text-muted-foreground" />
                 </div>
-                <h2 className="text-xl font-semibold">
-                  Liquidity Provision
-                </h2>
+                <h2 className="text-xl font-semibold">Liquidity Provision</h2>
               </div>
               <p className="text-muted-foreground leading-relaxed">
                 Any liquidity made available for optional token buybacks is
@@ -207,10 +190,7 @@ const Information = () => {
             </div>
 
             {/* Risk Disclosure */}
-            <div
-              className="glass-card p-6 border-destructive/30 animate-slide-up"
-              style={{ animationDelay: "0.35s" }}
-            >
+            <div className="glass-card p-6 border-destructive/30">
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-2 rounded-lg bg-destructive/10">
                   <AlertTriangle className="h-5 w-5 text-destructive" />
@@ -272,10 +252,7 @@ const Information = () => {
             </div>
 
             {/* No Financial Advice */}
-            <div
-              className="glass-card p-6 animate-slide-up"
-              style={{ animationDelay: "0.4s" }}
-            >
+            <div className="glass-card p-6">
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-2 rounded-lg bg-muted">
                   <Info className="h-5 w-5 text-muted-foreground" />
@@ -294,10 +271,7 @@ const Information = () => {
           </div>
 
           {/* Footer Disclaimer */}
-          <div
-            className="mt-12 p-6 glass-card animate-slide-up"
-            style={{ animationDelay: "0.45s" }}
-          >
+          <div className="mt-12 p-6 glass-card">
             <h3 className="text-sm font-semibold text-foreground mb-3 text-center">
               Legal Disclaimer
             </h3>
