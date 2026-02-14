@@ -19,15 +19,9 @@ export interface Withdrawal {
 
 export interface Transaction {
   id: string;
-  type: "deposit" | "withdrawal" | "investment" | "flowback";
-  amount: number;
-  project: string;
+  type: "investment" | "withdrawal";
+  amount: number; // USDC amount
+  tokenAmount?: number; // BNKR token amount
   timestamp: Date;
-  metadata?: {
-    hash: string;
-    purchasePrice: string;
-    description: string;
-    collateralRatio: string;
-    propertyAddress?: string;
-  };
+  txSignature?: string; // Solana transaction signature for explorer link
 }

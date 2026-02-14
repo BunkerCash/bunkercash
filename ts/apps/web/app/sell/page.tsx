@@ -8,7 +8,7 @@ export default function SellRegistration() {
     <Layout>
       <div className="container mx-auto px-4 py-12">
         <div className="max-w-2xl mx-auto">
-          <div className="text-center mb-10 animate-fade-in">
+          <div className="text-center mb-10">
             <h1 className="text-3xl font-bold text-foreground mb-4">
               Sell Registration
             </h1>
@@ -17,7 +17,7 @@ export default function SellRegistration() {
             </p>
           </div>
 
-          <div className="animate-slide-up" style={{ animationDelay: "0.1s" }}>
+          <div>
             <TradeInterface
               initialTab="withdraw"
               hiddenTabs={["buy-primary"]}

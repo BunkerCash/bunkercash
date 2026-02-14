@@ -11,13 +11,12 @@ import {
   getProgram,
   PROGRAM_ID,
 } from "@/lib/program";
-import { ArrowDown } from 'lucide-react'
+import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
+import { ArrowDown, AlertCircle } from "lucide-react";
 import { BN } from '@coral-xyz/anchor'
 
 const USDC_DECIMALS = 6
-const BUNKERCASH_DECIMALS = 9
-/** Devnet USDC mint (SPL legacy token). Pay with this USDC testnet directly. */
-const DEFAULT_DEVNET_USDC_MINT = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'
+const BUNKERCASH_DECIMALS = 9;
 
 function toUi(amount: bigint, decimals: number): string {
   const s = amount.toString().padStart(decimals + 1, '0')
@@ -44,10 +43,14 @@ export function BuyPrimaryInterface() {
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), [])
   const bunkercashMintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), [])
   const poolSignerPda = useMemo(() => getPoolSignerPda(poolPda, PROGRAM_ID), [poolPda])
-  const usdcMint = useMemo(
-    () => new PublicKey(process.env.NEXT_PUBLIC_USDC_MINT ?? DEFAULT_DEVNET_USDC_MINT),
-    []
-  )
+  
+  const usdcMint = useMemo(() => {
+    if (!connection) return null;
+    // connection structure might vary, safer to cast or check
+    const endpoint = (connection as any).rpcEndpoint ?? "";
+    const cluster = getClusterFromEndpoint(endpoint);
+    return getUsdcMintForCluster(cluster);
+  }, [connection]);
 
   const fetchPoolState = useCallback(async () => {
     if (!program || !connection) return
@@ -90,11 +93,15 @@ export function BuyPrimaryInterface() {
         console.log("Using USDC Mint:", usdcMint.toString());
         console.log("User USDC ATA:", userUsdc.toString());
         console.log("USDC Balance response:", balance);
-      } catch (e) {
-        console.error("Error fetching USDC balance:", e);
+      } catch (e: any) {
         // If the account doesn't exist, it throws.
         // We can double check if it's an account-not-found error, but for now defaulting to 0 is safe for UI.
-        setUsdcBalance("0");
+        if (e.message?.includes("could not find account")) {
+          setUsdcBalance("0");
+        } else {
+          console.error("Error fetching USDC balance:", e);
+          setUsdcBalance("0");
+        }
       }
     };
     void fetchBalance();
@@ -137,7 +144,15 @@ export function BuyPrimaryInterface() {
   const tokenAmountUi = tokenAmountRaw != null ? toUi(tokenAmountRaw, BUNKERCASH_DECIMALS) : ''
 
   const handleBuy = async () => {
-    if (!program || !wallet.publicKey || !poolState || !usdcAmountRaw || usdcAmountRaw <= BigInt(0)) return
+    if (
+      !program ||
+      !wallet.publicKey ||
+      !poolState ||
+      !usdcAmountRaw ||
+      usdcAmountRaw <= BigInt(0) ||
+      !usdcMint
+    )
+      return;
     setError(null)
     setTxSig(null)
     setLoading(true)
@@ -147,80 +162,78 @@ export function BuyPrimaryInterface() {
         wallet.publicKey,
         false,
         TOKEN_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      )
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+      );
       const payoutUsdcVault = getAssociatedTokenAddressSync(
         usdcMint,
         poolSignerPda,
         true,
         TOKEN_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      )
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+      );
       const userBunkercash = getAssociatedTokenAddressSync(
         bunkercashMintPda,
         wallet.publicKey,
         false,
         TOKEN_2022_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      )
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+      );
 
       // Ensure user ATAs exist: USDC (SPL legacy) for payment, Bunker Cash (Token-2022) for receipt.
-      const createUserUsdcAtaIx = createAssociatedTokenAccountIdempotentInstruction(
-        wallet.publicKey,
-        userUsdc,
-        wallet.publicKey,
-        usdcMint,
-        TOKEN_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      )
-      const createUserBunkercashAtaIx = createAssociatedTokenAccountIdempotentInstruction(
-        wallet.publicKey,
-        userBunkercash,
-        wallet.publicKey,
-        bunkercashMintPda,
-        TOKEN_2022_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      )
-
-        const poolSigner = getPoolSignerPda(poolPda, PROGRAM_ID);
-        const treasuryTokenVault = getAssociatedTokenAddressSync(
+      const createUserUsdcAtaIx =
+        createAssociatedTokenAccountIdempotentInstruction(
+          wallet.publicKey,
+          userUsdc,
+          wallet.publicKey,
+          usdcMint,
+          TOKEN_PROGRAM_ID,
+          ASSOCIATED_TOKEN_PROGRAM_ID,
+        );
+      const createUserBunkercashAtaIx =
+        createAssociatedTokenAccountIdempotentInstruction(
+          wallet.publicKey,
+          userBunkercash,
+          wallet.publicKey,
           bunkercashMintPda,
-          poolSigner,
-          true,
           TOKEN_2022_PROGRAM_ID,
           ASSOCIATED_TOKEN_PROGRAM_ID,
         );
 
-        const buyPrimaryIx = await (
-          program.methods as unknown as {
-            buyPrimary: (amount: BN) => {
-              accounts: (acc: Record<string, PublicKey>) => {
-                instruction: () => Promise<{ keys: unknown[]; data: Buffer }>;
-              };
-            };
-          }
-        )
-          .buyPrimary(new BN(usdcAmountRaw.toString()))
-          .accounts({
-            pool: poolPda,
-            poolSigner,
-            bunkercashMint: bunkercashMintPda,
-            treasuryTokenVault,
-            user: wallet.publicKey,
-            usdcMint,
-            userUsdc,
-            payoutUsdcVault,
-            userBunkercash,
-            usdcTokenProgram: TOKEN_PROGRAM_ID,
-            tokenProgram: TOKEN_2022_PROGRAM_ID,
-          })
-          .instruction();
+      const buyPrimaryIx = await (program.methods as any)
+        .buyPrimary(new BN(usdcAmountRaw.toString()))
+        .accounts({
+          pool: poolPda,
+          poolSigner: poolSignerPda,
+          bunkercashMint: bunkercashMintPda,
+          user: wallet.publicKey,
+          usdcMint,
+          userUsdc,
+          payoutUsdcVault,
+          userBunkercash,
+          usdcTokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .instruction();
 
-      const tx = new Transaction().add(createUserUsdcAtaIx, createUserBunkercashAtaIx, buyPrimaryIx)
-      const sig = await (program.provider as { sendAndConfirm: (tx: Transaction) => Promise<string> }).sendAndConfirm(tx)
+      const tx = new Transaction().add(
+        createUserUsdcAtaIx,
+        createUserBunkercashAtaIx,
+        buyPrimaryIx,
+      );
+      const sig = await (
+        program.provider as {
+          sendAndConfirm: (tx: Transaction) => Promise<string>;
+        }
+      ).sendAndConfirm(tx);
 
-      setTxSig(sig)
-      setUsdcAmount('')
+      setTxSig(sig);
+      setUsdcAmount("");
+      // Invalidate transactions cache so Transactions tab fetches fresh data
+      const { invalidateTransactionCache } =
+        await import("@/hooks/useMyTransactions");
+      invalidateTransactionCache();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Transaction failed')
     } finally {
@@ -288,6 +301,24 @@ npx ts-node -P tsconfig.json scripts/bootstrap-fixed-price.ts`}
         )}
       </div>
     )
+  }
+
+  if (!usdcMint) {
+    return (
+      <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-8 text-center">
+        <div className="flex flex-col items-center gap-3">
+          <AlertCircle className="h-10 w-10 text-red-400" />
+          <h3 className="text-lg font-semibold text-red-400">
+            Unsupported Network
+          </h3>
+          <p className="text-neutral-400 max-w-md">
+            Only USDC on the Solana network is supported for payments. Please
+            switch to a supported Solana cluster (Mainnet, Devnet) and try
+            again.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -380,9 +411,16 @@ npx ts-node -P tsconfig.json scripts/bootstrap-fixed-price.ts`}
         {loading ? "Processing…" : "Buy Bunker Cash"}
       </button>
 
-      <div className="text-center text-xs text-neutral-600">
-        Pay with USDC (SPL legacy) devnet · Fixed-price primary sale → Bunker
-        Cash
+      <div className="text-center text-xs text-neutral-600 space-y-1">
+        <div>
+          Pay with USDC (SPL legacy) · Fixed-price primary sale → Bunker Cash
+        </div>
+        <div className="opacity-50">
+          Network:{" "}
+          {getClusterFromEndpoint((connection as any).rpcEndpoint ?? "")} |
+          Mint: {usdcMint?.toBase58().slice(0, 4)}...
+          {usdcMint?.toBase58().slice(-4)}
+        </div>
       </div>
     </div>
   );

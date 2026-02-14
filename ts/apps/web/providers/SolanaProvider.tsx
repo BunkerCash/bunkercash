@@ -8,6 +8,7 @@ import {
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
 import { PhantomWalletAdapter } from "@solana/wallet-adapter-wallets";
 import { clusterApiUrl } from "@solana/web3.js";
+import { createRateLimitedFetch } from "@/lib/rpc-throttle";
 
 // Import wallet adapter CSS
 import "@solana/wallet-adapter-react-ui/styles.css";
@@ -52,8 +53,14 @@ export const SolanaProvider: FC<SolanaProviderProps> = ({
     return [new PhantomWalletAdapter()];
   }, [providedWallets]);
 
+  // Rate-limited fetch middleware prevents 429s on devnet's public RPC
+  const fetchMiddleware = useMemo(() => createRateLimitedFetch(), []);
+
   return (
-    <ConnectionProvider endpoint={endpoint}>
+    <ConnectionProvider
+      endpoint={endpoint}
+      config={{ fetchMiddleware, disableRetryOnRateLimit: true }}
+    >
       <WalletProvider
         wallets={wallets}
         autoConnect={config?.autoConnect ?? true}
@@ -62,4 +69,5 @@ export const SolanaProvider: FC<SolanaProviderProps> = ({
       </WalletProvider>
     </ConnectionProvider>
   );
-};
+};;;
+

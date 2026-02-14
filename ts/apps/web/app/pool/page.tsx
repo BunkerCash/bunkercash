@@ -6,6 +6,8 @@ import { Info } from "lucide-react";
 
 import { usePayoutVault } from "@/hooks/usePayoutVault";
 import { useOpenClaimsCount } from "@/hooks/useOpenClaimsCount";
+import { useTokenPrice } from "@/hooks/useTokenPrice";
+import { useTokenBalance } from "@/hooks/useTokenBalance";
 
 const PoolStatus = () => {
   const {
@@ -18,13 +20,19 @@ const PoolStatus = () => {
     loading: claimsLoading,
     error: claimsError,
   } = useOpenClaimsCount();
+  const { price, loading: priceLoading, error: priceError } = useTokenPrice();
+  const {
+    balance,
+    loading: balanceLoading,
+    error: balanceError,
+  } = useTokenBalance();
 
   return (
     <Layout>
       <div className="container mx-auto px-4 py-12">
         <div className="max-w-4xl mx-auto">
           {/* Header */}
-          <div className="text-center mb-10 animate-fade-in">
+          <div className="text-center mb-10">
             <h1 className="text-3xl font-bold text-foreground mb-4">
               Liquidity Pool Status
             </h1>
@@ -36,36 +44,37 @@ const PoolStatus = () => {
 
           {/* Main Stats */}
           <div className="grid md:grid-cols-2 gap-6 mb-8">
-            <div
-              className="animate-slide-up"
-              style={{ animationDelay: "0.1s" }}
-            >
+            <div>
               <StatCard
-                label="Available Pool Liquidity"
+                label="My Bunker Cash Value"
                 value={
-                  liquidityLoading ? (
+                  balanceLoading || priceLoading ? (
                     <span className="text-muted-foreground text-2xl animate-pulse">
                       Loading...
                     </span>
-                  ) : liquidityError ? (
+                  ) : balanceError || priceError ? (
                     <span className="text-destructive text-sm">
-                      Error loading balance
+                      Error loading data
                     </span>
                   ) : (
                     <span className="text-primary">
-                      ${Number(poolLiquidity).toLocaleString()} USDC
+                      $
+                      {(Number(balance) * (price || 0)).toLocaleString(
+                        undefined,
+                        {
+                          maximumFractionDigits: 2,
+                        },
+                      )}{" "}
+                      USDC
                     </span>
                   )
                 }
-                note="Current liquidity available for payouts"
+                note={`Based on your ${Number(balance).toLocaleString()} BNKR balance`}
                 className="glow-primary h-full"
               />
             </div>
 
-            <div
-              className="animate-slide-up"
-              style={{ animationDelay: "0.15s" }}
-            >
+            <div>
               <StatCard
                 label="Open Claims"
                 value={
