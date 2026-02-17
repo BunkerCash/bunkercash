@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { BN } from '@coral-xyz/anchor'
 import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js'
@@ -13,16 +13,30 @@ import {
 import { getBunkercashMintPda, getPoolPda, getPoolSignerPda, getProgram, PROGRAM_ID } from '@/lib/program'
 import { useTokenBalance } from "@/hooks/useTokenBalance";
 import { useMyClaims } from "@/hooks/useMyClaims";
+import { useToast } from "@/components/ui/ToastContext";
+
+/** Detect wallet rejection errors */
+function isWalletRejection(e: any): boolean {
+  const msg = (e?.message ?? e?.toString?.() ?? "").toLowerCase();
+  return (
+    msg.includes("user rejected") ||
+    msg.includes("user denied") ||
+    msg.includes("rejected the request") ||
+    msg.includes("transaction was not confirmed")
+  );
+}
 
 export function WithdrawInterface() {
   const { connection } = useConnection()
   const wallet = useWallet()
+  const { showToast } = useToast();
   const [activeView, setActiveView] = useState<'register' | 'history'>('register')
   const [amountUi, setAmountUi] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState<string | null>(null)
   const [txSig, setTxSig] = useState<string | null>(null)
+  const txInFlight = useRef(false);
 
 
   const program = useMemo(() => (wallet.publicKey ? getProgram(connection, wallet) : null), [connection, wallet])
@@ -68,13 +82,28 @@ export function WithdrawInterface() {
   }
 
   const handleRegisterSell = async () => {
-    if (!program || !wallet.publicKey || !connection || !userBunkercashAta) return
-    setError(null)
-    setTxSig(null)
-    setSubmitting(true)
+    if (!program || !wallet.publicKey || !connection || !userBunkercashAta)
+      return;
+
+    // Prevent duplicate submissions
+    if (txInFlight.current) return;
+    txInFlight.current = true;
+
+    setError(null);
+    setTxSig(null);
+    setSubmitting(true);
     try {
       const sellAmount = uiToBaseUnits(amountUi, 9);
       if (sellAmount.lte(new BN(0))) throw new Error("Amount must be > 0");
+
+      // Validate against actual balance
+      if (parseFloat(amountUi) > parseFloat(tokenBalanceUi)) {
+        setError("Amount exceeds your Banker Cash balance");
+        showToast("Insufficient Banker Cash balance", "error");
+        txInFlight.current = false;
+        setSubmitting(false);
+        return;
+      }
 
       // Derive claim PDA from current counter.
       const poolState = await (program.account as any).poolState.fetch(poolPda);
@@ -117,17 +146,26 @@ export function WithdrawInterface() {
       setAmountUi("");
       await fetchTokenBalance();
       await fetchClaims();
+      showToast(`Sell registered! Tx: ${sig.slice(0, 8)}…`, "success");
       // Invalidate transactions cache so Transactions tab fetches fresh data
       const { invalidateTransactionCache } =
         await import("@/hooks/useMyTransactions");
       invalidateTransactionCache();
       setActiveView("history");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Transaction failed')
+    } catch (e: any) {
+      if (isWalletRejection(e)) {
+        setError("Transaction was rejected in your wallet.");
+        showToast("Transaction rejected by wallet", "warning");
+      } else {
+        const msg = e?.message ?? "Transaction failed";
+        setError(msg);
+        showToast(msg, "error");
+      }
     } finally {
-      setSubmitting(false)
+      setSubmitting(false);
+      txInFlight.current = false;
     }
-  }
+  };
 
   return (
     <div className="space-y-8">

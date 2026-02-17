@@ -45,12 +45,11 @@ export function usePayoutVault() {
         // If the account doesn't exist, it might mean no liquidity has been added yet.
         // We can treat this as 0 or an error depending on preference.
         // For a status page, 0 is likely more appropriate if the vault just doesn't exist yet.
-        if (e.message?.includes('could not find account')) {
-            setBalance('0')
+        if (e.message?.includes("could not find account")) {
+          setBalance("0");
         } else {
-            console.error("Error fetching payout vault balance:", e);
-            setError(e.message || 'Failed to fetch balance')
-            setBalance(null)
+          setError(e.message || "Failed to fetch balance");
+          setBalance(null);
         }
       } finally {
         setLoading(false)

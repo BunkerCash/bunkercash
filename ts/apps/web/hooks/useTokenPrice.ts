@@ -39,7 +39,6 @@ export function useTokenPrice() {
         
         setPrice(priceFloat)
       } catch (e: any) {
-        console.error('Error fetching token price:', e)
         setError(e.message || 'Failed to fetch token price')
         setPrice(null)
       } finally {
