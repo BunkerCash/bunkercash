@@ -2,30 +2,16 @@
 
 import { Layout } from "@/components/layout/Layout";
 import { StatCard } from "@/components/ui/StatCard";
-import { Info } from "lucide-react";
-
-import { usePayoutVault } from "@/hooks/usePayoutVault";
-import { useOpenClaimsCount } from "@/hooks/useOpenClaimsCount";
-import { useTokenPrice } from "@/hooks/useTokenPrice";
-import { useTokenBalance } from "@/hooks/useTokenBalance";
+import { Info, RefreshCw } from "lucide-react";
+import { usePoolStats } from "@/hooks/usePoolStats";
 
 const PoolStatus = () => {
-  const {
-    balance: poolLiquidity,
-    loading: liquidityLoading,
-    error: liquidityError,
-  } = usePayoutVault();
-  const {
-    count: openClaimsCount,
-    loading: claimsLoading,
-    error: claimsError,
-  } = useOpenClaimsCount();
-  const { price, loading: priceLoading, error: priceError } = useTokenPrice();
-  const {
-    balance,
-    loading: balanceLoading,
-    error: balanceError,
-  } = useTokenBalance();
+  const { stats, loading, error, refresh } = usePoolStats();
+
+  const formatTime = (d: Date | null) => {
+    if (!d) return "—";
+    return d.toLocaleTimeString();
+  };
 
   return (
     <Layout>
@@ -37,76 +23,163 @@ const PoolStatus = () => {
               Liquidity Pool Status
             </h1>
             <p className="text-muted-foreground max-w-2xl mx-auto">
-              Real-time transparency into the payout vault and active claims.
-              This page is read-only.
+              Real-time transparency into the pool, supply metrics, and active
+              claims. This page is read-only.
             </p>
           </div>
 
-          {/* Main Stats */}
-          <div className="grid md:grid-cols-2 gap-6 mb-8">
+          {/* Error Banner */}
+          {error && (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400 mb-6">
+              {error}
+            </div>
+          )}
+
+          {/* Main Stats Grid */}
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
             <div>
               <StatCard
-                label="My Bunker Cash Value"
+                label="Token Price"
                 value={
-                  balanceLoading || priceLoading ? (
+                  loading ? (
                     <span className="text-muted-foreground text-2xl animate-pulse">
                       Loading...
                     </span>
-                  ) : balanceError || priceError ? (
-                    <span className="text-destructive text-sm">
-                      Error loading data
-                    </span>
                   ) : (
                     <span className="text-primary">
-                      $
-                      {(Number(balance) * (price || 0)).toLocaleString(
-                        undefined,
-                        {
-                          maximumFractionDigits: 2,
-                        },
-                      )}{" "}
-                      USDC
+                      ${stats.pricePerToken?.toFixed(4) ?? "—"} USDC
                     </span>
                   )
                 }
-                note={`Based on your ${Number(balance).toLocaleString()} BNKR balance`}
+                note="Fixed primary sale price"
                 className="glow-primary h-full"
               />
             </div>
 
             <div>
               <StatCard
-                label="Open Claims"
+                label="Treasury USDC"
                 value={
-                  claimsLoading ? (
+                  loading ? (
                     <span className="text-muted-foreground text-2xl animate-pulse">
                       Loading...
                     </span>
-                  ) : claimsError ? (
-                    <span className="text-destructive text-sm">
-                      Error loading claims
-                    </span>
                   ) : (
-                    <span className="text-foreground">{openClaimsCount}</span>
+                    <span className="text-foreground">
+                      ${stats.treasuryUsdc ?? "0"} USDC
+                    </span>
                   )
                 }
-                note="Active claims waiting for payout"
+                note="Payout vault balance"
+                className="glass-card h-full"
+              />
+            </div>
+
+            <div>
+              <StatCard
+                label="Total Supply"
+                value={
+                  loading ? (
+                    <span className="text-muted-foreground text-2xl animate-pulse">
+                      Loading...
+                    </span>
+                  ) : (
+                    <span className="text-foreground">
+                      {stats.totalSupply ?? "—"} BNKR
+                    </span>
+                  )
+                }
+                note="All minted tokens"
+                className="glass-card h-full"
+              />
+            </div>
+
+            <div>
+              <StatCard
+                label="Circulating Supply"
+                value={
+                  loading ? (
+                    <span className="text-muted-foreground text-2xl animate-pulse">
+                      Loading...
+                    </span>
+                  ) : (
+                    <span className="text-primary">
+                      {stats.circulatingSupply ?? "—"} BNKR
+                    </span>
+                  )
+                }
+                note="Freely tradable tokens"
+                className="glow-primary h-full"
+              />
+            </div>
+
+            <div>
+              <StatCard
+                label="Locked Supply"
+                value={
+                  loading ? (
+                    <span className="text-muted-foreground text-2xl animate-pulse">
+                      Loading...
+                    </span>
+                  ) : (
+                    <span className="text-foreground">
+                      {stats.lockedSupply ?? "—"} BNKR
+                    </span>
+                  )
+                }
+                note="In open sell registrations"
+                className="glass-card h-full"
+              />
+            </div>
+
+            <div>
+              <StatCard
+                label="Unlocked Supply"
+                value={
+                  loading ? (
+                    <span className="text-muted-foreground text-2xl animate-pulse">
+                      Loading...
+                    </span>
+                  ) : (
+                    <span className="text-foreground">
+                      {stats.circulatingSupply ?? "—"} BNKR
+                    </span>
+                  )
+                }
+                note="Same as circulating (not locked)"
                 className="glass-card h-full"
               />
             </div>
           </div>
 
+          {/* Refresh + Info */}
           <div className="grid md:grid-cols-1 gap-6 mb-8">
             <div className="glass-card p-6 h-full">
-              <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/30">
-                <Info className="h-4 w-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-muted-foreground">
-                  The values shown above are read directly from the Solana
-                  blockchain. "Available Pool Liquidity" represents the USDC
-                  balance in the program's payout vault. "Open Claims"
-                  represents the number of active claim accounts that have not
-                  yet been closed.
-                </p>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/30 flex-1">
+                  <Info className="h-4 w-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-muted-foreground">
+                    All values are read directly from the Solana blockchain.
+                    &quot;Treasury USDC&quot; is the payout vault balance.
+                    Supply metrics are derived from the Token-2022 mint and open
+                    claim accounts.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">
+                  Last refreshed: {formatTime(stats.lastRefreshed)}
+                </span>
+                <button
+                  onClick={() => void refresh()}
+                  disabled={loading}
+                  className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw
+                    className={`h-3 w-3 ${loading ? "animate-spin" : ""}`}
+                  />
+                  Refresh
+                </button>
               </div>
             </div>
           </div>

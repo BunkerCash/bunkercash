@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js'
 import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
@@ -14,6 +14,7 @@ import {
 import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
 import { ArrowDown, AlertCircle } from "lucide-react";
 import { BN } from '@coral-xyz/anchor'
+import { useToast } from "@/components/ui/ToastContext";
 
 const USDC_DECIMALS = 6
 const BUNKERCASH_DECIMALS = 9;
@@ -25,25 +26,39 @@ function toUi(amount: bigint, decimals: number): string {
   return tail.length ? `${head}.${tail}` : head
 }
 
+/** Detect wallet rejection errors */
+function isWalletRejection(e: any): boolean {
+  const msg = (e?.message ?? e?.toString?.() ?? '').toLowerCase()
+  return msg.includes('user rejected') || msg.includes('user denied') || msg.includes('rejected the request') || msg.includes('transaction was not confirmed')
+}
+
 export function BuyPrimaryInterface() {
   const { connection } = useConnection()
   const wallet = useWallet()
-  const [usdcAmount, setUsdcAmount] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [txSig, setTxSig] = useState<string | null>(null)
+  const { showToast } = useToast();
+  const [usdcAmount, setUsdcAmount] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [txSig, setTxSig] = useState<string | null>(null);
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
+  const txInFlight = useRef(false);
   const [poolState, setPoolState] = useState<{
-    priceUsdcPerToken: BN
-    admin: PublicKey
-  } | null>(null)
-  const [poolError, setPoolError] = useState<string | null>(null)
+    priceUsdcPerToken: BN;
+    admin: PublicKey;
+  } | null>(null);
+  const [poolError, setPoolError] = useState<string | null>(null);
 
-  const program = useMemo(() => (wallet.publicKey ? getProgram(connection, wallet) : null), [connection, wallet])
-  const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), [])
-  const bunkercashMintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), [])
-  const poolSignerPda = useMemo(() => getPoolSignerPda(poolPda, PROGRAM_ID), [poolPda])
-  
+  const program = useMemo(
+    () => (wallet.publicKey ? getProgram(connection, wallet) : null),
+    [connection, wallet],
+  );
+  const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), []);
+  const bunkercashMintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), []);
+  const poolSignerPda = useMemo(
+    () => getPoolSignerPda(poolPda, PROGRAM_ID),
+    [poolPda],
+  );
+
   const usdcMint = useMemo(() => {
     if (!connection) return null;
     // connection structure might vary, safer to cast or check
@@ -53,29 +68,31 @@ export function BuyPrimaryInterface() {
   }, [connection]);
 
   const fetchPoolState = useCallback(async () => {
-    if (!program || !connection) return
+    if (!program || !connection) return;
     try {
       const state = await (
         program.account as {
           poolState: {
-            fetch: (key: PublicKey) => Promise<{ priceUsdcPerToken: BN; admin: PublicKey }>
-          }
+            fetch: (
+              key: PublicKey,
+            ) => Promise<{ priceUsdcPerToken: BN; admin: PublicKey }>;
+          };
         }
-      ).poolState.fetch(poolPda)
+      ).poolState.fetch(poolPda);
       setPoolState({
         priceUsdcPerToken: state.priceUsdcPerToken as BN,
         admin: state.admin as PublicKey,
-      })
-      setPoolError(null)
+      });
+      setPoolError(null);
     } catch {
-      setPoolError('not_initialized')
-      setPoolState(null)
+      setPoolError("not_initialized");
+      setPoolState(null);
     }
-  }, [program, poolPda, connection])
+  }, [program, poolPda, connection]);
 
   useEffect(() => {
-    void fetchPoolState()
-  }, [fetchPoolState])
+    void fetchPoolState();
+  }, [fetchPoolState]);
 
   useEffect(() => {
     if (!wallet.publicKey || !connection || !usdcMint) return;
@@ -90,9 +107,6 @@ export function BuyPrimaryInterface() {
         );
         const balance = await connection.getTokenAccountBalance(userUsdc);
         setUsdcBalance(balance.value.uiAmountString ?? "0");
-        console.log("Using USDC Mint:", usdcMint.toString());
-        console.log("User USDC ATA:", userUsdc.toString());
-        console.log("USDC Balance response:", balance);
       } catch (e: any) {
         // If the account doesn't exist, it throws.
         // We can double check if it's an account-not-found error, but for now defaulting to 0 is safe for UI.
@@ -125,23 +139,39 @@ export function BuyPrimaryInterface() {
 
   const pricePerToken = poolState
     ? Number(poolState.priceUsdcPerToken) / 10 ** USDC_DECIMALS
-    : null
+    : null;
 
   const usdcAmountRaw = useMemo(() => {
-    const v = parseFloat(usdcAmount)
-    if (Number.isNaN(v) || v <= 0) return null
-    return BigInt(Math.round(v * 10 ** USDC_DECIMALS))
-  }, [usdcAmount])
+    const v = parseFloat(usdcAmount);
+    if (Number.isNaN(v) || v <= 0) return null;
+    return BigInt(Math.round(v * 10 ** USDC_DECIMALS));
+  }, [usdcAmount]);
 
   const tokenAmountRaw = useMemo(() => {
-    if (!poolState || !usdcAmountRaw) return null
-    const price = poolState.priceUsdcPerToken
-    const scale = BigInt(10 ** BUNKERCASH_DECIMALS)
-    const tokenAmount = (BigInt(usdcAmountRaw.toString()) * scale) / BigInt(price.toString())
-    return tokenAmount
-  }, [poolState, usdcAmountRaw])
+    if (!poolState || !usdcAmountRaw) return null;
+    const price = poolState.priceUsdcPerToken;
+    const scale = BigInt(10 ** BUNKERCASH_DECIMALS);
+    const tokenAmount =
+      (BigInt(usdcAmountRaw.toString()) * scale) / BigInt(price.toString());
+    return tokenAmount;
+  }, [poolState, usdcAmountRaw]);
 
-  const tokenAmountUi = tokenAmountRaw != null ? toUi(tokenAmountRaw, BUNKERCASH_DECIMALS) : ''
+  const tokenAmountUi =
+    tokenAmountRaw != null ? toUi(tokenAmountRaw, BUNKERCASH_DECIMALS) : "";
+
+  // Input validation
+  const inputError = useMemo(() => {
+    if (!usdcAmount) return null;
+    const v = parseFloat(usdcAmount);
+    if (Number.isNaN(v)) return "Enter a valid number";
+    if (v < 0.01) return "Minimum amount is 0.01 USDC";
+    // Check max 6 decimal places
+    const parts = usdcAmount.split(".");
+    if (parts[1] && parts[1].length > 6) return "Max 6 decimal places";
+    if (usdcBalance && v > parseFloat(usdcBalance))
+      return "Insufficient USDC balance";
+    return null;
+  }, [usdcAmount, usdcBalance]);
 
   const handleBuy = async () => {
     if (
@@ -153,9 +183,22 @@ export function BuyPrimaryInterface() {
       !usdcMint
     )
       return;
-    setError(null)
-    setTxSig(null)
-    setLoading(true)
+
+    // Prevent duplicate submissions
+    if (txInFlight.current) return;
+    txInFlight.current = true;
+
+    // Check insufficient balance before sending
+    if (usdcBalance && parseFloat(usdcAmount) > parseFloat(usdcBalance)) {
+      setError("Insufficient USDC balance");
+      showToast("Insufficient USDC balance", "error");
+      txInFlight.current = false;
+      return;
+    }
+
+    setError(null);
+    setTxSig(null);
+    setLoading(true);
     try {
       const userUsdc = getAssociatedTokenAddressSync(
         usdcMint,
@@ -179,7 +222,6 @@ export function BuyPrimaryInterface() {
         ASSOCIATED_TOKEN_PROGRAM_ID,
       );
 
-      // Ensure user ATAs exist: USDC (SPL legacy) for payment, Bunker Cash (Token-2022) for receipt.
       const createUserUsdcAtaIx =
         createAssociatedTokenAccountIdempotentInstruction(
           wallet.publicKey,
@@ -230,16 +272,25 @@ export function BuyPrimaryInterface() {
 
       setTxSig(sig);
       setUsdcAmount("");
+      showToast(`Purchase successful! Tx: ${sig.slice(0, 8)}…`, "success");
       // Invalidate transactions cache so Transactions tab fetches fresh data
       const { invalidateTransactionCache } =
         await import("@/hooks/useMyTransactions");
       invalidateTransactionCache();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Transaction failed')
+    } catch (e: any) {
+      if (isWalletRejection(e)) {
+        setError("Transaction was rejected in your wallet.");
+        showToast("Transaction rejected by wallet", "warning");
+      } else {
+        const msg = e?.message ?? "Transaction failed";
+        setError(msg);
+        showToast(msg, "error");
+      }
     } finally {
-      setLoading(false)
+      setLoading(false);
+      txInFlight.current = false;
     }
-  }
+  };
 
   if (!wallet.publicKey) {
     return (
@@ -403,9 +454,20 @@ npx ts-node -P tsconfig.json scripts/bootstrap-fixed-price.ts`}
         </div>
       )}
 
+      {inputError && usdcAmount && (
+        <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-400">
+          {inputError}
+        </div>
+      )}
+
       <button
         onClick={handleBuy}
-        disabled={loading || !usdcAmountRaw || usdcAmountRaw <= BigInt(0)}
+        disabled={
+          loading ||
+          !usdcAmountRaw ||
+          usdcAmountRaw <= BigInt(0) ||
+          !!inputError
+        }
         className="w-full rounded-xl bg-[#00FFB2] py-5 text-lg font-semibold text-black transition-all hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600"
       >
         {loading ? "Processing…" : "Buy Bunker Cash"}

@@ -36,9 +36,6 @@ export function AdminDeposit() {
     };
     setLoans(updatedLoans);
 
-    console.log("Depositing", amount, "USDC");
-    console.log("Linked to loan:", loan?.loanId);
-    console.log("Notes:", notes);
 
     setAmount("");
     setSelectedLoan("");

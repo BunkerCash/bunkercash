@@ -48,7 +48,6 @@ export function useMyClaims() {
         .sort((a: any, b: any) => Number(b.id) - Number(a.id))
       setClaims(normalized)
     } catch (e: any) {
-        console.error("Error fetching claims:", e)
         setError(e.message || "Failed to fetch claims")
     } finally {
         setLoading(false)

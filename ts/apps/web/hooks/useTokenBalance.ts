@@ -40,12 +40,11 @@ export function useTokenBalance() {
       setBalance(bal.value.uiAmountString ?? '0')
     } catch (e: any) {
         // If account doesn't exist, balance is 0
-        if (e.message?.includes('could not find account')) {
-            setBalance('0')
+        if (e.message?.includes("could not find account")) {
+          setBalance("0");
         } else {
-            console.error("Error fetching balance:", e)
-            setError(e.message || "Failed to fetch balance")
-            setBalance('0')
+          setError(e.message || "Failed to fetch balance");
+          setBalance("0");
         }
       
     } finally {

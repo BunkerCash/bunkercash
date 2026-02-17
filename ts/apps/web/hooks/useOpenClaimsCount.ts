@@ -35,7 +35,6 @@ export function useOpenClaimsCount() {
         
         setCount(openClaims.length)
       } catch (e: any) {
-        console.error('Error fetching open claims:', e)
         setError(e.message || 'Failed to fetch open claims')
         setCount(null)
       } finally {

@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { Provider as JotaiProvider } from "jotai";
 import { SolanaProvider } from "@/providers/SolanaProvider";
+import { ToastProvider } from "@/components/ui/ToastContext";
 
 function getWalletEnv(): "mainnet-beta" | "devnet" | "testnet" {
   const env = process.env.NEXT_PUBLIC_SOLANA_CLUSTER;
@@ -32,7 +33,9 @@ export function Providers({ children }: { children: ReactNode }) {
         theme: "dark",
       }}
     >
-      <JotaiProvider>{children}</JotaiProvider>
+      <JotaiProvider>
+        <ToastProvider>{children}</ToastProvider>
+      </JotaiProvider>
     </SolanaProvider>
   );
 }

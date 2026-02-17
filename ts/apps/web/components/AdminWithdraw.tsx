@@ -13,22 +13,14 @@ export function AdminWithdraw() {
   const [description, setDescription] = useState('')
 
   const handleWithdraw = () => {
-    console.log('Withdrawing', amount, 'USDC')
-    console.log('Document hash:', documentHash)
-    console.log('Property:', propertyAddress)
-    console.log('Property value:', propertyValue)
-    console.log('Loan amount:', loanAmount)
-    console.log('LTV:', ltv)
-    console.log('Description:', description)
-
-    setAmount('')
-    setDocumentHash('')
-    setPropertyAddress('')
-    setPropertyValue('')
-    setLoanAmount('')
-    setLtv('')
-    setDescription('')
-  }
+    setAmount("");
+    setDocumentHash("");
+    setPropertyAddress("");
+    setPropertyValue("");
+    setLoanAmount("");
+    setLtv("");
+    setDescription("");
+  };
 
   return (
     <div className="space-y-6">
