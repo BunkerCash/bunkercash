@@ -105,12 +105,18 @@ async function main() {
   console.log("Bunker Cash mint PDA:", bunkercashMintPda.toBase58());
   console.log("USDC mint:", DEVNET_USDC_MINT.toBase58());
 
+  // Admin: use ADMIN_PUBKEY env (e.g. your Phantom address) if set; otherwise wallet that runs this script.
+  const adminPubkey = process.env.ADMIN_PUBKEY
+    ? new PublicKey(process.env.ADMIN_PUBKEY)
+    : wallet;
+  console.log("Admin (pool admin):", adminPubkey.toBase58());
+
   // Initialize pool + mint if not already initialized.
   const poolInfo = await provider.connection.getAccountInfo(poolPda, "confirmed");
   if (!poolInfo) {
     const priceUsdcPerToken = new BN(1_000_000); // 1 USDC per 1 token (USDC has 6 decimals)
     const initSig = await (program.methods as any)
-      .initialize(wallet, priceUsdcPerToken)
+      .initialize(adminPubkey, priceUsdcPerToken)
       .accounts({
         pool: poolPda,
         bunkercashMint: bunkercashMintPda,

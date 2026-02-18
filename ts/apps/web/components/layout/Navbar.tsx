@@ -17,6 +17,7 @@ const navItems = [
   { label: "Pool Status", path: "/pool" },
   { label: "My Position", path: "/position" },
   { label: "Information", path: "/information" },
+  { label: "Admin", path: "/admin" },
 ];
 
 export const Navbar = () => {

@@ -17,7 +17,11 @@ export ANCHOR_WALLET="${ANCHOR_WALLET:-$HOME/.config/solana/id.json}"
 # - Or set to your own devnet test mint.
 export USDC_MINT="${USDC_MINT:-Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr}"
 
+# Optional: pool admin pubkey (e.g. your Phantom address). If unset, ANCHOR_WALLET becomes admin.
+# export ADMIN_PUBKEY="YourPhantomOrAdminBase58Address"
+
 echo "RPC=$RPC"
 echo "ANCHOR_WALLET=$ANCHOR_WALLET"
 echo "USDC_MINT=$USDC_MINT"
+[ -n "${ADMIN_PUBKEY:-}" ] && echo "ADMIN_PUBKEY=$ADMIN_PUBKEY"
 
