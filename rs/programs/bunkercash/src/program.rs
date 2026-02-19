@@ -29,6 +29,11 @@ pub const MAX_TOKEN_NAME_LEN: usize = 32;
 pub const MAX_TOKEN_SYMBOL_LEN: usize = 10;
 pub const MAX_TOKEN_URI_LEN: usize = 200;
 
+/// Max USDC deposit amount (in USDC base units, 6 decimals).
+///
+/// 1,000,000 USDC * 10^6 = 1_000_000_000_000
+pub const MAX_USDC_DEPOSIT_BASE_UNITS: u64 = 1_000_000u64 * 1_000_000u64;
+
 fn owed_usdc_base_units(price_usdc_per_token: u64, token_amount_locked: u64) -> Result<u64> {
     // token_amount_locked has BUNKERCASH_DECIMALS decimals.
     // price_usdc_per_token is USDC base units per 1 whole token.
@@ -81,6 +86,10 @@ pub mod bunkercash {
     /// - mint Bunker Cash tokens to user (Token-2022) at fixed price
     pub fn buy_primary(ctx: Context<BuyPrimary>, usdc_amount: u64) -> Result<()> {
         require!(usdc_amount > 0, ErrorCode::InvalidAmount);
+        require!(
+            usdc_amount <= MAX_USDC_DEPOSIT_BASE_UNITS,
+            ErrorCode::DepositLimitExceeded
+        );
 
         let price = ctx.accounts.pool.price_usdc_per_token;
         require!(price > 0, ErrorCode::InvalidAmount);
@@ -142,6 +151,10 @@ pub mod bunkercash {
         require!(
             ctx.accounts.admin.key() == ctx.accounts.pool.admin,
             ErrorCode::Unauthorized
+        );
+        require!(
+            usdc_amount <= MAX_USDC_DEPOSIT_BASE_UNITS,
+            ErrorCode::DepositLimitExceeded
         );
 
         // No minimum / guarantee logic: allow `usdc_amount == 0` so the admin can
@@ -665,6 +678,8 @@ pub struct ClaimState {
 pub enum ErrorCode {
     #[msg("Invalid amount")]
     InvalidAmount,
+    #[msg("Deposit exceeds maximum allowed amount")]
+    DepositLimitExceeded,
     #[msg("Unauthorized")]
     Unauthorized,
     #[msg("Math error")]
