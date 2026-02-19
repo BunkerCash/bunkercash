@@ -165,6 +165,7 @@ export function BuyPrimaryInterface() {
     const v = parseFloat(usdcAmount);
     if (Number.isNaN(v)) return "Enter a valid number";
     if (v < 0.01) return "Minimum amount is 0.01 USDC";
+    if (v > 1000000) return "Maximum specific limit is 1M USDC";
     // Check max 6 decimal places
     const parts = usdcAmount.split(".");
     if (parts[1] && parts[1].length > 6) return "Max 6 decimal places";
@@ -399,6 +400,9 @@ npx ts-node -P tsconfig.json scripts/bootstrap-fixed-price.ts`}
           <div className="mb-4 flex items-center justify-between">
             <span className="text-xs uppercase tracking-wider text-neutral-500">
               You pay
+              <span className="ml-2 font-normal text-neutral-600 normal-case tracking-normal">
+                (Max 1M USDC)
+              </span>
             </span>
             <span className="text-xs uppercase tracking-wider text-neutral-500">
               Balance: {usdcBalance ?? "—"}
