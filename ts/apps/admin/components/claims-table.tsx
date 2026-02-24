@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, Fragment } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { Transaction } from "@solana/web3.js";
 import {
@@ -180,9 +180,45 @@ export function ClaimsTable() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-24 text-neutral-500">
-        <Loader2 className="w-5 h-5 animate-spin mr-2" />
-        Loading claims...
+      <div>
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-xl font-semibold text-white">Claims & Payouts</h1>
+          <div className="flex items-center gap-4">
+            <div className="h-4 w-36 bg-neutral-800/60 rounded animate-pulse" />
+            <div className="h-4 w-20 bg-neutral-800/60 rounded animate-pulse" />
+          </div>
+        </div>
+        <div className="border border-neutral-800/60 rounded-xl overflow-hidden mb-6">
+          <div className="px-5 py-3 border-b border-neutral-800/60 bg-neutral-900/20">
+            <div className="h-3 w-28 bg-neutral-800/60 rounded animate-pulse" />
+          </div>
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-neutral-800/60">
+                <th className="w-10 px-3 py-3.5" />
+                <th className="text-left px-5 py-3.5 text-[11px] font-medium uppercase tracking-wider text-neutral-500">Wallet</th>
+                <th className="text-right px-5 py-3.5 text-[11px] font-medium uppercase tracking-wider text-neutral-500">Locked</th>
+                <th className="text-right px-5 py-3.5 text-[11px] font-medium uppercase tracking-wider text-neutral-500">Paid</th>
+                <th className="text-right px-5 py-3.5 text-[11px] font-medium uppercase tracking-wider text-neutral-500">Remaining</th>
+                <th className="text-right px-5 py-3.5 text-[11px] font-medium uppercase tracking-wider text-neutral-500">Progress</th>
+                <th className="text-center px-5 py-3.5 text-[11px] font-medium uppercase tracking-wider text-neutral-500">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <tr key={i} className="border-b border-neutral-800/40 last:border-b-0">
+                  <td className="px-3 py-3.5"><div className="h-4 w-4 bg-neutral-800/60 rounded animate-pulse" /></td>
+                  <td className="px-5 py-3.5"><div className="h-4 w-24 bg-neutral-800/60 rounded animate-pulse" /></td>
+                  <td className="px-5 py-3.5"><div className="h-4 w-20 bg-neutral-800/60 rounded animate-pulse ml-auto" /></td>
+                  <td className="px-5 py-3.5"><div className="h-4 w-20 bg-neutral-800/60 rounded animate-pulse ml-auto" /></td>
+                  <td className="px-5 py-3.5"><div className="h-4 w-20 bg-neutral-800/60 rounded animate-pulse ml-auto" /></td>
+                  <td className="px-5 py-3.5"><div className="h-2 w-20 bg-neutral-800/60 rounded-full animate-pulse ml-auto" /></td>
+                  <td className="px-5 py-3.5"><div className="h-7 w-14 bg-neutral-800/60 rounded-lg animate-pulse mx-auto" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     );
   }
@@ -210,7 +246,7 @@ export function ClaimsTable() {
           <span className="text-sm text-neutral-500">
             Vault:{" "}
             <span className="text-[#00FFB2] font-medium font-mono">
-              {vaultLoading ? "..." : `$${vaultBalance ?? "0"} USDC`}
+              {vaultLoading ? <span className="inline-block h-4 w-20 bg-neutral-800/60 rounded animate-pulse align-middle" /> : `$${vaultBalance ?? "0"} USDC`}
             </span>
           </span>
           <div className="flex items-center gap-3 text-sm">
@@ -302,9 +338,8 @@ export function ClaimsTable() {
                     const isProcessing = processingId === claim.id;
 
                     return (
-                      <>
+                      <Fragment key={claim.id}>
                         <tr
-                          key={claim.id}
                           className={cn(
                             "border-b border-neutral-800/40 last:border-b-0 hover:bg-neutral-900/30 transition-colors cursor-pointer",
                             isExpanded && "border-b-0"
@@ -379,7 +414,7 @@ export function ClaimsTable() {
                             </td>
                           </tr>
                         )}
-                      </>
+                      </Fragment>
                     );
                   })}
                 </tbody>

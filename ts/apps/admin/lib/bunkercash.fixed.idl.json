@@ -1040,16 +1040,23 @@
   "events": [
     {
       "name": "LiquidityAdded",
-      "discriminator": [
-        154,
-        26,
-        221,
-        108,
-        238,
-        64,
-        217,
-        161
-      ]
+      "discriminator": [154, 26, 221, 108, 238, 64, 217, 161]
+    },
+    {
+      "name": "TokensBought",
+      "discriminator": [151, 148, 173, 226, 128, 30, 249, 190]
+    },
+    {
+      "name": "SellRegistered",
+      "discriminator": [84, 242, 34, 122, 94, 148, 173, 157]
+    },
+    {
+      "name": "ClaimProcessed",
+      "discriminator": [214, 130, 82, 189, 1, 255, 166, 249]
+    },
+    {
+      "name": "PriceUpdated",
+      "discriminator": [154, 72, 87, 150, 246, 230, 23, 217]
     }
   ],
   "errors": [
@@ -1173,28 +1180,65 @@
     },
     {
       "name": "LiquidityAdded",
-      "docs": [
-        "Emitted when the admin deposits USDC into the payout vault."
-      ],
+      "docs": ["Emitted when the admin deposits USDC into the payout vault."],
       "type": {
         "kind": "struct",
         "fields": [
-          {
-            "name": "admin",
-            "type": "pubkey"
-          },
-          {
-            "name": "usdc_mint",
-            "type": "pubkey"
-          },
-          {
-            "name": "payout_usdc_vault",
-            "type": "pubkey"
-          },
-          {
-            "name": "usdc_amount",
-            "type": "u64"
-          }
+          { "name": "admin", "type": "pubkey" },
+          { "name": "usdc_mint", "type": "pubkey" },
+          { "name": "payout_usdc_vault", "type": "pubkey" },
+          { "name": "usdc_amount", "type": "u64" }
+        ]
+      }
+    },
+    {
+      "name": "TokensBought",
+      "docs": ["Emitted when a user buys BNKR tokens with USDC."],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "user", "type": "pubkey" },
+          { "name": "usdc_amount", "type": "u64" },
+          { "name": "token_amount", "type": "u64" },
+          { "name": "price_usdc_per_token", "type": "u64" }
+        ]
+      }
+    },
+    {
+      "name": "SellRegistered",
+      "docs": ["Emitted when a user locks BNKR tokens to register a sell."],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "user", "type": "pubkey" },
+          { "name": "token_amount", "type": "u64" },
+          { "name": "claim_id", "type": "u64" }
+        ]
+      }
+    },
+    {
+      "name": "ClaimProcessed",
+      "docs": ["Emitted when the admin processes a claim payout to a user."],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "admin", "type": "pubkey" },
+          { "name": "claim_id", "type": "u64" },
+          { "name": "user", "type": "pubkey" },
+          { "name": "usdc_paid", "type": "u64" },
+          { "name": "token_amount_locked", "type": "u64" }
+        ]
+      }
+    },
+    {
+      "name": "PriceUpdated",
+      "docs": ["Emitted when the admin updates the token price."],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "admin", "type": "pubkey" },
+          { "name": "old_price", "type": "u64" },
+          { "name": "new_price", "type": "u64" }
         ]
       }
     },

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, AlertCircle, RefreshCw, ExternalLink } from "lucide-react";
+import { AlertCircle, RefreshCw, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   useRecentProgramEvents,
@@ -98,9 +98,29 @@ export function EventLogTable() {
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-24 text-neutral-500">
-          <Loader2 className="w-5 h-5 animate-spin mr-2" />
-          Fetching on-chain events...
+        <div className="border border-neutral-800/60 rounded-xl overflow-hidden">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-neutral-800/60">
+                <th className="text-left px-5 py-3.5 text-[11px] font-medium uppercase tracking-wider text-neutral-500">Type</th>
+                <th className="text-left px-5 py-3.5 text-[11px] font-medium uppercase tracking-wider text-neutral-500">Time</th>
+                <th className="text-left px-5 py-3.5 text-[11px] font-medium uppercase tracking-wider text-neutral-500">Wallet</th>
+                <th className="text-right px-5 py-3.5 text-[11px] font-medium uppercase tracking-wider text-neutral-500">Amount</th>
+                <th className="text-left px-5 py-3.5 text-[11px] font-medium uppercase tracking-wider text-neutral-500">TX</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: 7 }).map((_, i) => (
+                <tr key={i} className="border-b border-neutral-800/40 last:border-b-0">
+                  <td className="px-5 py-3.5"><div className="h-5 w-16 bg-neutral-800/60 rounded animate-pulse" /></td>
+                  <td className="px-5 py-3.5"><div className="h-4 w-28 bg-neutral-800/60 rounded animate-pulse" /></td>
+                  <td className="px-5 py-3.5"><div className="h-4 w-20 bg-neutral-800/60 rounded animate-pulse" /></td>
+                  <td className="px-5 py-3.5"><div className="h-4 w-24 bg-neutral-800/60 rounded animate-pulse ml-auto" /></td>
+                  <td className="px-5 py-3.5"><div className="h-4 w-16 bg-neutral-800/60 rounded animate-pulse" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : error ? (
         <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-5">

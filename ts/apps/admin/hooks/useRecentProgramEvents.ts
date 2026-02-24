@@ -15,18 +15,39 @@ export interface ProgramEvent {
   txHash: string
 }
 
-// Maps discriminator key (comma-joined bytes) to event metadata
+// Maps instruction discriminator key (comma-joined bytes) to event metadata
 const DISC_MAP: Record<string, { type: EventType; currency: "BNKR" | "USDC" | null; hasAmount: boolean }> = {
   // buy_primary(usdc_amount: u64) — user pays USDC
   "89,86,227,49,41,118,66,248": { type: "Buy", currency: "USDC", hasAmount: true },
   // register_sell(token_amount: u64) — user locks BNKR
   "220,250,100,136,104,188,72,230": { type: "Register Sell", currency: "BNKR", hasAmount: true },
-  // process_claim() — admin pays USDC to user
+  // process_claim() — admin pays USDC to user (amount resolved from emitted event log)
   "220,115,149,228,217,142,240,115": { type: "Claim", currency: "USDC", hasAmount: false },
   // add_liquidity(usdc_amount: u64) — admin deposits USDC
   "181,157,89,67,143,182,52,72": { type: "Liquidity", currency: "USDC", hasAmount: true },
   // update_price(new_price: u64)
   "61,34,117,155,75,34,123,208": { type: "Update Price", currency: "USDC", hasAmount: true },
+}
+
+// Anchor event discriminator for ClaimProcessed: sha256("event:ClaimProcessed")[:8]
+// Fields (borsh, after 8-byte disc): admin(32) | claim_id(8) | user(32) | usdc_paid(8) | token_amount_locked(8)
+const CLAIM_PROCESSED_DISC = [214, 130, 82, 189, 1, 255, 166, 249]
+const CLAIM_PROCESSED_USDC_PAID_OFFSET = 8 + 32 + 8 + 32 // = 80
+
+function parseClaimAmountFromLogs(logMessages: string[]): number | null {
+  for (const log of logMessages) {
+    if (!log.startsWith("Program data: ")) continue
+    try {
+      const b64 = log.slice("Program data: ".length)
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+      if (bytes.length < CLAIM_PROCESSED_USDC_PAID_OFFSET + 8) continue
+      const discMatch = CLAIM_PROCESSED_DISC.every((b, i) => bytes[i] === b)
+      if (!discMatch) continue
+      const raw = decodeU64LE(bytes, CLAIM_PROCESSED_USDC_PAID_OFFSET)
+      return Number(raw) / 10 ** USDC_DECIMALS
+    } catch (_) {}
+  }
+  return null
 }
 
 const USDC_DECIMALS = 6
@@ -108,6 +129,9 @@ export function useRecentProgramEvents(limit = 10) {
               const decimals = info.currency === "BNKR" ? BNKR_DECIMALS : USDC_DECIMALS
               amount = Number(raw) / 10 ** decimals
             } catch (_) {}
+          } else if (info.type === "Claim") {
+            // process_claim has no instruction args; parse usdc_paid from the emitted ClaimProcessed event log
+            amount = parseClaimAmountFromLogs(tx.meta?.logMessages ?? [])
           }
 
           parsed.push({

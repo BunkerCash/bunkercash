@@ -274,10 +274,17 @@ export function PurchaseLimitsCard() {
             </>
           )}
 
-          <div className="flex items-center justify-between text-xs text-neutral-500 mb-2.5">
-            <span>{utilizationPercent}% of max</span>
-            <span>${MAX_DEPOSIT_USDC.toLocaleString()} max/tx</span>
-          </div>
+          {poolLoading ? (
+            <div className="flex items-center justify-between mb-2.5">
+              <div className="h-3 w-16 bg-neutral-800/60 rounded animate-pulse" />
+              <div className="h-3 w-24 bg-neutral-800/60 rounded animate-pulse" />
+            </div>
+          ) : (
+            <div className="flex items-center justify-between text-xs text-neutral-500 mb-2.5">
+              <span>{utilizationPercent}% of max</span>
+              <span>${MAX_DEPOSIT_USDC.toLocaleString()} max/tx</span>
+            </div>
+          )}
 
           <div className="h-2 bg-neutral-800 rounded-full overflow-hidden">
             <div
