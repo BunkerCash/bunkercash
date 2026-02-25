@@ -15,11 +15,14 @@ import {
   getProgram,
   PROGRAM_ID,
 } from '@/lib/program'
-import { getClusterFromEndpoint, getUsdcMintForCluster } from '@/lib/constants'
+import { getClusterFromEndpoint, getUsdcMintForCluster, SQUADS_VAULT_PUBKEY } from '@/lib/constants'
+import { useIsAdmin } from '@/hooks/useIsAdmin'
+import { useSquadsTransaction } from '@/hooks/useSquadsTransaction'
+import type { SquadsSubmitResult } from '@/hooks/useSquadsTransaction'
 import { useAllOpenClaims } from '@/hooks/useAllOpenClaims'
 import { usePayoutVault } from '@/hooks/usePayoutVault'
 import type { OpenClaim } from '@/hooks/useAllOpenClaims'
-import { AlertCircle, CheckCircle2, Loader2, Inbox, History } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Loader2, Inbox, History, ExternalLink } from 'lucide-react'
 
 const USDC_DECIMALS = 6
 const TOKEN_DECIMALS = 9
@@ -43,14 +46,26 @@ function truncateAddress(addr: string): string {
   return addr.slice(0, 4) + '...' + addr.slice(-4)
 }
 
+function getExplorerAccountUrl(pubkey: PublicKey, cluster: string): string {
+  const base = `https://explorer.solana.com/address/${pubkey.toBase58()}`
+  return cluster === 'mainnet-beta' ? base : `${base}?cluster=${cluster}`
+}
+
+function getRpcEndpoint(connection: unknown): string {
+  return (connection as { rpcEndpoint?: string }).rpcEndpoint ?? ''
+}
+
 export function AdminProcessClaims() {
   const { connection } = useConnection()
   const wallet = useWallet()
+  const { isGovernedBySquads } = useIsAdmin()
+  const { submit: submitSquads, error: squadsError } = useSquadsTransaction()
   const { claims, closedClaims, loading: claimsLoading, error: claimsError, refresh } = useAllOpenClaims()
   const { balance: vaultBalance, loading: vaultLoading, error: vaultError, refresh: refreshVault } = usePayoutVault()
 
   const [processingClaimId, setProcessingClaimId] = useState<string | null>(null)
-  const [recentlyPaidPubkeys, setRecentlyPaidPubkeys] = useState<Set<string>>(new Set())
+  // claimPubkey → Squads proposal result (for link display)
+  const [squadsProposals, setSquadsProposals] = useState<Record<string, SquadsSubmitResult>>({})
   const [error, setError] = useState<string | null>(null)
   const [poolPrice, setPoolPrice] = useState<bigint | null>(null)
 
@@ -62,20 +77,16 @@ export function AdminProcessClaims() {
     [connection, wallet]
   )
 
-  const usdcMint = useMemo(() => {
-    if (!connection) return null
-    const endpoint = (connection as any).rpcEndpoint ?? ''
-    const cluster = getClusterFromEndpoint(endpoint)
-    return getUsdcMintForCluster(cluster)
-  }, [connection])
+  const cluster = useMemo(() => getClusterFromEndpoint(getRpcEndpoint(connection)), [connection])
+  const usdcMint = useMemo(() => getUsdcMintForCluster(cluster), [cluster])
 
   // Fetch pool price for owed calculation
   const fetchPoolPrice = useCallback(async () => {
     if (!program) return
     try {
-      const pool = await (program.account as any).poolState.fetch(poolPda)
+      const pool = await (program.account as { poolState: { fetch: (pk: PublicKey) => Promise<{ priceUsdcPerToken: unknown }> } }).poolState.fetch(poolPda)
       setPoolPrice(BigInt(pool.priceUsdcPerToken.toString()))
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Error fetching pool price:', e)
     }
   }, [program, poolPda])
@@ -90,16 +101,25 @@ export function AdminProcessClaims() {
     return (BigInt(tokenAmountLocked) * poolPrice) / BigInt(10 ** TOKEN_DECIMALS)
   }
 
-  // Filter out claims that were just paid in this session (prevents double-pay before data refreshes)
-  const openClaims = useMemo(
-    () => claims.filter((c) => !recentlyPaidPubkeys.has(c.pubkey.toBase58())),
-    [claims, recentlyPaidPubkeys]
-  )
+  // Keep claims visible even after proposing via Squads, since they are not executed yet.
+  const openClaims = useMemo(() => claims, [claims])
+
+  type ProcessClaimMethods = {
+    processClaim: () => {
+      accounts: (a: {
+        pool: PublicKey
+        poolSigner: PublicKey
+        admin: PublicKey
+        claim: PublicKey
+        payoutUsdcVault: PublicKey
+        userUsdc: PublicKey
+        usdcTokenProgram: PublicKey
+      }) => { instruction: () => Promise<import('@solana/web3.js').TransactionInstruction> }
+    }
+  }
 
   const handleProcessClaim = async (claim: OpenClaim) => {
-    if (!program || !wallet.publicKey || !usdcMint) return
-    // Guard: do not allow processing a claim that's already been paid
-    if (recentlyPaidPubkeys.has(claim.pubkey.toBase58())) return
+    if (!program || !usdcMint) return
 
     setProcessingClaimId(claim.id)
     setError(null)
@@ -113,7 +133,6 @@ export function AdminProcessClaims() {
         ASSOCIATED_TOKEN_PROGRAM_ID
       )
 
-      // Ensure user's USDC ATA exists
       const userUsdcAta = getAssociatedTokenAddressSync(
         usdcMint,
         claim.user,
@@ -122,46 +141,83 @@ export function AdminProcessClaims() {
         ASSOCIATED_TOKEN_PROGRAM_ID
       )
 
-      const ataIx = createAssociatedTokenAccountIdempotentInstruction(
-        wallet.publicKey,
-        userUsdcAta,
-        claim.user,
-        usdcMint,
-        TOKEN_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      )
-
-      const processIx = await (program.methods as any)
-        .processClaim()
-        .accounts({
-          pool: poolPda,
-          poolSigner: poolSignerPda,
-          admin: wallet.publicKey,
-          claim: claim.pubkey,
-          payoutUsdcVault,
-          userUsdc: userUsdcAta,
-          usdcTokenProgram: TOKEN_PROGRAM_ID,
-        })
-        .instruction()
-
-      const tx = new Transaction()
-      tx.add(ataIx)
-      tx.add(processIx)
-
-      const sig = await (
-        program.provider as {
-          sendAndConfirm: (tx: Transaction) => Promise<string>
+      if (isGovernedBySquads) {
+        if (!SQUADS_VAULT_PUBKEY) {
+          throw new Error('Missing NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY (v4 multisig) in web env')
         }
-      ).sendAndConfirm(tx)
+        // ── Squads flow ───────────────────────────────────────────────────────
+        // admin = Squads vault. The vault pays out from the payout vault via CPI.
+        // We also include the ATA creation instruction so the user's ATA exists.
+        if (!wallet.publicKey) return
 
-      // Mark as paid locally so it disappears from open list immediately
-      setRecentlyPaidPubkeys((prev) => new Set(prev).add(claim.pubkey.toBase58()))
+        const ataIx = createAssociatedTokenAccountIdempotentInstruction(
+          SQUADS_VAULT_PUBKEY,   // vault funds the ATA creation inside the vault tx
+          userUsdcAta,
+          claim.user,
+          usdcMint,
+          TOKEN_PROGRAM_ID,
+          ASSOCIATED_TOKEN_PROGRAM_ID
+        )
 
-      refresh()
-      refreshVault()
-    } catch (e: any) {
+        const processIx = await (program.methods as unknown as ProcessClaimMethods)
+          .processClaim()
+          .accounts({
+            pool: poolPda,
+            poolSigner: poolSignerPda,
+            admin: SQUADS_VAULT_PUBKEY,
+            claim: claim.pubkey,
+            payoutUsdcVault,
+            userUsdc: userUsdcAta,
+            usdcTokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .instruction()
+
+        const out = await submitSquads(
+          [ataIx, processIx],
+          `Process claim #${claim.id} for ${truncateAddress(claim.user.toBase58())}`,
+        )
+
+        if (out) {
+          setSquadsProposals((prev) => ({ ...prev, [claim.pubkey.toBase58()]: out }))
+        }
+      } else {
+        // ── Direct flow (wallet is admin) ────────────────────────────────────
+        if (!wallet.publicKey) return
+
+        const ataIx = createAssociatedTokenAccountIdempotentInstruction(
+          wallet.publicKey,
+          userUsdcAta,
+          claim.user,
+          usdcMint,
+          TOKEN_PROGRAM_ID,
+          ASSOCIATED_TOKEN_PROGRAM_ID
+        )
+
+        const processIx = await (program.methods as unknown as ProcessClaimMethods)
+          .processClaim()
+          .accounts({
+            pool: poolPda,
+            poolSigner: poolSignerPda,
+            admin: wallet.publicKey,
+            claim: claim.pubkey,
+            payoutUsdcVault,
+            userUsdc: userUsdcAta,
+            usdcTokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .instruction()
+
+        const tx = new Transaction().add(ataIx).add(processIx)
+        await (
+          program.provider as { sendAndConfirm: (tx: Transaction) => Promise<string> }
+        ).sendAndConfirm(tx)
+
+        refresh()
+        refreshVault()
+      }
+    } catch (e: unknown) {
       console.error('Error processing claim:', e)
-      setError(e.message || 'Failed to process claim')
+      const msg = e instanceof Error ? e.message : null
+      setError(msg || squadsError || 'Failed to process claim')
     } finally {
       setProcessingClaimId(null)
     }
@@ -255,14 +311,38 @@ export function AdminProcessClaims() {
                             ${formatUsdc(remaining)}
                           </td>
                           <td className="px-4 py-3 text-center">
-                            <button
-                              onClick={() => handleProcessClaim(claim)}
-                              disabled={isProcessing || !wallet.publicKey || remaining === BigInt(0)}
-                              className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-[#00FFB2] hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600 text-black transition-all flex items-center gap-1.5 mx-auto"
-                            >
-                              {isProcessing && <Loader2 className="w-3 h-3 animate-spin" />}
-                              {isProcessing ? 'Paying...' : 'Pay'}
-                            </button>
+                            {squadsProposals[claim.pubkey.toBase58()] ? (
+                              <div className="flex flex-col items-center gap-1">
+                                <a
+                                  href={squadsProposals[claim.pubkey.toBase58()].squadsUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg bg-purple-500/10 text-purple-300 border border-purple-500/30 hover:bg-purple-500/20 transition-all"
+                                >
+                                  Open Squads <ExternalLink className="w-3 h-3" />
+                                </a>
+                                <a
+                                  href={getExplorerAccountUrl(new PublicKey(squadsProposals[claim.pubkey.toBase58()].proposalPda), cluster)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[11px] text-neutral-500 hover:text-neutral-300 font-mono"
+                                  title="View proposal PDA on Solana Explorer"
+                                >
+                                  tx #{squadsProposals[claim.pubkey.toBase58()].txIndex.toString()}
+                                </a>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => handleProcessClaim(claim)}
+                                disabled={isProcessing || !wallet.publicKey || remaining === BigInt(0)}
+                                className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-[#00FFB2] hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600 text-black transition-all flex items-center gap-1.5 mx-auto"
+                              >
+                                {isProcessing && <Loader2 className="w-3 h-3 animate-spin" />}
+                                {isProcessing
+                                  ? isGovernedBySquads ? 'Proposing…' : 'Paying…'
+                                  : isGovernedBySquads ? 'Propose' : 'Pay'}
+                              </button>
+                            )}
                           </td>
                         </tr>
                       )

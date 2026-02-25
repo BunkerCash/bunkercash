@@ -4,6 +4,7 @@
     "check:pool": "ts-node -P tsconfig.json scripts/check-pool-balances.ts",
     "e2e": "ts-node -P tsconfig.json scripts/e2e-buy-sell.ts",
     "init:metadata": "ts-node -P tsconfig.json scripts/init-mint-metadata.ts",
+    "squads:v4:create": "ts-node -P tsconfig.json scripts/create-squads-v4-multisig.ts",
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check"
   },
@@ -14,6 +15,7 @@
     "@metaplex-foundation/umi-bundle-defaults": "^1.4.1",
     "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.98.4",
+    "@sqds/multisig": "^2.1.4",
     "anchor": "^1.4.2",
     "bn.js": "^5.2.1",
     "cargo": "^0.8.0"
