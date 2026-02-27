@@ -61,18 +61,22 @@ function decodeU64LE(bytes: Uint8Array, offset: number): bigint {
   return value
 }
 
-// Delay helper to throttle sequential RPC calls below devnet rate limits
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms))
-}
+const CACHE_TTL = 30_000 // 30 seconds
+let eventsCache: { data: ProgramEvent[]; timestamp: number } | null = null
 
 export function useRecentProgramEvents(limit = 10) {
   const { connection } = useConnection()
-  const [events, setEvents] = useState<ProgramEvent[]>([])
-  const [loading, setLoading] = useState(true)
+  const [events, setEvents] = useState<ProgramEvent[]>(eventsCache?.data ?? [])
+  const [loading, setLoading] = useState(!eventsCache)
   const [error, setError] = useState<string | null>(null)
 
-  const fetchEvents = useCallback(async () => {
+  const fetchEvents = useCallback(async (bypassCache = false) => {
+    if (!bypassCache && eventsCache && Date.now() - eventsCache.timestamp < CACHE_TTL) {
+      setEvents(eventsCache.data)
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
     setError(null)
     try {
@@ -80,27 +84,25 @@ export function useRecentProgramEvents(limit = 10) {
 
       if (sigs.length === 0) {
         setEvents([])
+        eventsCache = { data: [], timestamp: Date.now() }
         return
       }
 
-      // Fetch each transaction individually with a delay between calls.
-      // getTransactions() sends a single HTTP batch containing all sub-requests,
-      // which bypasses the rate-limiter and triggers 429 on devnet.
-      // Individual getTransaction() calls each go through the rate-limiter middleware.
-      const txs = []
-      for (const sig of sigs) {
-        try {
-          const tx = await connection.getTransaction(sig.signature, {
-            commitment: 'confirmed',
-            maxSupportedTransactionVersion: 0,
-          })
-          txs.push(tx)
-        } catch (e) {
-          console.warn(`Failed to fetch tx ${sig.signature}:`, e)
-          txs.push(null)
-        }
-        await sleep(450)
-      }
+      // Fetch all transactions in parallel — the rate-limiter middleware
+      // in lib/rpc-throttle.ts already spaces requests at 400ms.
+      const txs = await Promise.all(
+        sigs.map(async (sig) => {
+          try {
+            return await connection.getTransaction(sig.signature, {
+              commitment: 'confirmed',
+              maxSupportedTransactionVersion: 0,
+            })
+          } catch (e) {
+            console.warn(`Failed to fetch tx ${sig.signature}:`, e)
+            return null
+          }
+        })
+      )
 
       const parsed: ProgramEvent[] = []
       const programIdStr = PROGRAM_ID.toBase58()
@@ -151,6 +153,7 @@ export function useRecentProgramEvents(limit = 10) {
         }
       }
 
+      eventsCache = { data: parsed, timestamp: Date.now() }
       setEvents(parsed)
     } catch (e: any) {
       console.error('Error fetching program events:', e)
@@ -164,5 +167,7 @@ export function useRecentProgramEvents(limit = 10) {
     fetchEvents()
   }, [fetchEvents])
 
-  return { events, loading, error, refresh: fetchEvents }
+  const refresh = useCallback(() => fetchEvents(true), [fetchEvents])
+
+  return { events, loading, error, refresh }
 }

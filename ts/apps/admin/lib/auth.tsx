@@ -20,11 +20,16 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 const STORAGE_KEY = "bunker_admin_token";
 
+// TODO: Remove this bypass once backend auth APIs are ready
+const AUTH_BYPASS = true;
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(AUTH_BYPASS);
+  const [isLoading, setIsLoading] = useState(!AUTH_BYPASS);
 
   useEffect(() => {
+    if (AUTH_BYPASS) return;
+
     const token = localStorage.getItem(STORAGE_KEY);
     if (!token) {
       setIsLoading(false);
@@ -54,6 +59,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(
     async (username: string, password: string): Promise<boolean> => {
+      if (AUTH_BYPASS) {
+        setIsAuthenticated(true);
+        return true;
+      }
+
       try {
         const res = await fetch("/api/auth/login", {
           method: "POST",
@@ -75,6 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(() => {
+    if (AUTH_BYPASS) return;
     setIsAuthenticated(false);
     localStorage.removeItem(STORAGE_KEY);
   }, []);

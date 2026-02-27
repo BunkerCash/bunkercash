@@ -39,14 +39,17 @@ interface PoolInfo {
   admin: string;
 }
 
+const CACHE_TTL = 30_000 // 30 seconds
+let poolInfoCache: { data: PoolInfo; timestamp: number } | null = null
+
 export function PurchaseLimitsCard() {
   const { connection } = useConnection();
   const wallet = useWallet();
   const { balance: vaultBalance, loading: vaultLoading, error: vaultError, refresh: refreshVault } =
     usePayoutVault();
 
-  const [poolInfo, setPoolInfo] = useState<PoolInfo | null>(null);
-  const [poolLoading, setPoolLoading] = useState(true);
+  const [poolInfo, setPoolInfo] = useState<PoolInfo | null>(poolInfoCache?.data ?? null);
+  const [poolLoading, setPoolLoading] = useState(!poolInfoCache);
   const [poolError, setPoolError] = useState<string | null>(null);
 
   // Add liquidity state
@@ -77,8 +80,15 @@ export function PurchaseLimitsCard() {
     return getUsdcMintForCluster(cluster);
   }, [connection]);
 
-  const fetchPoolInfo = useCallback(async () => {
+  const fetchPoolInfo = useCallback(async (bypassCache = false) => {
     if (!program || !connection) return;
+
+    if (!bypassCache && poolInfoCache && Date.now() - poolInfoCache.timestamp < CACHE_TTL) {
+      setPoolInfo(poolInfoCache.data);
+      setPoolLoading(false);
+      return;
+    }
+
     setPoolLoading(true);
     setPoolError(null);
     try {
@@ -88,11 +98,13 @@ export function PurchaseLimitsCard() {
       ]);
       const price = Number(poolAccount.priceUsdcPerToken.toString()) / 10 ** USDC_DECIMALS;
       const supply = Number(mintInfo.value.amount) / 10 ** BNKR_DECIMALS;
-      setPoolInfo({
+      const info: PoolInfo = {
         totalSupply: supply,
         pricePerToken: price,
         admin: poolAccount.admin.toBase58(),
-      });
+      };
+      poolInfoCache = { data: info, timestamp: Date.now() };
+      setPoolInfo(info);
     } catch (e: any) {
       setPoolError(e.message || "Failed to fetch pool info");
     } finally {
@@ -168,7 +180,7 @@ export function PurchaseLimitsCard() {
       setDepositSuccess(`Deposited $${amount.toLocaleString()} USDC`);
       setDepositAmount("");
       refreshVault();
-      fetchPoolInfo();
+      fetchPoolInfo(true);
     } catch (e: any) {
       console.error("Error adding liquidity:", e);
       setDepositError(e.message || "Failed to add liquidity");
@@ -206,7 +218,7 @@ export function PurchaseLimitsCard() {
 
       setPriceSuccess(`Price updated to $${price} USDC/BNKR`);
       setNewPrice("");
-      fetchPoolInfo();
+      fetchPoolInfo(true);
     } catch (e: any) {
       console.error("Error updating price:", e);
       setPriceError(e.message || "Failed to update price");
@@ -229,7 +241,7 @@ export function PurchaseLimitsCard() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-semibold text-white">Purchase Limits</h1>
         <button
-          onClick={() => { fetchPoolInfo(); refreshVault(); }}
+          onClick={() => { fetchPoolInfo(true); refreshVault(); }}
           className="p-1.5 rounded-lg text-neutral-500 hover:text-white hover:bg-neutral-800/40 transition-colors"
         >
           <RefreshCw className="w-4 h-4" />

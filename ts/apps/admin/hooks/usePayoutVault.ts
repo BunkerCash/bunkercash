@@ -7,10 +7,13 @@ import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
 
 const USDC_DECIMALS = 6;
 
+const CACHE_TTL = 30_000 // 30 seconds
+let vaultCache: { data: string; timestamp: number } | null = null
+
 export function usePayoutVault() {
   const { connection } = useConnection()
-  const [balance, setBalance] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [balance, setBalance] = useState<string | null>(vaultCache?.data ?? null)
+  const [loading, setLoading] = useState(!vaultCache)
   const [error, setError] = useState<string | null>(null)
 
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), [])
@@ -23,8 +26,14 @@ export function usePayoutVault() {
     return getUsdcMintForCluster(cluster);
   }, [connection]);
 
-  const fetchBalance = useCallback(async () => {
+  const fetchBalance = useCallback(async (bypassCache = false) => {
     if (!connection || !usdcMint) return
+
+    if (!bypassCache && vaultCache && Date.now() - vaultCache.timestamp < CACHE_TTL) {
+      setBalance(vaultCache.data)
+      setLoading(false)
+      return
+    }
 
     setLoading(true)
     setError(null)
@@ -38,9 +47,12 @@ export function usePayoutVault() {
       )
 
       const bal = await connection.getTokenAccountBalance(payoutUsdcVault)
-      setBalance(bal.value.uiAmountString ?? '0')
+      const value = bal.value.uiAmountString ?? '0'
+      vaultCache = { data: value, timestamp: Date.now() }
+      setBalance(value)
     } catch (e: any) {
       if (e.message?.includes('could not find account')) {
+        vaultCache = { data: '0', timestamp: Date.now() }
         setBalance('0')
       } else {
         console.error('Error fetching payout vault balance:', e)
@@ -56,5 +68,7 @@ export function usePayoutVault() {
     fetchBalance()
   }, [fetchBalance])
 
-  return { balance, loading, error, refresh: fetchBalance }
+  const refresh = useCallback(() => fetchBalance(true), [fetchBalance])
+
+  return { balance, loading, error, refresh }
 }

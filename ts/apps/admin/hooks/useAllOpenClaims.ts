@@ -14,13 +14,21 @@ export interface OpenClaim {
   createdAt: string
 }
 
+const CACHE_TTL = 30_000 // 30 seconds
+let claimsCache: {
+  claims: OpenClaim[]
+  closedClaims: OpenClaim[]
+  totalLocked: bigint
+  timestamp: number
+} | null = null
+
 export function useAllOpenClaims() {
   const { connection } = useConnection()
   const wallet = useWallet()
-  const [claims, setClaims] = useState<OpenClaim[]>([])
-  const [closedClaims, setClosedClaims] = useState<OpenClaim[]>([])
-  const [totalLocked, setTotalLocked] = useState<bigint>(BigInt(0))
-  const [loading, setLoading] = useState(true)
+  const [claims, setClaims] = useState<OpenClaim[]>(claimsCache?.claims ?? [])
+  const [closedClaims, setClosedClaims] = useState<OpenClaim[]>(claimsCache?.closedClaims ?? [])
+  const [totalLocked, setTotalLocked] = useState<bigint>(claimsCache?.totalLocked ?? BigInt(0))
+  const [loading, setLoading] = useState(!claimsCache)
   const [error, setError] = useState<string | null>(null)
 
   const program = useMemo(() => {
@@ -30,8 +38,16 @@ export function useAllOpenClaims() {
     return getReadonlyProgram(connection)
   }, [connection, wallet.publicKey])
 
-  const fetchClaims = useCallback(async () => {
+  const fetchClaims = useCallback(async (bypassCache = false) => {
     if (!program) return
+
+    if (!bypassCache && claimsCache && Date.now() - claimsCache.timestamp < CACHE_TTL) {
+      setClaims(claimsCache.claims)
+      setClosedClaims(claimsCache.closedClaims)
+      setTotalLocked(claimsCache.totalLocked)
+      setLoading(false)
+      return
+    }
 
     setLoading(true)
     setError(null)
@@ -66,6 +82,7 @@ export function useAllOpenClaims() {
         .map(normalize)
         .sort((a: OpenClaim, b: OpenClaim) => Number(b.id) - Number(a.id))
 
+      claimsCache = { claims: normalizedOpen, closedClaims: normalizedClosed, totalLocked: locked, timestamp: Date.now() }
       setClaims(normalizedOpen)
       setClosedClaims(normalizedClosed)
       setTotalLocked(locked)
@@ -81,5 +98,7 @@ export function useAllOpenClaims() {
     fetchClaims()
   }, [fetchClaims])
 
-  return { claims, closedClaims, totalLocked, loading, error, refresh: fetchClaims }
+  const refresh = useCallback(() => fetchClaims(true), [fetchClaims])
+
+  return { claims, closedClaims, totalLocked, loading, error, refresh }
 }

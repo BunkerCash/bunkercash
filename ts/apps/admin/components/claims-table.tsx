@@ -24,6 +24,9 @@ import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
 const USDC_DECIMALS = 6;
 const TOKEN_DECIMALS = 9;
 
+const CACHE_TTL = 30_000 // 30 seconds
+let poolPriceCache: { data: bigint; timestamp: number } | null = null
+
 function truncateWallet(wallet: string): string {
   if (wallet.length <= 12) return wallet;
   return `${wallet.slice(0, 4)}...${wallet.slice(-4)}`;
@@ -63,7 +66,7 @@ export function ClaimsTable() {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [recentlyPaidPubkeys, setRecentlyPaidPubkeys] = useState<Set<string>>(new Set());
   const [txError, setTxError] = useState<string | null>(null);
-  const [poolPrice, setPoolPrice] = useState<bigint | null>(null);
+  const [poolPrice, setPoolPrice] = useState<bigint | null>(poolPriceCache?.data ?? null);
 
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), []);
   const poolSignerPda = useMemo(() => getPoolSignerPda(poolPda, PROGRAM_ID), [poolPda]);
@@ -80,11 +83,17 @@ export function ClaimsTable() {
     return getUsdcMintForCluster(cluster);
   }, [connection]);
 
-  const fetchPoolPrice = useCallback(async () => {
+  const fetchPoolPrice = useCallback(async (bypassCache = false) => {
     if (!program) return;
+    if (!bypassCache && poolPriceCache && Date.now() - poolPriceCache.timestamp < CACHE_TTL) {
+      setPoolPrice(poolPriceCache.data);
+      return;
+    }
     try {
       const pool = await (program.account as any).poolState.fetch(poolPda);
-      setPoolPrice(BigInt(pool.priceUsdcPerToken.toString()));
+      const price = BigInt(pool.priceUsdcPerToken.toString());
+      poolPriceCache = { data: price, timestamp: Date.now() };
+      setPoolPrice(price);
     } catch (e) {
       console.error("Error fetching pool price:", e);
     }
