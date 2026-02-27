@@ -12,36 +12,64 @@ import {
 interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (username: string, password: string) => boolean;
+  login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-const STORAGE_KEY = "bunker_admin_auth";
-const VALID_USERNAME = "admin";
-const VALID_PASSWORD = "bunker2024";
+const STORAGE_KEY = "bunker_admin_token";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === "true") {
-      setIsAuthenticated(true);
+    const token = localStorage.getItem(STORAGE_KEY);
+    if (!token) {
+      setIsLoading(false);
+      return;
     }
-    setIsLoading(false);
+
+    fetch("/api/auth/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.valid) {
+          setIsAuthenticated(true);
+        } else {
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      })
+      .catch(() => {
+        localStorage.removeItem(STORAGE_KEY);
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
   }, []);
 
   const login = useCallback(
-    (username: string, password: string): boolean => {
-      if (username === VALID_USERNAME && password === VALID_PASSWORD) {
+    async (username: string, password: string): Promise<boolean> => {
+      try {
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password }),
+        });
+
+        if (!res.ok) return false;
+
+        const { token } = await res.json();
+        localStorage.setItem(STORAGE_KEY, token);
         setIsAuthenticated(true);
-        localStorage.setItem(STORAGE_KEY, "true");
         return true;
+      } catch {
+        return false;
       }
-      return false;
     },
     []
   );

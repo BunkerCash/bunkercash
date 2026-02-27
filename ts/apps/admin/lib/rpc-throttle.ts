@@ -21,7 +21,8 @@ async function drain() {
       await new Promise((r) => setTimeout(r, REQUEST_INTERVAL_MS - elapsed));
     }
 
-    const item = queue.shift()!;
+    const item = queue.shift();
+    if (!item) break;
     lastRequestTime = Date.now();
     item.doFetch(item.info, item.init);
   }

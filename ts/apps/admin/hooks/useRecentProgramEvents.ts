@@ -89,11 +89,16 @@ export function useRecentProgramEvents(limit = 10) {
       // Individual getTransaction() calls each go through the rate-limiter middleware.
       const txs = []
       for (const sig of sigs) {
-        const tx = await connection.getTransaction(sig.signature, {
-          commitment: 'confirmed',
-          maxSupportedTransactionVersion: 0,
-        })
-        txs.push(tx)
+        try {
+          const tx = await connection.getTransaction(sig.signature, {
+            commitment: 'confirmed',
+            maxSupportedTransactionVersion: 0,
+          })
+          txs.push(tx)
+        } catch (e) {
+          console.warn(`Failed to fetch tx ${sig.signature}:`, e)
+          txs.push(null)
+        }
         await sleep(450)
       }
 
