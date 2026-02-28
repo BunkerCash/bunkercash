@@ -24,7 +24,7 @@ export type SquadsSubmitResult = {
   transactionPda: string
   /** Deep-link URL to the Squads app for this transaction */
   squadsUrl: string
-  /** Signature of the create+approve transaction */
+  /** Signature of the vault-transaction-create tx */
   signature: string
   /** Whether the creator's approval was included */
   autoApproved: boolean
@@ -43,8 +43,15 @@ function assertSquadsConfigured() {
  * Hook for creating Squads v4 vault transaction proposals.
  *
  * Wraps the given instructions in a vault transaction, creates the proposal,
- * and immediately casts the creator's approval — all in a single on-chain
- * transaction. The other multisig members then open Squads to cast their votes.
+ * and immediately casts the creator's approval.
+ *
+ * Because the serialized inner message can be large, the work is split across
+ * two on-chain transactions to stay under Solana's 1232-byte packet limit:
+ *   TX 1 – vaultTransactionCreate  (contains the full serialized inner message)
+ *   TX 2 – proposalCreate + proposalApprove
+ *
+ * Both are signed together via `signAllTransactions` for a single wallet popup,
+ * then sent sequentially (TX 2 depends on TX 1 being confirmed).
  */
 export function useSquadsTransaction() {
   const { connection } = useConnection()
@@ -59,7 +66,7 @@ export function useSquadsTransaction() {
       instructions: TransactionInstruction[],
       memo?: string,
     ): Promise<SquadsSubmitResult | null> => {
-      if (!wallet.publicKey || !wallet.signTransaction) {
+      if (!wallet.publicKey || !wallet.signAllTransactions) {
         setError("Wallet not connected")
         return null
       }
@@ -94,10 +101,10 @@ export function useSquadsTransaction() {
           )
         }
 
-        const { blockhash } = await connection.getLatestBlockhash("confirmed")
+        const { blockhash, lastValidBlockHeight } =
+          await connection.getLatestBlockhash("confirmed")
 
         // ── 2. Build the vault transaction message ────────────────────────────
-        // The "payer" of the inner message is the vault PDA (it pays for CPI).
         const innerMessage = new TransactionMessage({
           payerKey: vaultPda,
           recentBlockhash: blockhash,
@@ -105,10 +112,6 @@ export function useSquadsTransaction() {
         })
 
         // ── 3. Build outer instructions ───────────────────────────────────────
-        // We combine three instructions into one outer transaction:
-        //   a) vaultTransactionCreate  – stores the inner message on-chain
-        //   b) proposalCreate          – creates the approval proposal (active)
-        //   c) proposalApprove         – immediately casts the creator's vote
         const createVaultTxIx = multisig.instructions.vaultTransactionCreate({
           multisigPda,
           transactionIndex: nextIndex,
@@ -123,11 +126,9 @@ export function useSquadsTransaction() {
           multisigPda,
           creator: wallet.publicKey,
           transactionIndex: nextIndex,
-          isDraft: false, // immediately active so members can vote
+          isDraft: false,
         })
 
-        // Auto-approve: cast the creator's vote in the same transaction.
-        // This saves a round-trip and immediately reaches quorum if threshold=1.
         const approveProposalIx = multisig.instructions.proposalApprove({
           multisigPda,
           transactionIndex: nextIndex,
@@ -135,21 +136,49 @@ export function useSquadsTransaction() {
           memo: memo ? `approve: ${memo}` : undefined,
         })
 
-        // ── 4. Build + sign outer versioned transaction ───────────────────────
-        const outerMessage = new TransactionMessage({
+        // ── 4. Split into two transactions to stay under the 1232-byte limit ─
+        //   TX 1: vaultTransactionCreate (large — carries the serialized inner message)
+        //   TX 2: proposalCreate + proposalApprove (small — only Squads PDAs)
+        const tx1Message = new TransactionMessage({
           payerKey: wallet.publicKey,
           recentBlockhash: blockhash,
-          instructions: [createVaultTxIx, createProposalIx, approveProposalIx],
+          instructions: [createVaultTxIx],
         }).compileToV0Message()
 
-        const vtx = new VersionedTransaction(outerMessage)
-        const signed = (await wallet.signTransaction(vtx as never)) as VersionedTransaction
-        const signature = await connection.sendTransaction(signed, {
+        const tx2Message = new TransactionMessage({
+          payerKey: wallet.publicKey,
+          recentBlockhash: blockhash,
+          instructions: [createProposalIx, approveProposalIx],
+        }).compileToV0Message()
+
+        const vtx1 = new VersionedTransaction(tx1Message)
+        const vtx2 = new VersionedTransaction(tx2Message)
+
+        // Sign both at once → single wallet popup for the user
+        const [signed1, signed2] = (await wallet.signAllTransactions([
+          vtx1 as never,
+          vtx2 as never,
+        ])) as VersionedTransaction[]
+
+        // ── 5. Send TX 1 and wait for confirmation ───────────────────────────
+        const sig1 = await connection.sendTransaction(signed1, {
           preflightCommitment: "confirmed",
         })
-        await connection.confirmTransaction(signature, "confirmed")
+        await connection.confirmTransaction(
+          { signature: sig1, blockhash, lastValidBlockHeight },
+          "confirmed",
+        )
 
-        // ── 5. Derive PDAs ────────────────────────────────────────────────────
+        // ── 6. Send TX 2 (proposal + approve) ───────────────────────────────
+        const sig2 = await connection.sendTransaction(signed2, {
+          preflightCommitment: "confirmed",
+        })
+        await connection.confirmTransaction(
+          { signature: sig2, blockhash, lastValidBlockHeight },
+          "confirmed",
+        )
+
+        // ── 7. Derive PDAs ────────────────────────────────────────────────────
         const [proposalPda] = multisig.getProposalPda({
           multisigPda,
           transactionIndex: nextIndex,
@@ -159,7 +188,7 @@ export function useSquadsTransaction() {
           index: nextIndex,
         })
 
-        // ── 6. Build Squads deep-link URL ────────────────────────────────────
+        // ── 8. Build Squads deep-link URL ────────────────────────────────────
         const cluster = getClusterFromEndpoint(connection.rpcEndpoint ?? "")
         const squadsUrl = getSquadsDashboardUrl(cluster, multisigPda)
 
@@ -168,7 +197,7 @@ export function useSquadsTransaction() {
           proposalPda: proposalPda.toBase58(),
           transactionPda: transactionPda.toBase58(),
           squadsUrl,
-          signature,
+          signature: sig1,
           autoApproved: true,
         }
         setResult(out)
@@ -176,8 +205,9 @@ export function useSquadsTransaction() {
       } catch (e: unknown) {
         const msg =
           e instanceof Error ? e.message : "Failed to create Squads proposal"
+        console.error("[useSquadsTransaction] error:", e)
         setError(msg)
-        return null
+        throw e
       } finally {
         setIsSubmitting(false)
       }

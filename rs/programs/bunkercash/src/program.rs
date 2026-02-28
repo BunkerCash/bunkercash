@@ -239,7 +239,7 @@ pub mod bunkercash {
         claim.is_closed = true;
 
         Ok(())
-    }
+    }   
 
     /// Irreversible sell registration:
     /// - transfer `token_amount` of Bunker Cash from the user into a program-owned escrow vault (Token-2022)

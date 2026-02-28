@@ -9,23 +9,62 @@ import {
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from '@solana/spl-token'
+import * as multisig from '@sqds/multisig'
 import {
   getPoolPda,
   getPoolSignerPda,
   getProgram,
   PROGRAM_ID,
 } from '@/lib/program'
-import { getClusterFromEndpoint, getUsdcMintForCluster, SQUADS_VAULT_PUBKEY } from '@/lib/constants'
+import {
+  getClusterFromEndpoint,
+  getUsdcMintForCluster,
+  SQUADS_VAULT_PUBKEY,
+  SQUADS_MULTISIG_PUBKEY,
+} from '@/lib/constants'
 import { useIsAdmin } from '@/hooks/useIsAdmin'
 import { useSquadsTransaction } from '@/hooks/useSquadsTransaction'
 import type { SquadsSubmitResult } from '@/hooks/useSquadsTransaction'
 import { useAllOpenClaims } from '@/hooks/useAllOpenClaims'
 import { usePayoutVault } from '@/hooks/usePayoutVault'
 import type { OpenClaim } from '@/hooks/useAllOpenClaims'
-import { AlertCircle, CheckCircle2, Loader2, Inbox, History, ExternalLink } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Loader2, Inbox, History, ExternalLink, Clock } from 'lucide-react'
 
 const USDC_DECIMALS = 6
 const TOKEN_DECIMALS = 9
+
+// ── localStorage persistence for Squads proposals ─────────────────────────────
+// Scoped to the multisig pubkey so different networks don't collide.
+const SQUADS_PROPOSALS_KEY = `bunkercash_squads_proposals_${SQUADS_MULTISIG_PUBKEY?.toBase58() ?? 'default'}`
+
+type StoredProposal = Omit<SquadsSubmitResult, 'txIndex'> & { txIndex: string }
+
+function loadStoredProposals(): Record<string, SquadsSubmitResult> {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = localStorage.getItem(SQUADS_PROPOSALS_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, StoredProposal>
+    return Object.fromEntries(
+      Object.entries(parsed).map(([k, v]) => [k, { ...v, txIndex: BigInt(v.txIndex) }]),
+    )
+  } catch {
+    return {}
+  }
+}
+
+function saveStoredProposals(proposals: Record<string, SquadsSubmitResult>): void {
+  try {
+    const serializable: Record<string, StoredProposal> = Object.fromEntries(
+      Object.entries(proposals).map(([k, v]) => [k, { ...v, txIndex: v.txIndex.toString() }]),
+    )
+    localStorage.setItem(SQUADS_PROPOSALS_KEY, JSON.stringify(serializable))
+  } catch {
+    // localStorage unavailable (e.g. private browsing quota) — ignore
+  }
+}
+
+// ── Pure helpers ──────────────────────────────────────────────────────────────
 
 function formatUsdc(raw: bigint): string {
   if (raw === BigInt(0)) return '0.00'
@@ -55,17 +94,26 @@ function getRpcEndpoint(connection: unknown): string {
   return (connection as { rpcEndpoint?: string }).rpcEndpoint ?? ''
 }
 
+// ── Component ─────────────────────────────────────────────────────────────────
+
 export function AdminProcessClaims() {
   const { connection } = useConnection()
   const wallet = useWallet()
-  const { isGovernedBySquads } = useIsAdmin()
+  const { isGovernedBySquads, isAdmin } = useIsAdmin()
   const { submit: submitSquads, error: squadsError } = useSquadsTransaction()
   const { claims, closedClaims, loading: claimsLoading, error: claimsError, refresh } = useAllOpenClaims()
   const { balance: vaultBalance, loading: vaultLoading, error: vaultError, refresh: refreshVault } = usePayoutVault()
 
   const [processingClaimId, setProcessingClaimId] = useState<string | null>(null)
-  // claimPubkey → Squads proposal result (for link display)
-  const [squadsProposals, setSquadsProposals] = useState<Record<string, SquadsSubmitResult>>({})
+
+  // Persisted across page refreshes via localStorage.
+  // Key: claim pubkey (base58) → SquadsSubmitResult
+  const [squadsProposals, setSquadsProposals] = useState<Record<string, SquadsSubmitResult>>(loadStoredProposals)
+
+  // On-chain Squads proposal statuses fetched by polling.
+  // Key: claim pubkey (base58) → 'Active' | 'Approved' | 'Executed' | 'Rejected' | 'Cancelled' | 'Unknown'
+  const [proposalStatuses, setProposalStatuses] = useState<Record<string, string>>({})
+
   const [error, setError] = useState<string | null>(null)
   const [poolPrice, setPoolPrice] = useState<bigint | null>(null)
 
@@ -74,18 +122,21 @@ export function AdminProcessClaims() {
 
   const program = useMemo(
     () => (wallet.publicKey ? getProgram(connection, wallet) : null),
-    [connection, wallet]
+    [connection, wallet],
   )
 
   const cluster = useMemo(() => getClusterFromEndpoint(getRpcEndpoint(connection)), [connection])
   const usdcMint = useMemo(() => getUsdcMintForCluster(cluster), [cluster])
 
-  // Fetch pool price for owed calculation
+  // ── Pool price ────────────────────────────────────────────────────────────
+
   const fetchPoolPrice = useCallback(async () => {
     if (!program) return
     try {
-      const pool = await (program.account as { poolState: { fetch: (pk: PublicKey) => Promise<{ priceUsdcPerToken: unknown }> } }).poolState.fetch(poolPda)
-      setPoolPrice(BigInt(pool.priceUsdcPerToken.toString()))
+      const pool = await (program.account as {
+        poolState: { fetch: (pk: PublicKey) => Promise<{ priceUsdcPerToken: unknown }> }
+      }).poolState.fetch(poolPda)
+      setPoolPrice(BigInt(String(pool.priceUsdcPerToken)))
     } catch (e: unknown) {
       console.error('Error fetching pool price:', e)
     }
@@ -95,14 +146,100 @@ export function AdminProcessClaims() {
     fetchPoolPrice()
   }, [fetchPoolPrice])
 
+  // ── Squads proposal helpers ───────────────────────────────────────────────
+
+  /** Persist a newly created proposal to state and localStorage. */
+  const addSquadsProposal = useCallback((claimPubkeyStr: string, result: SquadsSubmitResult) => {
+    setSquadsProposals(prev => {
+      const next = { ...prev, [claimPubkeyStr]: result }
+      saveStoredProposals(next)
+      return next
+    })
+  }, [])
+
+  /**
+   * Fetch the on-chain status of every tracked Squads proposal.
+   * Triggers a claims refresh when a proposal transitions to Executed/Executing.
+   */
+  const fetchProposalStatuses = useCallback(async () => {
+    const entries = Object.entries(squadsProposals)
+    if (entries.length === 0) return
+
+    const statuses: Record<string, string> = {}
+    await Promise.all(
+      entries.map(async ([claimPubkeyStr, proposal]) => {
+        try {
+          const proposalPda = new PublicKey(proposal.proposalPda)
+          const proposalAccount = await multisig.accounts.Proposal.fromAccountAddress(
+            connection,
+            proposalPda,
+          )
+          statuses[claimPubkeyStr] = (proposalAccount.status as { __kind: string }).__kind
+        } catch {
+          statuses[claimPubkeyStr] = 'Unknown'
+        }
+      }),
+    )
+
+    setProposalStatuses(prev => {
+      // When a proposal transitions to Executed, refresh the open claims list
+      // so the claim moves from "open" to "closed" on the next render.
+      const newlyDone = Object.entries(statuses).some(
+        ([k, s]) =>
+          (s === 'Executed' || s === 'Executing') &&
+          prev[k] !== 'Executed' &&
+          prev[k] !== 'Executing',
+      )
+      if (newlyDone) {
+        refresh()
+        refreshVault()
+      }
+      return statuses
+    })
+  }, [squadsProposals, connection, refresh, refreshVault])
+
+  // Poll every 10 s while there are pending proposals
+  useEffect(() => {
+    if (Object.keys(squadsProposals).length === 0) return
+    void fetchProposalStatuses()
+    const interval = setInterval(() => void fetchProposalStatuses(), 10_000)
+    return () => clearInterval(interval)
+  }, [fetchProposalStatuses, squadsProposals])
+
+  // Auto-remove Rejected / Cancelled proposals so the Propose button reappears
+  useEffect(() => {
+    const toRemove = Object.entries(proposalStatuses)
+      .filter(([, s]) => s === 'Rejected' || s === 'Cancelled')
+      .map(([k]) => k)
+    if (toRemove.length === 0) return
+    setSquadsProposals(prev => {
+      const next = { ...prev }
+      toRemove.forEach(k => delete next[k])
+      saveStoredProposals(next)
+      return next
+    })
+  }, [proposalStatuses])
+
+  // ── Derived data ──────────────────────────────────────────────────────────
+
   const computeOwed = (tokenAmountLocked: string): bigint => {
     if (!poolPrice) return BigInt(0)
-    // owed = tokenAmountLocked * price / 10^TOKEN_DECIMALS
     return (BigInt(tokenAmountLocked) * poolPrice) / BigInt(10 ** TOKEN_DECIMALS)
   }
 
-  // Keep claims visible even after proposing via Squads, since they are not executed yet.
-  const openClaims = useMemo(() => claims, [claims])
+  /**
+   * Hide claims whose Squads proposal is already Executing or Executed.
+   * Once the vault transaction is confirmed on-chain, isClosed flips to true
+   * and the claim moves to closedClaims on the next refresh() call.
+   */
+  const openClaims = useMemo(() => {
+    return claims.filter(claim => {
+      const status = proposalStatuses[claim.pubkey.toBase58()]
+      return status !== 'Executed' && status !== 'Executing'
+    })
+  }, [claims, proposalStatuses])
+
+  // ── Process-claim handler ─────────────────────────────────────────────────
 
   type ProcessClaimMethods = {
     processClaim: () => {
@@ -121,6 +258,15 @@ export function AdminProcessClaims() {
   const handleProcessClaim = async (claim: OpenClaim) => {
     if (!program || !usdcMint) return
 
+    // Guard: only Squads members can propose in a Squads-governed pool
+    if (isGovernedBySquads && !isAdmin) {
+      setError(
+        'Your wallet is not a member of the Squads multisig. ' +
+          'Only multisig members can propose transactions.',
+      )
+      return
+    }
+
     setProcessingClaimId(claim.id)
     setError(null)
 
@@ -130,7 +276,7 @@ export function AdminProcessClaims() {
         poolSignerPda,
         true,
         TOKEN_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
+        ASSOCIATED_TOKEN_PROGRAM_ID,
       )
 
       const userUsdcAta = getAssociatedTokenAddressSync(
@@ -138,25 +284,22 @@ export function AdminProcessClaims() {
         claim.user,
         false,
         TOKEN_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
+        ASSOCIATED_TOKEN_PROGRAM_ID,
       )
 
       if (isGovernedBySquads) {
         if (!SQUADS_VAULT_PUBKEY) {
           throw new Error('Missing NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY (v4 multisig) in web env')
         }
-        // ── Squads flow ───────────────────────────────────────────────────────
-        // admin = Squads vault. The vault pays out from the payout vault via CPI.
-        // We also include the ATA creation instruction so the user's ATA exists.
         if (!wallet.publicKey) return
 
         const ataIx = createAssociatedTokenAccountIdempotentInstruction(
-          SQUADS_VAULT_PUBKEY,   // vault funds the ATA creation inside the vault tx
+          SQUADS_VAULT_PUBKEY,
           userUsdcAta,
           claim.user,
           usdcMint,
           TOKEN_PROGRAM_ID,
-          ASSOCIATED_TOKEN_PROGRAM_ID
+          ASSOCIATED_TOKEN_PROGRAM_ID,
         )
 
         const processIx = await (program.methods as unknown as ProcessClaimMethods)
@@ -178,10 +321,10 @@ export function AdminProcessClaims() {
         )
 
         if (out) {
-          setSquadsProposals((prev) => ({ ...prev, [claim.pubkey.toBase58()]: out }))
+          addSquadsProposal(claim.pubkey.toBase58(), out)
         }
       } else {
-        // ── Direct flow (wallet is admin) ────────────────────────────────────
+        // ── Direct flow (wallet is the pool admin) ─────────────────────────
         if (!wallet.publicKey) return
 
         const ataIx = createAssociatedTokenAccountIdempotentInstruction(
@@ -190,7 +333,7 @@ export function AdminProcessClaims() {
           claim.user,
           usdcMint,
           TOKEN_PROGRAM_ID,
-          ASSOCIATED_TOKEN_PROGRAM_ID
+          ASSOCIATED_TOKEN_PROGRAM_ID,
         )
 
         const processIx = await (program.methods as unknown as ProcessClaimMethods)
@@ -217,13 +360,15 @@ export function AdminProcessClaims() {
     } catch (e: unknown) {
       console.error('Error processing claim:', e)
       const msg = e instanceof Error ? e.message : null
-      setError(msg || squadsError || 'Failed to process claim')
+      setError(msg ?? squadsError ?? 'Failed to process claim')
     } finally {
       setProcessingClaimId(null)
     }
   }
 
   const isLoading = claimsLoading || vaultLoading
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
@@ -256,7 +401,7 @@ export function AdminProcessClaims() {
             <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
             <div className="text-sm text-red-200/80">
               <p className="font-medium text-red-300 mb-1">Error</p>
-              <p className="text-xs text-red-200/60">{error || claimsError}</p>
+              <p className="text-xs text-red-200/60 whitespace-pre-wrap">{error || claimsError}</p>
             </div>
           </div>
         </div>
@@ -291,9 +436,12 @@ export function AdminProcessClaims() {
                       const paid = BigInt(claim.usdcPaid)
                       const remaining = owed > paid ? owed - paid : BigInt(0)
                       const isProcessing = processingClaimId === claim.id
+                      const claimKey = claim.pubkey.toBase58()
+                      const proposal = squadsProposals[claimKey]
+                      const proposalStatus = proposalStatuses[claimKey]
 
                       return (
-                        <tr key={claim.pubkey.toBase58()} className="border-b border-neutral-800/50 hover:bg-neutral-900/30">
+                        <tr key={claimKey} className="border-b border-neutral-800/50 hover:bg-neutral-900/30">
                           <td className="px-4 py-3 font-mono text-neutral-300">#{claim.id}</td>
                           <td className="px-4 py-3 font-mono text-neutral-400" title={claim.user.toBase58()}>
                             {truncateAddress(claim.user.toBase58())}
@@ -311,30 +459,57 @@ export function AdminProcessClaims() {
                             ${formatUsdc(remaining)}
                           </td>
                           <td className="px-4 py-3 text-center">
-                            {squadsProposals[claim.pubkey.toBase58()] ? (
+                            {proposal ? (
+                              // A Squads proposal exists for this claim — show its status
                               <div className="flex flex-col items-center gap-1">
                                 <a
-                                  href={squadsProposals[claim.pubkey.toBase58()].squadsUrl}
+                                  href={proposal.squadsUrl}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg bg-purple-500/10 text-purple-300 border border-purple-500/30 hover:bg-purple-500/20 transition-all"
+                                  className={`inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                                    proposalStatus === 'Approved'
+                                      ? 'bg-green-500/10 text-green-300 border border-green-500/30 hover:bg-green-500/20'
+                                      : 'bg-purple-500/10 text-purple-300 border border-purple-500/30 hover:bg-purple-500/20'
+                                  }`}
                                 >
-                                  Open Squads <ExternalLink className="w-3 h-3" />
+                                  {proposalStatus === 'Approved' ? 'Execute in Squads' : 'Open Squads'}
+                                  <ExternalLink className="w-3 h-3" />
                                 </a>
+                                <span className="text-[10px] text-neutral-500 flex items-center gap-1">
+                                  <Clock className="w-2.5 h-2.5" />
+                                  {proposalStatus === 'Active'
+                                    ? 'Awaiting approval'
+                                    : proposalStatus === 'Approved'
+                                    ? 'Ready to execute'
+                                    : !proposalStatus
+                                    ? 'Checking status…'
+                                    : `Status: ${proposalStatus}`}
+                                </span>
                                 <a
-                                  href={getExplorerAccountUrl(new PublicKey(squadsProposals[claim.pubkey.toBase58()].proposalPda), cluster)}
+                                  href={getExplorerAccountUrl(new PublicKey(proposal.proposalPda), cluster)}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="text-[11px] text-neutral-500 hover:text-neutral-300 font-mono"
                                   title="View proposal PDA on Solana Explorer"
                                 >
-                                  tx #{squadsProposals[claim.pubkey.toBase58()].txIndex.toString()}
+                                  tx #{proposal.txIndex.toString()}
                                 </a>
                               </div>
                             ) : (
+                              // No proposal yet — show the action button
                               <button
                                 onClick={() => handleProcessClaim(claim)}
-                                disabled={isProcessing || !wallet.publicKey || remaining === BigInt(0)}
+                                disabled={
+                                  isProcessing ||
+                                  !wallet.publicKey ||
+                                  remaining === BigInt(0) ||
+                                  (isGovernedBySquads && !isAdmin)
+                                }
+                                title={
+                                  isGovernedBySquads && !isAdmin
+                                    ? 'Your wallet is not a member of the Squads multisig'
+                                    : undefined
+                                }
                                 className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-[#00FFB2] hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600 text-black transition-all flex items-center gap-1.5 mx-auto"
                               >
                                 {isProcessing && <Loader2 className="w-3 h-3 animate-spin" />}
@@ -358,7 +533,7 @@ export function AdminProcessClaims() {
             </div>
           )}
 
-          {/* Claim History - always visible when there are closed claims */}
+          {/* Claim History */}
           {closedClaims.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center gap-2">
