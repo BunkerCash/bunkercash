@@ -31,6 +31,9 @@ const DISC_MAP: Record<string, { type: EventType; currency: "BNKR" | "USDC" | nu
 
 // Anchor event discriminator for ClaimProcessed: sha256("event:ClaimProcessed")[:8]
 // Fields (borsh, after 8-byte disc): admin(32) | claim_id(8) | user(32) | usdc_paid(8) | token_amount_locked(8)
+// NOTE: usdc_paid in the event is the *incremental* amount transferred in this
+// single process_claim call, NOT the cumulative total (which is stored in the
+// on-chain claim.usdc_paid state field).
 const CLAIM_PROCESSED_DISC = [214, 130, 82, 189, 1, 255, 166, 249]
 const CLAIM_PROCESSED_USDC_PAID_OFFSET = 8 + 32 + 8 + 32 // = 80
 
@@ -62,7 +65,7 @@ function decodeU64LE(bytes: Uint8Array, offset: number): bigint {
 }
 
 const CACHE_TTL = 30_000 // 30 seconds
-let eventsCache: { data: ProgramEvent[]; timestamp: number } | null = null
+let eventsCache: { data: ProgramEvent[]; timestamp: number; endpoint: string } | null = null
 
 export function useRecentProgramEvents(limit = 10) {
   const { connection } = useConnection()
@@ -70,8 +73,10 @@ export function useRecentProgramEvents(limit = 10) {
   const [loading, setLoading] = useState(!eventsCache)
   const [error, setError] = useState<string | null>(null)
 
+  const rpcEndpoint = (connection as any).rpcEndpoint ?? ""
+
   const fetchEvents = useCallback(async (bypassCache = false) => {
-    if (!bypassCache && eventsCache && Date.now() - eventsCache.timestamp < CACHE_TTL) {
+    if (!bypassCache && eventsCache && eventsCache.endpoint === rpcEndpoint && Date.now() - eventsCache.timestamp < CACHE_TTL) {
       setEvents(eventsCache.data)
       setLoading(false)
       return
@@ -84,7 +89,7 @@ export function useRecentProgramEvents(limit = 10) {
 
       if (sigs.length === 0) {
         setEvents([])
-        eventsCache = { data: [], timestamp: Date.now() }
+        eventsCache = { data: [], timestamp: Date.now(), endpoint: rpcEndpoint }
         return
       }
 
@@ -153,7 +158,7 @@ export function useRecentProgramEvents(limit = 10) {
         }
       }
 
-      eventsCache = { data: parsed, timestamp: Date.now() }
+      eventsCache = { data: parsed, timestamp: Date.now(), endpoint: rpcEndpoint }
       setEvents(parsed)
     } catch (e: any) {
       console.error('Error fetching program events:', e)
@@ -161,7 +166,7 @@ export function useRecentProgramEvents(limit = 10) {
     } finally {
       setLoading(false)
     }
-  }, [connection, limit])
+  }, [connection, limit, rpcEndpoint])
 
   useEffect(() => {
     fetchEvents()

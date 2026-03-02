@@ -8,7 +8,7 @@ import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
 const USDC_DECIMALS = 6;
 
 const CACHE_TTL = 30_000 // 30 seconds
-let vaultCache: { data: string; timestamp: number } | null = null
+let vaultCache: { data: string; timestamp: number; endpoint: string } | null = null
 
 export function usePayoutVault() {
   const { connection } = useConnection()
@@ -26,10 +26,12 @@ export function usePayoutVault() {
     return getUsdcMintForCluster(cluster);
   }, [connection]);
 
+  const rpcEndpoint = (connection as any).rpcEndpoint ?? ""
+
   const fetchBalance = useCallback(async (bypassCache = false) => {
     if (!connection || !usdcMint) return
 
-    if (!bypassCache && vaultCache && Date.now() - vaultCache.timestamp < CACHE_TTL) {
+    if (!bypassCache && vaultCache && vaultCache.endpoint === rpcEndpoint && Date.now() - vaultCache.timestamp < CACHE_TTL) {
       setBalance(vaultCache.data)
       setLoading(false)
       return
@@ -48,11 +50,11 @@ export function usePayoutVault() {
 
       const bal = await connection.getTokenAccountBalance(payoutUsdcVault)
       const value = bal.value.uiAmountString ?? '0'
-      vaultCache = { data: value, timestamp: Date.now() }
+      vaultCache = { data: value, timestamp: Date.now(), endpoint: rpcEndpoint }
       setBalance(value)
     } catch (e: any) {
       if (e.message?.includes('could not find account')) {
-        vaultCache = { data: '0', timestamp: Date.now() }
+        vaultCache = { data: '0', timestamp: Date.now(), endpoint: rpcEndpoint }
         setBalance('0')
       } else {
         console.error('Error fetching payout vault balance:', e)
@@ -62,7 +64,7 @@ export function usePayoutVault() {
     } finally {
       setLoading(false)
     }
-  }, [connection, usdcMint, poolSignerPda])
+  }, [connection, usdcMint, poolSignerPda, rpcEndpoint])
 
   useEffect(() => {
     fetchBalance()

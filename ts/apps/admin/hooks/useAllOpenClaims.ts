@@ -20,6 +20,7 @@ let claimsCache: {
   closedClaims: OpenClaim[]
   totalLocked: bigint
   timestamp: number
+  endpoint: string
 } | null = null
 
 export function useAllOpenClaims() {
@@ -38,10 +39,12 @@ export function useAllOpenClaims() {
     return getReadonlyProgram(connection)
   }, [connection, wallet.publicKey])
 
+  const rpcEndpoint = (connection as any).rpcEndpoint ?? ""
+
   const fetchClaims = useCallback(async (bypassCache = false) => {
     if (!program) return
 
-    if (!bypassCache && claimsCache && Date.now() - claimsCache.timestamp < CACHE_TTL) {
+    if (!bypassCache && claimsCache && claimsCache.endpoint === rpcEndpoint && Date.now() - claimsCache.timestamp < CACHE_TTL) {
       setClaims(claimsCache.claims)
       setClosedClaims(claimsCache.closedClaims)
       setTotalLocked(claimsCache.totalLocked)
@@ -82,7 +85,7 @@ export function useAllOpenClaims() {
         .map(normalize)
         .sort((a: OpenClaim, b: OpenClaim) => Number(b.id) - Number(a.id))
 
-      claimsCache = { claims: normalizedOpen, closedClaims: normalizedClosed, totalLocked: locked, timestamp: Date.now() }
+      claimsCache = { claims: normalizedOpen, closedClaims: normalizedClosed, totalLocked: locked, timestamp: Date.now(), endpoint: rpcEndpoint }
       setClaims(normalizedOpen)
       setClosedClaims(normalizedClosed)
       setTotalLocked(locked)
@@ -92,7 +95,7 @@ export function useAllOpenClaims() {
     } finally {
       setLoading(false)
     }
-  }, [program])
+  }, [program, rpcEndpoint])
 
   useEffect(() => {
     fetchClaims()

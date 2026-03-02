@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useConnection } from "@solana/wallet-adapter-react";
 import { AlertCircle, RefreshCw, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getClusterFromEndpoint } from "@/lib/constants";
 import {
   useRecentProgramEvents,
   type EventType,
@@ -54,8 +56,16 @@ function formatAmount(amount: number | null, currency: string | null): string {
 }
 
 export function EventLogTable() {
+  const { connection } = useConnection();
   const [activeFilter, setActiveFilter] = useState<EventType | "All">("All");
   const { events, loading, error, refresh } = useRecentProgramEvents(10);
+
+  const explorerClusterParam = useMemo(() => {
+    const cluster = getClusterFromEndpoint(
+      (connection as any).rpcEndpoint ?? ""
+    );
+    return cluster === "mainnet-beta" ? "" : `?cluster=${cluster}`;
+  }, [connection]);
 
   const filteredEvents =
     activeFilter === "All"
@@ -200,7 +210,7 @@ export function EventLogTable() {
                   </td>
                   <td className="px-5 py-3.5 text-sm text-neutral-500 font-mono">
                     <a
-                      href={`https://explorer.solana.com/tx/${event.txHash}?cluster=devnet`}
+                      href={`https://explorer.solana.com/tx/${event.txHash}${explorerClusterParam}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 hover:text-neutral-300 transition-colors"

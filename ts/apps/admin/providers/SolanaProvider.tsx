@@ -13,7 +13,10 @@ import { createRateLimitedFetch } from "@/lib/rpc-throttle";
 import "@solana/wallet-adapter-react-ui/styles.css";
 
 export const SolanaProvider: FC<{ children: ReactNode }> = ({ children }) => {
-  const endpoint = useMemo(() => clusterApiUrl("devnet"), []);
+  const endpoint = useMemo(
+    () => process.env.NEXT_PUBLIC_RPC_ENDPOINT || clusterApiUrl("devnet"),
+    []
+  );
   const wallets = useMemo(() => [new PhantomWalletAdapter()], []);
   const fetchMiddleware = useMemo(() => createRateLimitedFetch(), []);
 
