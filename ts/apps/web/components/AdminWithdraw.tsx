@@ -98,7 +98,7 @@ export function AdminWithdraw() {
         // ── Squads flow ──────────────────────────────────────────────────────
         // The Squads vault PDA is the USDC source (its own USDC ATA).
         if (!SQUADS_VAULT_PUBKEY) {
-          throw new Error('Missing NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY (v4 multisig) in web env')
+          throw new Error('Squads vault PDA is not available. Ensure NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY is set in .env.local')
         }
 
         const vaultUsdcAta = getAssociatedTokenAddressSync(

@@ -117,7 +117,7 @@ export function AdminDeposit() {
 
       if (isGovernedBySquads) {
         if (!SQUADS_VAULT_PUBKEY) {
-          throw new Error("Missing NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY (v4 multisig) in web env")
+          throw new Error("Squads vault PDA is not available. Ensure NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY is set in .env.local")
         }
         // ── Squads flow ──────────────────────────────────────────────────────
         // admin = Squads vault PDA; the vault's USDC ATA is the source

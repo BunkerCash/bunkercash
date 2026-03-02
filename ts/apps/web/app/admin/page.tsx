@@ -46,7 +46,7 @@ export default function AdminPage() {
   const handleTransferAdminToSquads = async () => {
     if (!program || !publicKey) return
     if (!SQUADS_VAULT_PUBKEY) {
-      setTransferAdminError('Missing NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY (v4 multisig) in web env')
+      setTransferAdminError('Squads vault PDA is not available. Ensure NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY is set in .env.local')
       return
     }
     setTransferAdminLoading(true)

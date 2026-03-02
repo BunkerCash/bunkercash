@@ -33,8 +33,9 @@ export type SquadsSubmitResult = {
 function assertSquadsConfigured() {
   if (!SQUADS_MULTISIG_PUBKEY || !SQUADS_VAULT_PUBKEY) {
     throw new Error(
-      "Squads v4 is not configured.\n" +
-        "Set NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY in ts/apps/web/.env.local and restart dev server.",
+      "Squads v4 is not configured. " +
+        "SQUADS_VAULT_PUBKEY could not be derived because NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY is not set.\n" +
+        "Add it to ts/apps/web/.env.local and restart the dev server.",
     )
   }
 }
@@ -68,6 +69,11 @@ export function useSquadsTransaction() {
     ): Promise<SquadsSubmitResult | null> => {
       if (!wallet.publicKey || !wallet.signAllTransactions) {
         setError("Wallet not connected")
+        return null
+      }
+
+      if (instructions.length === 0) {
+        setError("No instructions provided — cannot create an empty proposal")
         return null
       }
 
@@ -155,10 +161,10 @@ export function useSquadsTransaction() {
         const vtx2 = new VersionedTransaction(tx2Message)
 
         // Sign both at once → single wallet popup for the user
-        const [signed1, signed2] = (await wallet.signAllTransactions([
-          vtx1 as never,
-          vtx2 as never,
-        ])) as VersionedTransaction[]
+        const [signed1, signed2] = await wallet.signAllTransactions([
+          vtx1,
+          vtx2,
+        ])
 
         // ── 5. Send TX 1 and wait for confirmation ───────────────────────────
         const sig1 = await connection.sendTransaction(signed1, {

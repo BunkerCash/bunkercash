@@ -35,12 +35,14 @@ const TOKEN_DECIMALS = 9
 
 // ── localStorage persistence for Squads proposals ─────────────────────────────
 // Scoped to the multisig pubkey so different networks don't collide.
-const SQUADS_PROPOSALS_KEY = `bunkercash_squads_proposals_${SQUADS_MULTISIG_PUBKEY?.toBase58() ?? 'default'}`
+const SQUADS_PROPOSALS_KEY = SQUADS_MULTISIG_PUBKEY
+  ? `bunkercash_squads_proposals_${SQUADS_MULTISIG_PUBKEY.toBase58()}`
+  : null
 
 type StoredProposal = Omit<SquadsSubmitResult, 'txIndex'> & { txIndex: string }
 
 function loadStoredProposals(): Record<string, SquadsSubmitResult> {
-  if (typeof window === 'undefined') return {}
+  if (typeof window === 'undefined' || !SQUADS_PROPOSALS_KEY) return {}
   try {
     const raw = localStorage.getItem(SQUADS_PROPOSALS_KEY)
     if (!raw) return {}
@@ -54,6 +56,7 @@ function loadStoredProposals(): Record<string, SquadsSubmitResult> {
 }
 
 function saveStoredProposals(proposals: Record<string, SquadsSubmitResult>): void {
+  if (!SQUADS_PROPOSALS_KEY) return
   try {
     const serializable: Record<string, StoredProposal> = Object.fromEntries(
       Object.entries(proposals).map(([k, v]) => [k, { ...v, txIndex: v.txIndex.toString() }]),
@@ -289,7 +292,7 @@ export function AdminProcessClaims() {
 
       if (isGovernedBySquads) {
         if (!SQUADS_VAULT_PUBKEY) {
-          throw new Error('Missing NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY (v4 multisig) in web env')
+          throw new Error('Squads vault PDA is not available. Ensure NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY is set in .env.local')
         }
         if (!wallet.publicKey) return
 
