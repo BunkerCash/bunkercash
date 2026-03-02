@@ -45,8 +45,8 @@ export default function AdminPage() {
 
   const handleTransferAdminToSquads = async () => {
     if (!program || !publicKey) return
-    if (!SQUADS_VAULT_PUBKEY) {
-      setTransferAdminError('Squads vault PDA is not available. Ensure NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY is set in .env.local')
+    if (!SQUADS_MULTISIG_PUBKEY) {
+      setTransferAdminError('Squads multisig pubkey is not available. Ensure NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY is set in .env.local')
       return
     }
     setTransferAdminLoading(true)
@@ -54,7 +54,7 @@ export default function AdminPage() {
     setTransferAdminTx(null)
     try {
       const ix = await (program.methods as unknown as UpdateAdminMethods)
-        .updateAdmin(SQUADS_VAULT_PUBKEY)
+        .updateAdmin(SQUADS_MULTISIG_PUBKEY)
         .accounts({ pool: poolPda, admin: publicKey })
         .instruction()
       const tx = new Transaction().add(ix)

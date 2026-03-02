@@ -209,10 +209,11 @@ export function AdminProcessClaims() {
     return () => clearInterval(interval)
   }, [fetchProposalStatuses, squadsProposals])
 
-  // Auto-remove Rejected / Cancelled proposals so the Propose button reappears
+  // Auto-remove Rejected / Cancelled / Executed proposals so the Propose button
+  // reappears (for Rejected/Cancelled) and polling stops (for Executed).
   useEffect(() => {
     const toRemove = Object.entries(proposalStatuses)
-      .filter(([, s]) => s === 'Rejected' || s === 'Cancelled')
+      .filter(([, s]) => s === 'Rejected' || s === 'Cancelled' || s === 'Executed')
       .map(([k]) => k)
     if (toRemove.length === 0) return
     setSquadsProposals(prev => {
