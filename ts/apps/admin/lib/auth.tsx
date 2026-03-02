@@ -8,90 +8,80 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { useConnection } from "@solana/wallet-adapter-react";
+import { getReadonlyProgram, getPoolPda } from "./program";
 
 interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (username: string, password: string) => Promise<boolean>;
+  isAdmin: boolean;
+  adminAddress: string | null;
   logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-const STORAGE_KEY = "bunker_admin_token";
-
-// TODO: Remove this bypass once backend auth APIs are ready
-const AUTH_BYPASS = true;
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(AUTH_BYPASS);
-  const [isLoading, setIsLoading] = useState(!AUTH_BYPASS);
+  const { publicKey, connected, disconnect } = useWallet();
+  const { connection } = useConnection();
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [adminAddress, setAdminAddress] = useState<string | null>(null);
 
   useEffect(() => {
-    if (AUTH_BYPASS) return;
-
-    const token = localStorage.getItem(STORAGE_KEY);
-    if (!token) {
+    if (!connected || !publicKey) {
+      setIsAdmin(false);
+      setAdminAddress(null);
       setIsLoading(false);
       return;
     }
 
-    fetch("/api/auth/verify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.valid) {
-          setIsAuthenticated(true);
-        } else {
-          localStorage.removeItem(STORAGE_KEY);
-        }
-      })
-      .catch(() => {
-        localStorage.removeItem(STORAGE_KEY);
-      })
-      .finally(() => {
-        setIsLoading(false);
-      });
-  }, []);
+    let cancelled = false;
+    setIsLoading(true);
 
-  const login = useCallback(
-    async (username: string, password: string): Promise<boolean> => {
-      if (AUTH_BYPASS) {
-        setIsAuthenticated(true);
-        return true;
-      }
-
+    (async () => {
       try {
-        const res = await fetch("/api/auth/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username, password }),
-        });
+        const program = getReadonlyProgram(connection);
+        const poolPda = getPoolPda();
+        const poolState = await (program.account as any).poolState.fetch(poolPda);
+        const onChainAdmin = poolState.admin.toBase58();
 
-        if (!res.ok) return false;
+        if (cancelled) return;
 
-        const { token } = await res.json();
-        localStorage.setItem(STORAGE_KEY, token);
-        setIsAuthenticated(true);
-        return true;
+        setAdminAddress(onChainAdmin);
+
+        const walletAddr = publicKey.toBase58();
+        const override = process.env.NEXT_PUBLIC_ADMIN_OVERRIDE;
+        setIsAdmin(
+          walletAddr === onChainAdmin ||
+            (!!override && walletAddr === override)
+        );
       } catch {
-        return false;
+        if (!cancelled) {
+          setIsAdmin(false);
+          setAdminAddress(null);
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
       }
-    },
-    []
-  );
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [connected, publicKey, connection]);
 
   const logout = useCallback(() => {
-    if (AUTH_BYPASS) return;
-    setIsAuthenticated(false);
-    localStorage.removeItem(STORAGE_KEY);
-  }, []);
+    disconnect();
+  }, [disconnect]);
+
+  const isAuthenticated = connected && isAdmin;
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, isLoading, login, logout }}>
+    <AuthContext.Provider
+      value={{ isAuthenticated, isLoading, isAdmin, adminAddress, logout }}
+    >
       {children}
     </AuthContext.Provider>
   );

@@ -2,6 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Open wallet dropdown upward when button is near bottom of viewport */
+.wallet-adapter-dropdown {
+  position: relative;
+}
+.wallet-adapter-dropdown-list {
+  top: auto !important;
+  bottom: 100% !important;
+  margin-bottom: 8px;
+}
+
 @layer base {
   :root {
     --background: 0 0% 4%;

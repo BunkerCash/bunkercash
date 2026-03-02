@@ -1,9 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { Zap, Lock, Square, LogOut } from "lucide-react";
-import { useAuth } from "@/lib/auth";
+import { usePathname } from "next/navigation";
+import { Zap, Lock, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
 
@@ -36,13 +35,6 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const router = useRouter();
-  const { logout } = useAuth();
-
-  const handleSignOut = () => {
-    logout();
-    router.push("/login");
-  };
 
   return (
     <aside className="w-[220px] min-h-screen bg-[#0d0d0d] border-r border-neutral-800/60 flex flex-col shrink-0">
@@ -89,7 +81,7 @@ export function Sidebar() {
       </nav>
 
       {/* Bottom actions */}
-      <div className="px-4 pb-5 space-y-2">
+      <div className="px-4 pb-5">
         <WalletMultiButton
           style={{
             width: "100%",
@@ -104,13 +96,6 @@ export function Sidebar() {
             padding: "0 12px",
           }}
         />
-        <button
-          onClick={handleSignOut}
-          className="w-full flex items-center gap-2.5 px-3 py-2 text-neutral-500 text-[13px] hover:text-neutral-300 transition-colors"
-        >
-          <LogOut className="w-4 h-4" strokeWidth={2} />
-          Sign Out
-        </button>
       </div>
     </aside>
   );
