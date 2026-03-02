@@ -222,9 +222,8 @@ export function AdminWithdraw() {
             <p className="font-medium text-yellow-300 mb-1">Authorized Withdrawals Only</p>
             <p className="text-xs text-yellow-200/60">
               {isGovernedBySquads
-                ? 'Creates a Squads vault transaction proposal. All multisig members must approve before funds transfer.'
+                ? 'Creates a Squads vault transaction proposal. The required number of multisig members must approve before funds transfer.'
                 : 'All withdrawals must be backed by notarized documents proving secured and overcollateralized debt.'}
-            </p>
           </div>
         </div>
       </div>
