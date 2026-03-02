@@ -143,9 +143,10 @@ export default function AdminPage() {
                   <div className="flex items-start gap-3">
                     <UserPlus className="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">
-                      <h3 className="text-sm font-semibold text-purple-200 mb-1">Transfer admin to Squads vault</h3>
+                      <h3 className="text-sm font-semibold text-purple-200 mb-1">Transfer admin to Squads multisig</h3>
                       <p className="text-xs text-neutral-400 mb-4">
-                        Hand over pool admin to the Squads vault PDA (index 0). This enables multisig governance for admin actions.
+                        Hand over pool admin to the Squads multisig PDA. This enables multisig governance for admin actions.
+                      </p>
                       </p>
                       {transferAdminTx && (
                         <div className="flex items-center gap-2 text-green-400 text-xs mb-4">
