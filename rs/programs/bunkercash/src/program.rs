@@ -82,6 +82,18 @@ pub mod bunkercash {
     /// Transfers admin authority to a new address (e.g., Squads vault).
     /// Only the current admin can call this instruction.
     pub fn update_admin(ctx: Context<UpdateAdmin>, new_admin: Pubkey) -> Result<()> {
+        require!(
+            new_admin != Pubkey::default(),
+            ErrorCode::InvalidAdminAddress
+        );
+        require!(
+            new_admin != ctx.accounts.pool.key(),
+            ErrorCode::InvalidAdminAddress
+        );
+        require!(
+            new_admin != System::id(),
+            ErrorCode::InvalidAdminAddress
+        );
         ctx.accounts.pool.admin = new_admin;
         Ok(())
     }
@@ -750,6 +762,8 @@ pub enum ErrorCode {
     InvalidClaimAccount,
     #[msg("User USDC token account must be writable")]
     UserUsdcNotWritable,
+    #[msg("Invalid admin address: cannot be default, system program, or pool PDA")]
+    InvalidAdminAddress,
 }
 
 /// Emitted when the admin deposits USDC into the payout vault.
