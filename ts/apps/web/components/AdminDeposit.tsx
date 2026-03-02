@@ -124,7 +124,7 @@ export function AdminDeposit() {
         const vaultUsdcAta = getAssociatedTokenAddressSync(
           usdcMint,
           SQUADS_VAULT_PUBKEY,
-          false,
+          true,
           TOKEN_PROGRAM_ID,
           ASSOCIATED_TOKEN_PROGRAM_ID,
         );
