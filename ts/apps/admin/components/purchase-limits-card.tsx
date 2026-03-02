@@ -58,12 +58,6 @@ export function PurchaseLimitsCard() {
   const [depositError, setDepositError] = useState<string | null>(null);
   const [depositSuccess, setDepositSuccess] = useState<string | null>(null);
 
-  // Update price state
-  const [newPrice, setNewPrice] = useState("");
-  const [updatingPrice, setUpdatingPrice] = useState(false);
-  const [priceError, setPriceError] = useState<string | null>(null);
-  const [priceSuccess, setPriceSuccess] = useState<string | null>(null);
-
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), []);
   const poolSignerPda = useMemo(() => getPoolSignerPda(poolPda, PROGRAM_ID), [poolPda]);
   const mintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), []);
@@ -189,44 +183,6 @@ export function PurchaseLimitsCard() {
     }
   };
 
-  const handleUpdatePrice = async () => {
-    if (!program || !wallet.publicKey) return;
-    const price = parseFloat(newPrice);
-    if (isNaN(price) || price <= 0) return;
-
-    setUpdatingPrice(true);
-    setPriceError(null);
-    setPriceSuccess(null);
-
-    try {
-      const priceBase = BigInt(Math.round(price * 10 ** USDC_DECIMALS));
-
-      const ix = await (program.methods as any)
-        .updatePrice(new BN(priceBase.toString()))
-        .accounts({
-          pool: poolPda,
-          admin: wallet.publicKey,
-        })
-        .instruction();
-
-      const tx = new Transaction();
-      tx.add(ix);
-
-      await (
-        program.provider as { sendAndConfirm: (tx: Transaction) => Promise<string> }
-      ).sendAndConfirm(tx);
-
-      setPriceSuccess(`Price updated to $${price} USDC/BNKR`);
-      setNewPrice("");
-      fetchPoolInfo(true);
-    } catch (e: any) {
-      console.error("Error updating price:", e);
-      setPriceError(e.message || "Failed to update price");
-    } finally {
-      setUpdatingPrice(false);
-    }
-  };
-
   const totalVolume = poolInfo
     ? Math.round(poolInfo.totalSupply * poolInfo.pricePerToken)
     : 0;
@@ -253,7 +209,7 @@ export function PurchaseLimitsCard() {
         <div className="flex items-center gap-3 px-4 py-3 mb-6 rounded-xl border border-amber-500/20 bg-amber-500/5">
           <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
           <p className="text-sm text-amber-400">
-            Connect admin wallet to add liquidity or update price
+            Connect admin wallet to add liquidity
           </p>
         </div>
       )}
@@ -342,101 +298,50 @@ export function PurchaseLimitsCard() {
       </div>
 
       {/* Admin actions */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Add Liquidity */}
-        <div className="bg-neutral-900/40 border border-neutral-800/60 rounded-xl p-6">
-          <div className="flex items-center gap-2 mb-5">
-            <Settings className="w-4 h-4 text-neutral-500" />
-            <span className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
-              Add Liquidity
-            </span>
-          </div>
-
-          <label className="block text-xs text-neutral-400 mb-2">
-            Amount (USDC)
-          </label>
-          <input
-            type="number"
-            value={depositAmount}
-            onChange={(e) => setDepositAmount(e.target.value)}
-            placeholder="0.00"
-            min="0"
-            className="w-full h-10 bg-neutral-800/60 border border-neutral-700/60 rounded-lg px-3 text-sm text-white font-mono focus:outline-none focus:ring-1 focus:ring-[#00FFB2]/50 focus:border-[#00FFB2]/50 mb-4"
-          />
-
-          {depositError && (
-            <div className="flex items-start gap-2 mb-3 p-2.5 rounded-lg bg-red-500/10 border border-red-500/20">
-              <AlertCircle className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
-              <p className="text-xs text-red-400">{depositError}</p>
-            </div>
-          )}
-          {depositSuccess && (
-            <div className="flex items-center gap-2 mb-3 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-              <p className="text-xs text-emerald-400">{depositSuccess}</p>
-            </div>
-          )}
-
-          <button
-            onClick={handleAddLiquidity}
-            disabled={!wallet.publicKey || !depositAmount || depositing}
-            className="w-full h-10 rounded-lg bg-[#00FFB2] text-black text-sm font-medium hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600 transition-colors flex items-center justify-center gap-2"
-          >
-            {depositing && <Loader2 className="w-4 h-4 animate-spin" />}
-            {depositing ? "Depositing..." : "Deposit USDC"}
-          </button>
-
-          <p className="text-[11px] text-neutral-600 mt-3">
-            Funds go directly to the payout vault for claims
-          </p>
+      <div className="bg-neutral-900/40 border border-neutral-800/60 rounded-xl p-6">
+        <div className="flex items-center gap-2 mb-5">
+          <Settings className="w-4 h-4 text-neutral-500" />
+          <span className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
+            Add Liquidity
+          </span>
         </div>
 
-        {/* Update Price */}
-        <div className="bg-neutral-900/40 border border-neutral-800/60 rounded-xl p-6">
-          <div className="flex items-center gap-2 mb-5">
-            <Settings className="w-4 h-4 text-neutral-500" />
-            <span className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
-              Update Token Price
-            </span>
+        <label className="block text-xs text-neutral-400 mb-2">
+          Amount (USDC)
+        </label>
+        <input
+          type="number"
+          value={depositAmount}
+          onChange={(e) => setDepositAmount(e.target.value)}
+          placeholder="0.00"
+          min="0"
+          className="w-full h-10 bg-neutral-800/60 border border-neutral-700/60 rounded-lg px-3 text-sm text-white font-mono focus:outline-none focus:ring-1 focus:ring-[#00FFB2]/50 focus:border-[#00FFB2]/50 mb-4"
+        />
+
+        {depositError && (
+          <div className="flex items-start gap-2 mb-3 p-2.5 rounded-lg bg-red-500/10 border border-red-500/20">
+            <AlertCircle className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
+            <p className="text-xs text-red-400">{depositError}</p>
           </div>
+        )}
+        {depositSuccess && (
+          <div className="flex items-center gap-2 mb-3 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+            <p className="text-xs text-emerald-400">{depositSuccess}</p>
+          </div>
+        )}
 
-          <label className="block text-xs text-neutral-400 mb-2">
-            New Price (USDC per BNKR)
-          </label>
-          <input
-            type="number"
-            value={newPrice}
-            onChange={(e) => setNewPrice(e.target.value)}
-            placeholder={poolInfo ? poolInfo.pricePerToken.toFixed(6) : "0.000000"}
-            min="0"
-            step="0.000001"
-            className="w-full h-10 bg-neutral-800/60 border border-neutral-700/60 rounded-lg px-3 text-sm text-white font-mono focus:outline-none focus:ring-1 focus:ring-[#00FFB2]/50 focus:border-[#00FFB2]/50 mb-4"
-          />
+        <button
+          onClick={handleAddLiquidity}
+          disabled={!wallet.publicKey || !depositAmount || depositing}
+          className="w-full h-10 rounded-lg bg-[#00FFB2] text-black text-sm font-medium hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600 transition-colors flex items-center justify-center gap-2"
+        >
+          {depositing && <Loader2 className="w-4 h-4 animate-spin" />}
+          {depositing ? "Depositing..." : "Deposit USDC"}
+        </button>
 
-          {priceError && (
-            <div className="flex items-start gap-2 mb-3 p-2.5 rounded-lg bg-red-500/10 border border-red-500/20">
-              <AlertCircle className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
-              <p className="text-xs text-red-400">{priceError}</p>
-            </div>
-          )}
-          {priceSuccess && (
-            <div className="flex items-center gap-2 mb-3 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-              <p className="text-xs text-emerald-400">{priceSuccess}</p>
-            </div>
-          )}
-
-          <button
-            onClick={handleUpdatePrice}
-            disabled={!wallet.publicKey || !newPrice || updatingPrice}
-            className="w-full h-10 rounded-lg bg-[#00FFB2] text-black text-sm font-medium hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600 transition-colors flex items-center justify-center gap-2"
-          >
-            {updatingPrice && <Loader2 className="w-4 h-4 animate-spin" />}
-            {updatingPrice ? "Updating..." : "Update Price"}
-          </button>
-
-          <p className="text-[11px] text-neutral-600 mt-3">
-            Changes require on-chain transaction signed by admin authority
-          </p>
-        </div>
+        <p className="text-[11px] text-neutral-600 mt-3">
+          Funds go directly to the payout vault for claims
+        </p>
       </div>
     </div>
   );
