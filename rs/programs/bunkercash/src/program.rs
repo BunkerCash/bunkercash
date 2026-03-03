@@ -101,7 +101,13 @@ pub mod bunkercash {
     /// Updates the fixed price (USDC base units per 1 whole token).
     pub fn update_price(ctx: Context<UpdatePrice>, new_price_usdc_per_token: u64) -> Result<()> {
         require!(new_price_usdc_per_token > 0, ErrorCode::InvalidAmount);
+        let old_price = ctx.accounts.pool.price_usdc_per_token;
         ctx.accounts.pool.price_usdc_per_token = new_price_usdc_per_token;
+        emit!(PriceUpdated {
+            admin: ctx.accounts.admin.key(),
+            old_price,
+            new_price: new_price_usdc_per_token,
+        });
         Ok(())
     }
 
@@ -764,6 +770,14 @@ pub enum ErrorCode {
     UserUsdcNotWritable,
     #[msg("Invalid admin address: cannot be default, system program, or pool PDA")]
     InvalidAdminAddress,
+}
+
+/// Emitted when the admin updates the token price.
+#[event]
+pub struct PriceUpdated {
+    pub admin: Pubkey,
+    pub old_price: u64,
+    pub new_price: u64,
 }
 
 /// Emitted when the admin deposits USDC into the payout vault.

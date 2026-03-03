@@ -77,10 +77,11 @@ export function AdminWithdraw() {
 
     try {
       // Derive the recipient's USDC ATA
+      // allowOwnerOffCurve = true so PDA recipients (e.g. multisig vaults) work
       const recipientUsdcAta = getAssociatedTokenAddressSync(
         usdcMint,
         recipientPubkey,
-        false,
+        true,
         TOKEN_PROGRAM_ID,
         ASSOCIATED_TOKEN_PROGRAM_ID,
       )
