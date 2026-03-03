@@ -77,7 +77,13 @@ pub mod bunkercash {
             ctx.accounts.admin.key() == ctx.accounts.pool.admin,
             ErrorCode::Unauthorized
         );
+        let old_price = ctx.accounts.pool.price_usdc_per_token;
         ctx.accounts.pool.price_usdc_per_token = new_price_usdc_per_token;
+        emit!(PriceUpdated {
+            admin: ctx.accounts.admin.key(),
+            old_price,
+            new_price: new_price_usdc_per_token,
+        });
         Ok(())
     }
 
@@ -139,6 +145,13 @@ pub mod bunkercash {
             ),
             token_amount,
         )?;
+
+        emit!(TokensBought {
+            user: ctx.accounts.user.key(),
+            usdc_amount,
+            token_amount,
+            price_usdc_per_token: price,
+        });
 
         Ok(())
     }
@@ -231,6 +244,14 @@ pub mod bunkercash {
             )?;
 
             claim.usdc_paid = owed;
+
+            emit!(ClaimProcessed {
+                admin: ctx.accounts.admin.key(),
+                claim_id: claim.id,
+                user: claim.user,
+                usdc_paid: remaining,
+                token_amount_locked: claim.token_amount_locked,
+            });
         }
 
         claim.is_closed = true;
@@ -283,6 +304,12 @@ pub mod bunkercash {
         claim.is_closed = false;
         claim.created_at = Clock::get()?.unix_timestamp;
         claim.bump = ctx.bumps.claim;
+
+        emit!(SellRegistered {
+            user: ctx.accounts.user.key(),
+            token_amount,
+            claim_id: next_id,
+        });
 
         Ok(())
     }
@@ -719,5 +746,40 @@ pub struct LiquidityAdded {
     pub usdc_mint: Pubkey,
     pub payout_usdc_vault: Pubkey,
     pub usdc_amount: u64,
+}
+
+/// Emitted when a user buys BNKR tokens with USDC.
+#[event]
+pub struct TokensBought {
+    pub user: Pubkey,
+    pub usdc_amount: u64,
+    pub token_amount: u64,
+    pub price_usdc_per_token: u64,
+}
+
+/// Emitted when a user locks BNKR tokens to register a sell (creates a claim).
+#[event]
+pub struct SellRegistered {
+    pub user: Pubkey,
+    pub token_amount: u64,
+    pub claim_id: u64,
+}
+
+/// Emitted when the admin processes a claim payout to a user.
+#[event]
+pub struct ClaimProcessed {
+    pub admin: Pubkey,
+    pub claim_id: u64,
+    pub user: Pubkey,
+    pub usdc_paid: u64,
+    pub token_amount_locked: u64,
+}
+
+/// Emitted when the admin updates the token price.
+#[event]
+pub struct PriceUpdated {
+    pub admin: Pubkey,
+    pub old_price: u64,
+    pub new_price: u64,
 }
 

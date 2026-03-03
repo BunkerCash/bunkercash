@@ -1,0 +1,1273 @@
+{
+  "address": "9r2w3nbhBrGZrChNF7Yr2RRDKxvDhNKWF8QQwTaKu5RT",
+  "metadata": {
+    "name": "bunkercash",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "add_liquidity",
+      "docs": [
+        "Add USDC liquidity to the protocol payout vault.",
+        "",
+        "- Transfers `usdc_amount` from admin -> payout USDC vault.",
+        "- Vault is an ATA owned by the Pool Signer PDA (deterministic + reusable)."
+      ],
+      "discriminator": [
+        181,
+        157,
+        89,
+        67,
+        143,
+        182,
+        52,
+        72
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_signer",
+          "docs": [
+            "PDA that owns all program vault ATAs (escrow + payout)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  115,
+                  105,
+                  103,
+                  110,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "admin_usdc",
+          "writable": true
+        },
+        {
+          "name": "payout_usdc_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "pool_signer"
+              },
+              {
+                "kind": "account",
+                "path": "usdc_token_program"
+              },
+              {
+                "kind": "account",
+                "path": "usdc_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "usdc_token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "usdc_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "buy_primary",
+      "docs": [
+        "Fixed-price primary buy:",
+        "- transfer `usdc_amount` from user -> payout USDC vault (legacy SPL token; owned by Pool Signer PDA)",
+        "- mint Bunker Cash tokens to user (Token-2022) at fixed price"
+      ],
+      "discriminator": [
+        89,
+        86,
+        227,
+        49,
+        41,
+        118,
+        66,
+        248
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_signer",
+          "docs": [
+            "PDA that owns all program vault ATAs (escrow + payout)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  115,
+                  105,
+                  103,
+                  110,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "bunkercash_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "user_usdc",
+          "writable": true
+        },
+        {
+          "name": "payout_usdc_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "pool_signer"
+              },
+              {
+                "kind": "account",
+                "path": "usdc_token_program"
+              },
+              {
+                "kind": "account",
+                "path": "usdc_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "user_bunkercash",
+          "writable": true
+        },
+        {
+          "name": "usdc_token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "Token program for Bunker Cash mint (Token-2022)."
+          ]
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "usdc_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "init_mint_metadata",
+      "docs": [
+        "Creates Metaplex token metadata for the Bunker Cash mint (Token-2022).",
+        "",
+        "This is required for wallets (e.g. Phantom) to display the token as `bRENT`",
+        "instead of \"Unknown Token\".",
+        "",
+        "Notes:",
+        "- Mint authority is the pool PDA, so we must CPI from this program to sign as the PDA.",
+        "- Restricted to the pool admin."
+      ],
+      "discriminator": [
+        149,
+        67,
+        32,
+        110,
+        123,
+        83,
+        192,
+        165
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "bunkercash_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "metadata",
+          "docs": [
+            "Metaplex metadata PDA for the mint."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_metadata_program",
+          "docs": [
+            "Metaplex Token Metadata program."
+          ]
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "Token-2022 program (passed to Metaplex as `spl_token_program`)."
+          ],
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "sysvar_instructions",
+          "docs": [
+            "Instructions sysvar required by Metaplex CreateV1."
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "symbol",
+          "type": "string"
+        },
+        {
+          "name": "uri",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "initialize",
+      "docs": [
+        "Initializes the protocol state and creates the Bunker Cash mint.",
+        "All mint/redeem operations use a strict fixed price (`price_usdc_per_token`)."
+      ],
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "bunkercash_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "Token program for Bunker Cash mint (Token-2022)."
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "admin",
+          "type": "pubkey"
+        },
+        {
+          "name": "price_usdc_per_token",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "process_claim",
+      "docs": [
+        "Process a single claim payout.",
+        "",
+        "- Pays the exact remaining owed USDC for one claim from the vault to the user.",
+        "- Sets `claim.is_closed = true` after payment.",
+        "- Only the admin can trigger payouts.",
+        "- Requires the vault to hold at least the remaining owed amount."
+      ],
+      "discriminator": [
+        220,
+        115,
+        149,
+        228,
+        217,
+        142,
+        240,
+        115
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_signer",
+          "docs": [
+            "PDA that owns all program vault ATAs (escrow + payout)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  115,
+                  105,
+                  103,
+                  110,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "claim",
+          "writable": true
+        },
+        {
+          "name": "payout_usdc_vault",
+          "writable": true
+        },
+        {
+          "name": "user_usdc",
+          "docs": [
+            "The claim user's USDC token account (recipient of the payout)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "usdc_token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "register_sell",
+      "docs": [
+        "Irreversible sell registration:",
+        "- transfer `token_amount` of Bunker Cash from the user into a program-owned escrow vault (Token-2022)",
+        "- create a ClaimState record",
+        "- increment `claim_counter`",
+        "",
+        "IMPORTANT: No burn is allowed in this flow."
+      ],
+      "discriminator": [
+        220,
+        250,
+        100,
+        136,
+        104,
+        188,
+        72,
+        230
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_signer",
+          "docs": [
+            "PDA that owns all program vault ATAs (escrow + payout)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  115,
+                  105,
+                  103,
+                  110,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "bunkercash_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "claim",
+          "writable": true
+        },
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "user_bunkercash",
+          "writable": true
+        },
+        {
+          "name": "escrow_bunkercash_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "pool_signer"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "bunkercash_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "Token program for the Bunker Cash mint (Token-2022)."
+          ]
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "token_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "update_price",
+      "docs": [
+        "Updates the fixed price (USDC base units per 1 whole token)."
+      ],
+      "discriminator": [
+        61,
+        34,
+        117,
+        155,
+        75,
+        34,
+        123,
+        208
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "new_price_usdc_per_token",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "ClaimState",
+      "discriminator": [
+        71,
+        73,
+        19,
+        83,
+        53,
+        228,
+        242,
+        53
+      ]
+    },
+    {
+      "name": "PoolState",
+      "discriminator": [
+        247,
+        237,
+        227,
+        245,
+        215,
+        195,
+        222,
+        70
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "LiquidityAdded",
+      "discriminator": [154, 26, 221, 108, 238, 64, 217, 161]
+    },
+    {
+      "name": "TokensBought",
+      "discriminator": [151, 148, 173, 226, 128, 30, 249, 190]
+    },
+    {
+      "name": "SellRegistered",
+      "discriminator": [84, 242, 34, 122, 94, 148, 173, 157]
+    },
+    {
+      "name": "ClaimProcessed",
+      "discriminator": [214, 130, 82, 189, 1, 255, 166, 249]
+    },
+    {
+      "name": "PriceUpdated",
+      "discriminator": [154, 72, 87, 150, 246, 230, 23, 217]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidAmount",
+      "msg": "Invalid amount"
+    },
+    {
+      "code": 6001,
+      "name": "Unauthorized",
+      "msg": "Unauthorized"
+    },
+    {
+      "code": 6002,
+      "name": "MathError",
+      "msg": "Math error"
+    },
+    {
+      "code": 6003,
+      "name": "InsufficientVaultFunds",
+      "msg": "Insufficient USDC in vault"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidTokenAccountOwner",
+      "msg": "Invalid token account owner"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidMint",
+      "msg": "Invalid mint"
+    },
+    {
+      "code": 6006,
+      "name": "InvalidMintAuthority",
+      "msg": "Invalid mint authority"
+    },
+    {
+      "code": 6007,
+      "name": "InvalidMetadata",
+      "msg": "Invalid token metadata"
+    },
+    {
+      "code": 6008,
+      "name": "InvalidMetadataProgram",
+      "msg": "Invalid token metadata program"
+    },
+    {
+      "code": 6009,
+      "name": "InvalidMetadataPda",
+      "msg": "Invalid token metadata PDA"
+    },
+    {
+      "code": 6010,
+      "name": "ClaimClosed",
+      "msg": "Claim is already closed"
+    },
+    {
+      "code": 6011,
+      "name": "InvalidClaimUser",
+      "msg": "Claim user does not match provided user"
+    },
+    {
+      "code": 6012,
+      "name": "InvalidRemainingAccounts",
+      "msg": "Invalid remaining accounts for pro-rata payouts"
+    },
+    {
+      "code": 6013,
+      "name": "InvalidClaimUserTokenAccount",
+      "msg": "Provided user USDC account does not belong to claim user"
+    },
+    {
+      "code": 6014,
+      "name": "InvalidClaimAccount",
+      "msg": "Invalid claim account"
+    },
+    {
+      "code": 6015,
+      "name": "UserUsdcNotWritable",
+      "msg": "User USDC token account must be writable"
+    }
+  ],
+  "types": [
+    {
+      "name": "ClaimState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "id",
+            "type": "u64"
+          },
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_amount_locked",
+            "type": "u64"
+          },
+          {
+            "name": "usdc_paid",
+            "type": "u64"
+          },
+          {
+            "name": "is_closed",
+            "type": "bool"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LiquidityAdded",
+      "docs": ["Emitted when the admin deposits USDC into the payout vault."],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "admin", "type": "pubkey" },
+          { "name": "usdc_mint", "type": "pubkey" },
+          { "name": "payout_usdc_vault", "type": "pubkey" },
+          { "name": "usdc_amount", "type": "u64" }
+        ]
+      }
+    },
+    {
+      "name": "TokensBought",
+      "docs": ["Emitted when a user buys BNKR tokens with USDC."],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "user", "type": "pubkey" },
+          { "name": "usdc_amount", "type": "u64" },
+          { "name": "token_amount", "type": "u64" },
+          { "name": "price_usdc_per_token", "type": "u64" }
+        ]
+      }
+    },
+    {
+      "name": "SellRegistered",
+      "docs": ["Emitted when a user locks BNKR tokens to register a sell."],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "user", "type": "pubkey" },
+          { "name": "token_amount", "type": "u64" },
+          { "name": "claim_id", "type": "u64" }
+        ]
+      }
+    },
+    {
+      "name": "ClaimProcessed",
+      "docs": ["Emitted when the admin processes a claim payout to a user."],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "admin", "type": "pubkey" },
+          { "name": "claim_id", "type": "u64" },
+          { "name": "user", "type": "pubkey" },
+          { "name": "usdc_paid", "type": "u64" },
+          { "name": "token_amount_locked", "type": "u64" }
+        ]
+      }
+    },
+    {
+      "name": "PriceUpdated",
+      "docs": ["Emitted when the admin updates the token price."],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "admin", "type": "pubkey" },
+          { "name": "old_price", "type": "u64" },
+          { "name": "new_price", "type": "u64" }
+        ]
+      }
+    },
+    {
+      "name": "PoolState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "price_usdc_per_token",
+            "docs": [
+              "USDC base units per 1 whole token."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "claim_counter",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ]
+}
