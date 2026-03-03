@@ -147,7 +147,6 @@ export default function AdminPage() {
                       <p className="text-xs text-neutral-400 mb-4">
                         Hand over pool admin to the Squads multisig PDA. This enables multisig governance for admin actions.
                       </p>
-                      </p>
                       {transferAdminTx && (
                         <div className="flex items-center gap-2 text-green-400 text-xs mb-4">
                           <CheckCircle2 className="w-4 h-4" />
