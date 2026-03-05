@@ -1,10 +1,10 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_2022::Token2022;
 use anchor_spl::token::accessor;
+use mpl_token_metadata::instructions::{CreateMetadataAccountV3CpiBuilder, UpdateMetadataAccountV2CpiBuilder};
+use mpl_token_metadata::types::DataV2;
 
-declare_id!("HaPTPu1ZWhMV1t7VtKDmytXpRhwhgxe3tdFMGpPueDsX");
-
-const TRANSFER_FEE_BASIS_POINTS: u16 = 25; // 0.25%
+declare_id!("84sMb85TrcfSrx1FVSfYk78PHqei9gDiZ3kJ7UKihx3X");
 
 #[program]
 pub mod bunkercash {
@@ -353,6 +353,83 @@ pub mod bunkercash {
             amount, withdrawal.id, withdrawal.remaining, pool.nav);
         Ok(())
     }
+
+    pub fn init_mint_metadata(
+        ctx: Context<InitMintMetadata>,
+        name: String,
+        symbol: String,
+        uri: String,
+    ) -> Result<()> {
+        let pool = &ctx.accounts.pool;
+        require!(
+            ctx.accounts.admin.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+
+        let pool_bump = pool.bump;
+        let seeds = &[b"pool".as_ref(), &[pool_bump]];
+        let signer = &[&seeds[..]];
+
+        let data = DataV2 {
+            name: name.clone(),
+            symbol: symbol.clone(),
+            uri: uri.clone(),
+            seller_fee_basis_points: 0,
+            creators: None,
+            collection: None,
+            uses: None,
+        };
+
+        CreateMetadataAccountV3CpiBuilder::new(&ctx.accounts.token_metadata_program.to_account_info())
+            .metadata(&ctx.accounts.metadata.to_account_info())
+            .mint(&ctx.accounts.brent_mint.to_account_info())
+            .mint_authority(&ctx.accounts.pool.to_account_info())
+            .payer(&ctx.accounts.admin.to_account_info())
+            .update_authority(&ctx.accounts.pool.to_account_info(), true)
+            .system_program(&ctx.accounts.system_program.to_account_info())
+            .rent(None)
+            .data(data)
+            .is_mutable(false)
+            .invoke_signed(signer)?;
+
+        msg!("Token metadata set: name={} symbol={} uri={}", name, symbol, uri);
+        Ok(())
+    }
+
+    pub fn update_mint_metadata(
+        ctx: Context<UpdateMintMetadata>,
+        name: String,
+        symbol: String,
+        uri: String,
+    ) -> Result<()> {
+        let pool = &ctx.accounts.pool;
+        require!(
+            ctx.accounts.admin.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+
+        let seeds = &[b"pool".as_ref(), &[pool.bump]];
+        let signer = &[&seeds[..]];
+
+        let data = DataV2 {
+            name,
+            symbol,
+            uri,
+            seller_fee_basis_points: 0,
+            creators: None,
+            collection: None,
+            uses: None,
+        };
+
+        UpdateMetadataAccountV2CpiBuilder::new(&ctx.accounts.token_metadata_program.to_account_info())
+            .metadata(&ctx.accounts.metadata.to_account_info())
+            .update_authority(&ctx.accounts.pool.to_account_info())
+            .data(data)
+            .is_mutable(true)
+            .invoke_signed(signer)?;
+
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -527,6 +604,56 @@ pub struct MasterRepay<'info> {
     pub master_wallet: Signer<'info>,
 
     pub token_program: Program<'info, Token2022>,
+}
+
+#[derive(Accounts)]
+pub struct InitMintMetadata<'info> {
+    #[account(
+        mut,
+        seeds = [b"pool"],
+        bump = pool.bump
+    )]
+    pub pool: Account<'info, Pool>,
+
+    /// CHECK: Mint validated by CPI
+    #[account(mut)]
+    pub brent_mint: AccountInfo<'info>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    /// CHECK: Metaplex metadata PDA
+    #[account(mut)]
+    pub metadata: UncheckedAccount<'info>,
+
+    /// CHECK: Metaplex program
+    pub token_metadata_program: UncheckedAccount<'info>,
+
+    pub token_program: Program<'info, Token2022>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateMintMetadata<'info> {
+    #[account(
+        mut,
+        seeds = [b"pool"],
+        bump = pool.bump
+    )]
+    pub pool: Account<'info, Pool>,
+
+    /// CHECK: Mint validated by CPI
+    pub brent_mint: AccountInfo<'info>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    /// CHECK: Metaplex metadata PDA
+    #[account(mut)]
+    pub metadata: UncheckedAccount<'info>,
+
+    /// CHECK: Metaplex program
+    pub token_metadata_program: UncheckedAccount<'info>,
 }
 
 #[account]
