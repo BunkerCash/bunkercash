@@ -149,7 +149,8 @@ export function AdminDeposit() {
           `Add liquidity: ${amount} USDC → BunkerCash pool`,
         );
         if (out) {
-          applyLoanUpdate();
+          // loan balance is only updated after direct execution, not on proposal creation —
+          // the proposal may be rejected by other multisig members
           setAmount("");
           setSelectedLoan("");
           setNotes("");

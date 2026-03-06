@@ -12,8 +12,8 @@ import {
   SQUADS_MULTISIG_PUBKEY,
   SQUADS_VAULT_PUBKEY,
   getSquadsDashboardUrl,
+  getClusterFromEndpoint,
 } from "@/lib/constants"
-import { getClusterFromEndpoint } from "@/lib/constants"
 
 export type SquadsSubmitResult = {
   /** Squads v4 transaction index */
@@ -161,10 +161,11 @@ export function useSquadsTransaction() {
         const vtx2 = new VersionedTransaction(tx2Message)
 
         // Sign both at once → single wallet popup for the user
-        const [signed1, signed2] = await wallet.signAllTransactions([
-          vtx1,
-          vtx2,
-        ])
+        const signed = await wallet.signAllTransactions([vtx1, vtx2])
+        if (!signed || signed.length < 2) {
+          throw new Error("Wallet returned fewer signed transactions than expected")
+        }
+        const [signed1, signed2] = signed
 
         // ── 5. Send TX 1 and wait for confirmation ───────────────────────────
         const sig1 = await connection.sendTransaction(signed1, {
@@ -176,13 +177,40 @@ export function useSquadsTransaction() {
         )
 
         // ── 6. Send TX 2 (proposal + approve) ───────────────────────────────
-        const sig2 = await connection.sendTransaction(signed2, {
-          preflightCommitment: "confirmed",
-        })
-        await connection.confirmTransaction(
-          { signature: sig2, blockhash, lastValidBlockHeight },
-          "confirmed",
-        )
+        // If the original blockhash expired while waiting for TX1, retry with a fresh one.
+        let sig2: string
+        try {
+          sig2 = await connection.sendTransaction(signed2, {
+            preflightCommitment: "confirmed",
+          })
+          await connection.confirmTransaction(
+            { signature: sig2, blockhash, lastValidBlockHeight },
+            "confirmed",
+          )
+        } catch (tx2Error: unknown) {
+          const msg = tx2Error instanceof Error ? tx2Error.message : ""
+          if (!msg.includes("blockhash")) throw tx2Error
+
+          const fresh = await connection.getLatestBlockhash("confirmed")
+          const retryMsg = new TransactionMessage({
+            payerKey: wallet.publicKey,
+            recentBlockhash: fresh.blockhash,
+            instructions: [createProposalIx, approveProposalIx],
+          }).compileToV0Message()
+          const retryTx = new VersionedTransaction(retryMsg)
+          const [retrySigned] = await wallet.signAllTransactions([retryTx])
+          sig2 = await connection.sendTransaction(retrySigned, {
+            preflightCommitment: "confirmed",
+          })
+          await connection.confirmTransaction(
+            {
+              signature: sig2,
+              blockhash: fresh.blockhash,
+              lastValidBlockHeight: fresh.lastValidBlockHeight,
+            },
+            "confirmed",
+          )
+        }
 
         // ── 7. Derive PDAs ────────────────────────────────────────────────────
         const [proposalPda] = multisig.getProposalPda({

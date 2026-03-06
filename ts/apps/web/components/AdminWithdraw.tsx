@@ -177,7 +177,8 @@ export function AdminWithdraw() {
         const sig = await wallet.sendTransaction(tx, connection, {
           preflightCommitment: 'confirmed',
         })
-        await connection.confirmTransaction(sig, 'confirmed')
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed')
+        await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed')
         setTxSig(sig)
         resetForm()
       }
@@ -225,6 +226,7 @@ export function AdminWithdraw() {
               {isGovernedBySquads
                 ? 'Creates a Squads vault transaction proposal. The required number of multisig members must approve before funds transfer.'
                 : 'All withdrawals must be backed by notarized documents proving secured and overcollateralized debt.'}
+            </p>
           </div>
         </div>
       </div>

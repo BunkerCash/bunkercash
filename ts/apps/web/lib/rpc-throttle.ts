@@ -20,41 +20,46 @@ type QueueItem = {
 
 const REQUEST_INTERVAL_MS = 400 // ~2.5 req/s — safely within devnet limits
 
-const queue: QueueItem[] = []
-let draining = false
-let lastRequestTime = 0
+export function createRateLimitedFetch(intervalMs: number = REQUEST_INTERVAL_MS): FetchMiddleware {
+  const queue: QueueItem[] = []
+  let draining = false
+  let lastRequestTime = 0
 
-async function drain(intervalMs: number) {
-  if (draining) return
-  draining = true
+  async function drain() {
+    if (draining) return
+    draining = true
 
-  try {
-    while (queue.length > 0) {
-      const now = Date.now()
-      const elapsed = now - lastRequestTime
-      if (elapsed < intervalMs) {
-        await new Promise((r) => setTimeout(r, intervalMs - elapsed))
+    try {
+      while (true) {
+        const item = queue.shift()
+        if (!item) break
+
+        const now = Date.now()
+        const elapsed = now - lastRequestTime
+        if (elapsed < intervalMs) {
+          await new Promise((r) => setTimeout(r, intervalMs - elapsed))
+        }
+
+        lastRequestTime = Date.now()
+
+        try {
+          const res = await item.fetch(item.info, item.init)
+          item.resolve(res)
+        } catch (err: unknown) {
+          item.reject(err)
+        }
       }
-
-      const item = queue.shift()!
-      lastRequestTime = Date.now()
-
-      try {
-        const res = await item.fetch(item.info, item.init)
-        item.resolve(res)
-      } catch (err: unknown) {
-        item.reject(err)
+    } finally {
+      draining = false
+      if (queue.length > 0) {
+        void drain()
       }
     }
-  } finally {
-    draining = false
   }
-}
 
-export function createRateLimitedFetch(intervalMs: number = REQUEST_INTERVAL_MS): FetchMiddleware {
   return (info, init, fetch) =>
     new Promise<Response>((resolve, reject) => {
       queue.push({ info, init, fetch, resolve, reject })
-      void drain(intervalMs)
+      void drain()
     })
 }

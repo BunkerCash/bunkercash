@@ -11,7 +11,6 @@ import { PublicKey, Transaction, type TransactionInstruction } from '@solana/web
 import { Shield, Loader2, ShieldX, ExternalLink, UserPlus, CheckCircle2, AlertCircle } from 'lucide-react'
 import { getSquadsDashboardUrl, getClusterFromEndpoint, SQUADS_MULTISIG_PUBKEY, SQUADS_VAULT_PUBKEY } from '@/lib/constants'
 import { getProgram, getPoolPda, PROGRAM_ID } from '@/lib/program'
-import { useSquadsTransaction } from '@/hooks/useSquadsTransaction'
 
 type UpdateAdminMethods = {
   updateAdmin: (newAdmin: PublicKey) => {
@@ -30,8 +29,6 @@ export default function AdminPage() {
   const [transferAdminLoading, setTransferAdminLoading] = useState(false)
   const [transferAdminError, setTransferAdminError] = useState<string | null>(null)
   const [transferAdminTx, setTransferAdminTx] = useState<string | null>(null)
-  useSquadsTransaction()
-
   const cluster = useMemo(
     () => getClusterFromEndpoint(connection.rpcEndpoint ?? ''),
     [connection],
@@ -165,7 +162,7 @@ export default function AdminPage() {
                         className="px-4 py-2 text-sm font-medium rounded-xl bg-purple-500/20 text-purple-200 border border-purple-500/40 hover:bg-purple-500/30 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                       >
                         {transferAdminLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                        {transferAdminLoading ? 'Transferring…' : transferAdminTx ? 'Transferred' : 'Transfer admin to Squads vault'}
+                        {transferAdminLoading ? 'Transferring…' : transferAdminTx ? 'Transferred' : 'Transfer admin to Squads multisig'}
                       </button>
                     </div>
                   </div>
