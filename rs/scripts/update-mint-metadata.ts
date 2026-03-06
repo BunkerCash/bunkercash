@@ -2,7 +2,15 @@ import * as anchor from "@coral-xyz/anchor";
 import { AnchorProvider, Program, type Idl } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 
-const idlJson = require("../target/idl/bunkercash.json") as { address: string } & Idl;
+
+let idlJson: { address: string } & Idl;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  idlJson = require("../target/idl/bunkercash.json") as { address: string } & Idl;
+} catch (e) {
+  console.error("Failed to load target/idl/bunkercash.json. Run 'anchor build' first.");
+  throw e;
+}
 const PROGRAM_ID = new PublicKey(idlJson.address);
 const POOL_SEED = "pool";
 const TOKEN_METADATA_PROGRAM_ID = new PublicKey(

@@ -3,6 +3,7 @@ use anchor_spl::token_2022::Token2022;
 use anchor_spl::token::accessor;
 use mpl_token_metadata::instructions::{CreateMetadataAccountV3CpiBuilder, UpdateMetadataAccountV2CpiBuilder};
 use mpl_token_metadata::types::DataV2;
+use mpl_token_metadata::ID as TOKEN_METADATA_PROGRAM_ID;
 
 declare_id!("84sMb85TrcfSrx1FVSfYk78PHqei9gDiZ3kJ7UKihx3X");
 
@@ -389,7 +390,7 @@ pub mod bunkercash {
             .system_program(&ctx.accounts.system_program.to_account_info())
             .rent(None)
             .data(data)
-            .is_mutable(false)
+            .is_mutable(true)
             .invoke_signed(signer)?;
 
         msg!("Token metadata set: name={} symbol={} uri={}", name, symbol, uri);
@@ -626,7 +627,8 @@ pub struct InitMintMetadata<'info> {
     #[account(mut)]
     pub metadata: UncheckedAccount<'info>,
 
-    /// CHECK: Metaplex program
+    /// CHECK: Validated by address constraint
+    #[account(address = TOKEN_METADATA_PROGRAM_ID)]
     pub token_metadata_program: UncheckedAccount<'info>,
 
     pub token_program: Program<'info, Token2022>,
@@ -652,7 +654,8 @@ pub struct UpdateMintMetadata<'info> {
     #[account(mut)]
     pub metadata: UncheckedAccount<'info>,
 
-    /// CHECK: Metaplex program
+    /// CHECK: Validated by address constraint
+    #[account(address = TOKEN_METADATA_PROGRAM_ID)]
     pub token_metadata_program: UncheckedAccount<'info>,
 }
 
