@@ -38,8 +38,9 @@ async function main() {
     [Buffer.from(POOL_SEED)],
     PROGRAM_ID
   );
-  const mintPubkey = new PublicKey(
-    process.env.BRENT_MINT ?? requiredEnv("BRENT_MINT")
+  const [mintPubkey] = PublicKey.findProgramAddressSync(
+    [Buffer.from("bunkercash_mint")],
+    PROGRAM_ID
   );
   const [metadataPda] = PublicKey.findProgramAddressSync(
     [
@@ -52,10 +53,7 @@ async function main() {
 
   const name = process.env.TOKEN_NAME ?? "bRENT";
   const symbol = process.env.TOKEN_SYMBOL ?? "bRENT";
-  const uri = process.env.TOKEN_URI ?? "https://example.com/bunkercash-metadata.json";
-  if (uri === "https://example.com/bunkercash-metadata.json") {
-    console.log("Using placeholder TOKEN_URI.");
-  }
+  const uri = requiredEnv("TOKEN_URI");
 
   console.log("Pool PDA:", poolPda.toBase58());
   console.log("Brent mint:", mintPubkey.toBase58());

@@ -20,10 +20,9 @@ export USDC_MINT="${USDC_MINT:-Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr}"
 export ADMIN_PUBKEY="Hmod5q5Egi1yqiRCAAgZBh1iD8o8kALVQV8WKBM84JhK"
 
 # Program ID (devnet) – for reference; scripts read from IDL.
-export BUNKERCASH_PROGRAM_ID="${BUNKERCASH_PROGRAM_ID:-84sMb85TrcfSrx1FVSfYk78PHqei9gDiZ3kJ7UKihx3X}"
+# bRENT mint is derived from PDA seeds in the scripts; no env var needed.
 
 echo "RPC=$RPC"
 echo "ANCHOR_WALLET=$ANCHOR_WALLET"
 echo "USDC_MINT=$USDC_MINT"
-echo "BUNKERCASH_PROGRAM_ID=$BUNKERCASH_PROGRAM_ID"
 [ -n "${ADMIN_PUBKEY:-}" ] && echo "ADMIN_PUBKEY=$ADMIN_PUBKEY"

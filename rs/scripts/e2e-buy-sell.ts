@@ -420,10 +420,22 @@ async function main() {
     escrowBnkrVaultAta,
   });
 
-  // Optional: add extra liquidity before pro-rata distribution.
-  // (This transfers from admin's USDC ATA to the payout vault.)
+  // Optional: add extra liquidity before processing claims.
+  // Admin must equal pool.admin (and program requires pool.admin == SQUADS_VAULT_PUBKEY).
+  // Use .env SQUADS_VAULT_PUBKEY = your test wallet so e2e can sign as admin.
   if (process.env.LIQ_USDC) {
+    const poolStateForLiq = await (program.account as any).poolState.fetch(poolPda);
+    const adminForLiq = poolStateForLiq.admin as PublicKey;
     const liqAmount = uiToBaseUnits(process.env.LIQ_USDC, USDC_DECIMALS);
+    // Admin's USDC ATA: if admin is e2e wallet, use userUsdcAta; else would need to pass the vault ATA.
+    const adminUsdcAta =
+      adminForLiq.equals(wallet) ? userUsdcAta : await getAssociatedTokenAddressSync(
+        usdcMint,
+        adminForLiq,
+        false,
+        TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID
+      );
     const addSig = await rpcWithBlockhashRetry("add_liquidity", async () => {
       return await (program.methods as any)
         .addLiquidity(liqAmount)
@@ -431,8 +443,8 @@ async function main() {
           pool: poolPda,
           poolSigner: poolSignerPda,
           usdcMint,
-          admin: wallet,
-          adminUsdc: userUsdcAta,
+          admin: adminForLiq,
+          adminUsdc: adminUsdcAta,
           payoutUsdcVault: payoutUsdcVaultAta,
           usdcTokenProgram: TOKEN_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -443,11 +455,16 @@ async function main() {
     console.log("\nadd_liquidity tx:", addSig);
   }
 
-  // PRO-RATA PAYOUTS: process_claims
+  // Process each open claim (process_claim = one claim per tx).
+  // Admin must equal pool.admin; program also requires pool.admin == SQUADS_VAULT_PUBKEY (compile-time).
+  // For e2e to succeed, set SQUADS_VAULT_PUBKEY in programs/bunkercash/.env to your test wallet and initialize with that as admin.
   {
+    const poolState = await (program.account as any).poolState.fetch(poolPda);
+    const admin = poolState.admin as PublicKey;
     const allClaims = await (program.account as any).claimState.all();
     const open = allClaims.filter((x: any) => !x.account.isClosed);
     console.log(`\nOpen claims: ${open.length}`);
+
     for (const c of open) {
       console.log(
         "-",
@@ -458,13 +475,10 @@ async function main() {
       );
     }
 
-    // Ensure each claim user's USDC ATA exists, then pass:
-    // - all claim accounts (writable)
-    // - each unique user's USDC ATA once (writable)
-    const userUsdcByUser = new Map<string, PublicKey>();
     for (const c of open) {
+      const claimPk = c.publicKey as PublicKey;
       const userPk = c.account.user as PublicKey;
-      const ata = await ensureAta({
+      const userUsdcAtaForClaim = await ensureAta({
         provider,
         payer,
         mint: usdcMint,
@@ -472,34 +486,25 @@ async function main() {
         allowOwnerOffCurve: false,
         tokenProgram: TOKEN_PROGRAM_ID,
       });
-      userUsdcByUser.set(userPk.toBase58(), ata);
-    }
 
-    const remaining: anchor.web3.AccountMeta[] = [];
-    for (const c of open) {
-      remaining.push({ pubkey: c.publicKey as PublicKey, isWritable: true, isSigner: false });
-    }
-    for (const ata of userUsdcByUser.values()) {
-      remaining.push({ pubkey: ata, isWritable: true, isSigner: false });
-    }
-
-    if (remaining.length > 0) {
-      const procSig = await rpcWithBlockhashRetry("process_claims", async () => {
+      const procSig = await rpcWithBlockhashRetry("process_claim", async () => {
         return await (program.methods as any)
-          .processClaims()
+          .processClaim()
           .accounts({
             pool: poolPda,
             poolSigner: poolSignerPda,
-            admin: wallet,
+            admin,
+            claim: claimPk,
             payoutUsdcVault: payoutUsdcVaultAta,
+            userUsdc: userUsdcAtaForClaim,
             usdcTokenProgram: TOKEN_PROGRAM_ID,
           })
-          .remainingAccounts(remaining)
           .rpc({ commitment: "confirmed" });
       });
-      console.log("\nprocess_claims tx:", procSig);
-    } else {
-      console.log("\nprocess_claims: skipped (no open claims)");
+      console.log("\nprocess_claim", claimPk.toBase58(), "tx:", procSig);
+    }
+    if (open.length === 0) {
+      console.log("\nprocess_claim: skipped (no open claims)");
     }
   }
 

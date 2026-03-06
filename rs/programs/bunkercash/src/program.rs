@@ -264,7 +264,7 @@ pub mod bunkercash {
 
         msg!("Master withdrew {} USDC. Withdrawal ID: {}", amount, withdrawal.id);
         Ok(())
-    }
+    }   
 
     pub fn master_repay(
         ctx: Context<MasterRepay>,
@@ -616,8 +616,12 @@ pub struct InitMintMetadata<'info> {
     )]
     pub pool: Account<'info, Pool>,
 
-    /// CHECK: Mint validated by CPI
-    #[account(mut)]
+    /// CHECK: Mint PDA validated by seeds constraint
+    #[account(
+        mut,
+        seeds = [b"bunkercash_mint"],
+        bump
+    )]
     pub brent_mint: AccountInfo<'info>,
 
     #[account(mut)]
@@ -644,7 +648,11 @@ pub struct UpdateMintMetadata<'info> {
     )]
     pub pool: Account<'info, Pool>,
 
-    /// CHECK: Mint validated by CPI
+    /// CHECK: Mint PDA validated by seeds constraint
+    #[account(
+        seeds = [b"bunkercash_mint"],
+        bump
+    )]
     pub brent_mint: AccountInfo<'info>,
 
     #[account(mut)]

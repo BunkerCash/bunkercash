@@ -35,7 +35,10 @@ async function main() {
     [Buffer.from(POOL_SEED)],
     PROGRAM_ID
   );
-  const mintPubkey = new PublicKey(requiredEnv("BRENT_MINT"));
+  const [mintPubkey] = PublicKey.findProgramAddressSync(
+    [Buffer.from("bunkercash_mint")],
+    PROGRAM_ID
+  );
   const [metadataPda] = PublicKey.findProgramAddressSync(
     [
       Buffer.from("metadata"),
@@ -45,9 +48,16 @@ async function main() {
     TOKEN_METADATA_PROGRAM_ID
   );
 
-  const name = process.env.TOKEN_NAME ?? "Bunker Cash";
-  const symbol = process.env.TOKEN_SYMBOL ?? "BunkerCash";
+  const name = process.env.TOKEN_NAME ?? "bRENT";
+  const symbol = process.env.TOKEN_SYMBOL ?? "bRENT";
   const uri = requiredEnv("TOKEN_URI");
+
+  console.log("Pool PDA:", poolPda.toBase58());
+  console.log("Brent mint:", mintPubkey.toBase58());
+  console.log("Metadata PDA:", metadataPda.toBase58());
+  console.log("Name:", name);
+  console.log("Symbol:", symbol);
+  console.log("URI:", uri);
 
   const sig = await (program.methods as any)
     .updateMintMetadata(name, symbol, uri)
