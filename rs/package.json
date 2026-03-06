@@ -5,6 +5,7 @@
     "e2e": "ts-node -P tsconfig.json scripts/e2e-buy-sell.ts",
     "init:metadata": "ts-node -P tsconfig.json scripts/init-mint-metadata.ts",
     "squads:v4:create": "ts-node -P tsconfig.json scripts/create-squads-v4-multisig.ts",
+    "update:metadata": "ts-node -P tsconfig.json scripts/update-mint-metadata.ts",
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check"
   },

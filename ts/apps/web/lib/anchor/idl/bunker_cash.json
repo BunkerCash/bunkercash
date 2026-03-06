@@ -1,5 +1,5 @@
 {
-  "address": "11111111111111111111111111111111",
+  "address": "84sMb85TrcfSrx1FVSfYk78PHqei9gDiZ3kJ7UKihx3X",
   "version": "0.1.0",
   "name": "bunker_cash",
   "instructions": [],
@@ -8,6 +8,6 @@
     "name": "bunker_cash",
     "version": "0.1.0",
     "spec": "0.1.0",
-    "address": "11111111111111111111111111111111"
+    "address": "84sMb85TrcfSrx1FVSfYk78PHqei9gDiZ3kJ7UKihx3X"
   }
 }
