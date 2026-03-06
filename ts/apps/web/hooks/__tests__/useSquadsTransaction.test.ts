@@ -30,6 +30,10 @@ const mockSignAllTransactions = vi.fn()
 const mockSendTransaction = vi.fn()
 const mockConfirmTransaction = vi.fn()
 const mockGetLatestBlockhash = vi.fn()
+const mockUseWallet = vi.fn(() => ({
+  publicKey: WALLET_PUBKEY,
+  signAllTransactions: mockSignAllTransactions,
+}))
 
 vi.mock("@solana/wallet-adapter-react", () => ({
   useConnection: () => ({
@@ -40,10 +44,7 @@ vi.mock("@solana/wallet-adapter-react", () => ({
       confirmTransaction: mockConfirmTransaction,
     },
   }),
-  useWallet: () => ({
-    publicKey: WALLET_PUBKEY,
-    signAllTransactions: mockSignAllTransactions,
-  }),
+  useWallet: (...args: unknown[]) => mockUseWallet(...args),
 }))
 
 // ── Mock @sqds/multisig ───────────────────────────────────────────────────
@@ -280,14 +281,10 @@ describe("useSquadsTransaction", () => {
 
   // ── Wallet not connected ───────────────────────────────────────────────
   it("should return null and set error when wallet is not connected", async () => {
-    // Override useWallet to return no publicKey
-    const originalUseWallet = vi.mocked(
-      (await import("@solana/wallet-adapter-react")).useWallet,
-    )
-    originalUseWallet.mockReturnValueOnce({
+    mockUseWallet.mockReturnValueOnce({
       publicKey: null,
       signAllTransactions: null,
-    } as never)
+    })
 
     const { result } = renderHook(() => useSquadsTransaction())
 

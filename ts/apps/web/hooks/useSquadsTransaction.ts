@@ -198,8 +198,11 @@ export function useSquadsTransaction() {
             instructions: [createProposalIx, approveProposalIx],
           }).compileToV0Message()
           const retryTx = new VersionedTransaction(retryMsg)
-          const [retrySigned] = await wallet.signAllTransactions([retryTx])
-          sig2 = await connection.sendTransaction(retrySigned, {
+          const retrySigned = await wallet.signAllTransactions([retryTx])
+          if (!retrySigned || retrySigned.length < 1) {
+            throw new Error("Wallet returned no signed transactions during retry")
+          }
+          sig2 = await connection.sendTransaction(retrySigned[0], {
             preflightCommitment: "confirmed",
           })
           await connection.confirmTransaction(
