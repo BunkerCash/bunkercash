@@ -264,7 +264,7 @@ pub mod bunkercash {
 
         msg!("Master withdrew {} USDC. Withdrawal ID: {}", amount, withdrawal.id);
         Ok(())
-    }
+    }   
 
     pub fn master_repay(
         ctx: Context<MasterRepay>,

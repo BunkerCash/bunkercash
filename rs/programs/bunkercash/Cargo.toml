@@ -22,6 +22,10 @@ custom-panic = []
 anchor-debug = []
 
 
+[build-dependencies]
+# Reads .env at compile time and emits cargo:rustc-env vars for use with env!()
+dotenvy = "0.15"
+
 [dependencies]
 anchor-lang = "0.31.1"
 anchor-spl = "0.31.1"

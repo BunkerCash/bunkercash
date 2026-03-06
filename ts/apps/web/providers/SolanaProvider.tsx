@@ -69,5 +69,4 @@ export const SolanaProvider: FC<SolanaProviderProps> = ({
       </WalletProvider>
     </ConnectionProvider>
   );
-};;;
-
+};
