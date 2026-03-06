@@ -45,14 +45,6 @@ function formatTime(date: Date): string {
   });
 }
 
-function formatAmount(amount: number | null, currency: string | null): string {
-  if (amount === null || currency === null) return "—";
-  return `${amount.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 6,
-  })} ${currency}`;
-}
-
 export function EventLogTable() {
   const { connection } = useConnection();
   const [activeFilter, setActiveFilter] = useState<EventType | "All">("All");
