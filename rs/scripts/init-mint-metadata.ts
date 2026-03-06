@@ -38,8 +38,9 @@ async function main() {
     [Buffer.from(POOL_SEED)],
     PROGRAM_ID
   );
-  const mintPubkey = new PublicKey(
-    process.env.BRENT_MINT ?? requiredEnv("BRENT_MINT")
+  const [mintPubkey] = PublicKey.findProgramAddressSync(
+    [Buffer.from("bunkercash_mint")],
+    PROGRAM_ID
   );
   const [metadataPda] = PublicKey.findProgramAddressSync(
     [

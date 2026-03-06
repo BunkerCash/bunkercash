@@ -20,11 +20,9 @@ export USDC_MINT="${USDC_MINT:-Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr}"
 export ADMIN_PUBKEY="Hmod5q5Egi1yqiRCAAgZBh1iD8o8kALVQV8WKBM84JhK"
 
 # Program ID (devnet) – for reference; scripts read from IDL.
-# bRENT mint address on devnet — must be set before running init:metadata / update:metadata
-export BRENT_MINT="${BRENT_MINT:-<your-devnet-brent-mint-address>}"
+# bRENT mint is derived from PDA seeds in the scripts; no env var needed.
 
 echo "RPC=$RPC"
 echo "ANCHOR_WALLET=$ANCHOR_WALLET"
 echo "USDC_MINT=$USDC_MINT"
-echo "BRENT_MINT=$BRENT_MINT"
 [ -n "${ADMIN_PUBKEY:-}" ] && echo "ADMIN_PUBKEY=$ADMIN_PUBKEY"
