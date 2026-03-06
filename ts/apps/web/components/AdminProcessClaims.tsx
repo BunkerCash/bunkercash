@@ -286,7 +286,7 @@ export function AdminProcessClaims() {
       const userUsdcAta = getAssociatedTokenAddressSync(
         usdcMint,
         claim.user,
-        false,
+        true,
         TOKEN_PROGRAM_ID,
         ASSOCIATED_TOKEN_PROGRAM_ID,
       )
@@ -364,7 +364,7 @@ export function AdminProcessClaims() {
     } catch (e: unknown) {
       console.error('Error processing claim:', e)
       const msg = e instanceof Error ? e.message : null
-      setError(msg ?? squadsError ?? 'Failed to process claim')
+      setError(msg ?? 'Failed to process claim')
     } finally {
       setProcessingClaimId(null)
     }

@@ -65,15 +65,18 @@ export const USDC_MINTS: Record<string, string> = {
 };
 
 export function getClusterFromEndpoint(endpoint: string): ClusterType {
+  const envCluster = process.env.NEXT_PUBLIC_CLUSTER;
+  if (envCluster) return envCluster as ClusterType;
+
   if (endpoint.includes('devnet')) return 'devnet';
   if (endpoint.includes('testnet')) return 'testnet';
   if (endpoint.includes('mainnet')) return 'mainnet-beta';
   if (endpoint.includes('localhost') || endpoint.includes('127.0.0.1')) return 'localnet';
-  
-  // If we can't detect, fallback to checking if it looks like mainnet (e.g. private RPCs often don't have 'mainnet' in URL)
-  // For safety, we return unknown or maybe mainnet-beta if we want to default to prod. 
-  // Given the requirement "If the cluster cannot be determined, show a clear error", let's return 'unknown'.
-  return 'unknown';
+
+  // private RPCs (Helius, QuickNode, etc.) often omit the cluster name —
+  // default to mainnet-beta since production deployments use private RPCs.
+  // override with NEXT_PUBLIC_CLUSTER if this assumption is wrong.
+  return 'mainnet-beta';
 }
 
 export function getUsdcMintForCluster(cluster: ClusterType): PublicKey | null {

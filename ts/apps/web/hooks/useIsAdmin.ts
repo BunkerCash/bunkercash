@@ -35,8 +35,7 @@ export function useIsAdmin() {
         setPoolAdmin(adminPubkey)
 
         const governed =
-          (SQUADS_MULTISIG_PUBKEY != null && adminPubkey.equals(SQUADS_MULTISIG_PUBKEY)) ||
-          (SQUADS_VAULT_PUBKEY != null && adminPubkey.equals(SQUADS_VAULT_PUBKEY))
+          SQUADS_MULTISIG_PUBKEY != null && adminPubkey.equals(SQUADS_MULTISIG_PUBKEY)
         setIsGovernedBySquads(governed)
 
         if (governed && wallet.publicKey && SQUADS_MULTISIG_PUBKEY) {
