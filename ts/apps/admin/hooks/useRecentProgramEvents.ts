@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useConnection } from '@solana/wallet-adapter-react'
 import { PROGRAM_ID } from '@/lib/program'
 
-export type EventType = "Buy" | "Claim" | "Register Sell" | "Liquidity" | "Update Price"
+export type EventType = "Buy" | "Claim" | "Register Sell" | "Liquidity"
 
 export interface ProgramEvent {
   id: string
@@ -25,8 +25,6 @@ const DISC_MAP: Record<string, { type: EventType; currency: "BNKR" | "USDC" | nu
   "220,115,149,228,217,142,240,115": { type: "Claim", currency: "USDC", hasAmount: false },
   // add_liquidity(usdc_amount: u64) — admin deposits USDC
   "181,157,89,67,143,182,52,72": { type: "Liquidity", currency: "USDC", hasAmount: true },
-  // update_price(new_price: u64)
-  "61,34,117,155,75,34,123,208": { type: "Update Price", currency: "USDC", hasAmount: true },
 }
 
 // Anchor event discriminator for ClaimProcessed: sha256("event:ClaimProcessed")[:8]

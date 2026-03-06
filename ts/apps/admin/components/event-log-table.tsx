@@ -16,7 +16,6 @@ const filterTabs: Array<{ label: string; value: EventType | "All" }> = [
   { label: "Register Sell", value: "Register Sell" },
   { label: "Claim", value: "Claim" },
   { label: "Liquidity", value: "Liquidity" },
-  { label: "Update Price", value: "Update Price" },
 ];
 
 const typeBadgeStyles: Record<EventType, string> = {
@@ -24,7 +23,6 @@ const typeBadgeStyles: Record<EventType, string> = {
   Claim: "bg-amber-500/15 text-amber-400",
   "Register Sell": "bg-emerald-500/15 text-emerald-400",
   Liquidity: "bg-neutral-500/15 text-neutral-400",
-  "Update Price": "bg-blue-500/15 text-blue-400",
 };
 
 function truncateWallet(wallet: string): string {
