@@ -20,7 +20,8 @@ export USDC_MINT="${USDC_MINT:-Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr}"
 export ADMIN_PUBKEY="Hmod5q5Egi1yqiRCAAgZBh1iD8o8kALVQV8WKBM84JhK"
 
 # Program ID (devnet) – for reference; scripts read from IDL.
-export BUNKERCASH_PROGRAM_ID="${BUNKERCASH_PROGRAM_ID:-84sMb85TrcfSrx1FVSfYk78PHqei9gDiZ3kJ7UKihx3X}"
+# bRENT mint address on devnet — must be set before running init:metadata / update:metadata
+export BRENT_MINT="${BRENT_MINT:-<your-devnet-brent-mint-address>}"
 
 echo "RPC=$RPC"
 echo "ANCHOR_WALLET=$ANCHOR_WALLET"

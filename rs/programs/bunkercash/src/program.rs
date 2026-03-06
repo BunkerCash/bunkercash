@@ -616,7 +616,6 @@ pub struct InitMintMetadata<'info> {
     )]
     pub pool: Account<'info, Pool>,
 
-    /// CHECK: Mint validated by CPI
     #[account(mut)]
     pub brent_mint: AccountInfo<'info>,
 
@@ -644,7 +643,6 @@ pub struct UpdateMintMetadata<'info> {
     )]
     pub pool: Account<'info, Pool>,
 
-    /// CHECK: Mint validated by CPI
     pub brent_mint: AccountInfo<'info>,
 
     #[account(mut)]
