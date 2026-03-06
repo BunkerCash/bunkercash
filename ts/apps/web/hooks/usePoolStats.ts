@@ -22,6 +22,11 @@ export interface PoolStats {
   treasuryUsdc: string | null;
   pricePerToken: number | null;
   lastRefreshed: Date | null;
+  // Raw numeric values for charts
+  totalSupplyRaw: number | null;
+  lockedSupplyRaw: number | null;
+  circulatingSupplyRaw: number | null;
+  treasuryUsdcRaw: number | null;
 }
 
 export function usePoolStats() {
@@ -34,6 +39,10 @@ export function usePoolStats() {
     treasuryUsdc: null,
     pricePerToken: null,
     lastRefreshed: null,
+    totalSupplyRaw: null,
+    lockedSupplyRaw: null,
+    circulatingSupplyRaw: null,
+    treasuryUsdcRaw: null,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -99,6 +108,10 @@ export function usePoolStats() {
         treasuryUsdc: vaultBalance,
         pricePerToken: priceFloat,
         lastRefreshed: new Date(),
+        totalSupplyRaw: totalSupplyUi,
+        lockedSupplyRaw: lockedSupplyUi,
+        circulatingSupplyRaw: circulatingUi,
+        treasuryUsdcRaw: vaultBalance ? parseFloat(vaultBalance.replace(/,/g, "")) : null,
       });
     } catch (e: any) {
       setError(e.message || "Failed to fetch pool stats");
