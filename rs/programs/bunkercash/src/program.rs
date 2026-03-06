@@ -616,7 +616,12 @@ pub struct InitMintMetadata<'info> {
     )]
     pub pool: Account<'info, Pool>,
 
-    #[account(mut)]
+    /// CHECK: Mint PDA validated by seeds constraint
+    #[account(
+        mut,
+        seeds = [b"bunkercash_mint"],
+        bump
+    )]
     pub brent_mint: AccountInfo<'info>,
 
     #[account(mut)]
@@ -643,6 +648,11 @@ pub struct UpdateMintMetadata<'info> {
     )]
     pub pool: Account<'info, Pool>,
 
+    /// CHECK: Mint PDA validated by seeds constraint
+    #[account(
+        seeds = [b"bunkercash_mint"],
+        bump
+    )]
     pub brent_mint: AccountInfo<'info>,
 
     #[account(mut)]
