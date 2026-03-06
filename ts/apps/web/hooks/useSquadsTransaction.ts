@@ -189,7 +189,7 @@ export function useSquadsTransaction() {
           )
         } catch (tx2Error: unknown) {
           const msg = tx2Error instanceof Error ? tx2Error.message : ""
-          if (!msg.includes("blockhash")) throw tx2Error
+          if (!msg.toLowerCase().includes("blockhash")) throw tx2Error
 
           const fresh = await connection.getLatestBlockhash("confirmed")
           const retryMsg = new TransactionMessage({

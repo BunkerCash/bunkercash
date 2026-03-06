@@ -170,14 +170,14 @@ export function AdminWithdraw() {
           TOKEN_PROGRAM_ID,
         )
 
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed')
         const tx = new Transaction().add(createAtaIx).add(transferIx)
-        tx.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash
+        tx.recentBlockhash = blockhash
         tx.feePayer = wallet.publicKey
 
         const sig = await wallet.sendTransaction(tx, connection, {
           preflightCommitment: 'confirmed',
         })
-        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed')
         await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed')
         setTxSig(sig)
         resetForm()
