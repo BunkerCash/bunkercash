@@ -7,62 +7,18 @@ import { AdminProcessClaims } from '@/components/AdminProcessClaims'
 import { useIsAdmin } from '@/hooks/useIsAdmin'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { useState, useMemo } from 'react'
-import { PublicKey, Transaction, type TransactionInstruction } from '@solana/web3.js'
-import { Shield, Loader2, ShieldX, ExternalLink, UserPlus, CheckCircle2, AlertCircle } from 'lucide-react'
-import { getSquadsDashboardUrl, getClusterFromEndpoint, SQUADS_MULTISIG_PUBKEY, SQUADS_VAULT_PUBKEY } from '@/lib/constants'
-import { getProgram, getPoolPda, PROGRAM_ID } from '@/lib/program'
-
-type UpdateAdminMethods = {
-  updateAdmin: (newAdmin: PublicKey) => {
-    accounts: (a: { pool: PublicKey; admin: PublicKey }) => {
-      instruction: () => Promise<TransactionInstruction>
-    }
-  }
-}
+import { Shield, Loader2, ShieldX, ExternalLink } from 'lucide-react'
+import { getSquadsDashboardUrl, getClusterFromEndpoint, SQUADS_MULTISIG_PUBKEY } from '@/lib/constants'
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<'withdraw' | 'deposit' | 'claims'>('withdraw')
   const { connection } = useConnection()
-  const wallet = useWallet()
-  const { connected, publicKey } = wallet
+  const { connected } = useWallet()
   const { isAdmin, loading, poolAdmin, isGovernedBySquads } = useIsAdmin()
-  const [transferAdminLoading, setTransferAdminLoading] = useState(false)
-  const [transferAdminError, setTransferAdminError] = useState<string | null>(null)
-  const [transferAdminTx, setTransferAdminTx] = useState<string | null>(null)
   const cluster = useMemo(
     () => getClusterFromEndpoint(connection.rpcEndpoint ?? ''),
     [connection],
   )
-
-  const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), [])
-  const program = useMemo(
-    () => (publicKey ? getProgram(connection, wallet) : null),
-    [connection, wallet, publicKey]
-  )
-
-  const handleTransferAdminToSquads = async () => {
-    if (!program || !publicKey) return
-    if (!SQUADS_MULTISIG_PUBKEY) {
-      setTransferAdminError('Squads multisig pubkey is not available. Ensure NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY is set in .env.local')
-      return
-    }
-    setTransferAdminLoading(true)
-    setTransferAdminError(null)
-    setTransferAdminTx(null)
-    try {
-      const ix = await (program.methods as unknown as UpdateAdminMethods)
-        .updateAdmin(SQUADS_MULTISIG_PUBKEY)
-        .accounts({ pool: poolPda, admin: publicKey })
-        .instruction()
-      const tx = new Transaction().add(ix)
-      const sig = await (program.provider as { sendAndConfirm: (tx: Transaction) => Promise<string> }).sendAndConfirm(tx)
-      setTransferAdminTx(sig)
-    } catch (e: unknown) {
-      setTransferAdminError(e instanceof Error ? e.message : 'Failed to transfer admin')
-    } finally {
-      setTransferAdminLoading(false)
-    }
-  }
 
   const renderGate = () => {
     if (!connected) {
@@ -134,41 +90,6 @@ export default function AdminPage() {
                   This is the current on-chain <span className="font-mono">pool.admin</span>.
                 </p>
               </div>
-              {/* Transfer admin to Squads — only when current admin (e.g. Phantom) and not yet governed */}
-              {isAdmin && !isGovernedBySquads && (
-                <div className="bg-purple-500/5 border border-purple-500/20 rounded-2xl p-6">
-                  <div className="flex items-start gap-3">
-                    <UserPlus className="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" />
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-sm font-semibold text-purple-200 mb-1">Transfer admin to Squads multisig</h3>
-                      <p className="text-xs text-neutral-400 mb-4">
-                        Hand over pool admin to the Squads multisig PDA. This enables multisig governance for admin actions.
-                      </p>
-                      {transferAdminTx && (
-                        <div className="flex items-center gap-2 text-green-400 text-xs mb-4">
-                          <CheckCircle2 className="w-4 h-4" />
-                          <span>Admin transferred. Tx: {transferAdminTx.slice(0, 8)}…{transferAdminTx.slice(-8)}</span>
-                        </div>
-                      )}
-                      {transferAdminError && (
-                        <div className="flex items-center gap-2 text-red-400 text-xs mb-4">
-                          <AlertCircle className="w-4 h-4" />
-                          <span>{transferAdminError}</span>
-                        </div>
-                      )}
-                      <button
-                        onClick={handleTransferAdminToSquads}
-                        disabled={transferAdminLoading || !!transferAdminTx}
-                        className="px-4 py-2 text-sm font-medium rounded-xl bg-purple-500/20 text-purple-200 border border-purple-500/40 hover:bg-purple-500/30 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                      >
-                        {transferAdminLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                        {transferAdminLoading ? 'Transferring…' : transferAdminTx ? 'Transferred' : 'Transfer admin to Squads multisig'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
             <div className="bg-neutral-950 border border-neutral-800 rounded-2xl overflow-hidden">
               <div className="flex border-b border-neutral-800">
                 <button

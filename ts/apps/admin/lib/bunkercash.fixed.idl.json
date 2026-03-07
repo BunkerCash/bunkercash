@@ -1,5 +1,5 @@
 {
-  "address": "8BXDkzYBdYroXuMR57P3DbBoexpsKwhCL66HRYFpQMFS",
+  "address": "FosyJzxYLREM1u6jEDeBHMuFgMyoHWEoExfXs4W6kvDa",
   "metadata": {
     "name": "bunkercash",
     "version": "0.1.0",
@@ -527,78 +527,6 @@
       ]
     },
     {
-      "name": "update_mint_metadata",
-      "docs": [
-        "Updates Metaplex token metadata for the Bunker Cash mint.",
-        "",
-        "Allows the admin to change the token name, symbol, and metadata URI",
-        "after initial creation."
-      ],
-      "discriminator": [46, 244, 2, 123, 67, 219, 22, 121],
-      "accounts": [
-        {
-          "name": "pool",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  98, 117, 110, 107, 101, 114, 99, 97,
-                  115, 104, 95, 112, 111, 111, 108
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "bunkercash_mint",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  98, 117, 110, 107, 101, 114, 99, 97,
-                  115, 104, 95, 109, 105, 110, 116
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "admin",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "metadata",
-          "docs": [
-            "Metaplex metadata PDA for the mint."
-          ],
-          "writable": true
-        },
-        {
-          "name": "token_metadata_program",
-          "docs": [
-            "Metaplex Token Metadata program."
-          ]
-        }
-      ],
-      "args": [
-        {
-          "name": "name",
-          "type": "string"
-        },
-        {
-          "name": "symbol",
-          "type": "string"
-        },
-        {
-          "name": "uri",
-          "type": "string"
-        }
-      ]
-    },
-    {
       "name": "initialize",
       "docs": [
         "Initializes the protocol state and creates the Bunker Cash mint.",
@@ -1025,6 +953,112 @@
       ]
     },
     {
+      "name": "update_mint_metadata",
+      "docs": [
+        "Updates Metaplex token metadata for the Bunker Cash mint."
+      ],
+      "discriminator": [
+        46,
+        244,
+        2,
+        123,
+        67,
+        219,
+        22,
+        121
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "bunkercash_mint",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "metadata",
+          "writable": true
+        },
+        {
+          "name": "token_metadata_program",
+          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+        },
+        {
+          "name": "sysvar_instructions"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "symbol",
+          "type": "string"
+        },
+        {
+          "name": "uri",
+          "type": "string"
+        }
+      ]
+    },
+    {
       "name": "update_price",
       "docs": [
         "Updates the fixed price (USDC base units per 1 whole token)."
@@ -1112,23 +1146,16 @@
   "events": [
     {
       "name": "LiquidityAdded",
-      "discriminator": [154, 26, 221, 108, 238, 64, 217, 161]
-    },
-    {
-      "name": "TokensBought",
-      "discriminator": [151, 148, 173, 226, 128, 30, 249, 190]
-    },
-    {
-      "name": "SellRegistered",
-      "discriminator": [84, 242, 34, 122, 94, 148, 173, 157]
-    },
-    {
-      "name": "ClaimProcessed",
-      "discriminator": [214, 130, 82, 189, 1, 255, 166, 249]
-    },
-    {
-      "name": "PriceUpdated",
-      "discriminator": [154, 72, 87, 150, 246, 230, 23, 217]
+      "discriminator": [
+        154,
+        26,
+        221,
+        108,
+        238,
+        64,
+        217,
+        161
+      ]
     }
   ],
   "errors": [
@@ -1139,76 +1166,81 @@
     },
     {
       "code": 6001,
+      "name": "DepositLimitExceeded",
+      "msg": "Deposit exceeds maximum allowed amount"
+    },
+    {
+      "code": 6002,
       "name": "Unauthorized",
       "msg": "Unauthorized"
     },
     {
-      "code": 6002,
+      "code": 6003,
       "name": "MathError",
       "msg": "Math error"
     },
     {
-      "code": 6003,
+      "code": 6004,
       "name": "InsufficientVaultFunds",
       "msg": "Insufficient USDC in vault"
     },
     {
-      "code": 6004,
+      "code": 6005,
       "name": "InvalidTokenAccountOwner",
       "msg": "Invalid token account owner"
     },
     {
-      "code": 6005,
+      "code": 6006,
       "name": "InvalidMint",
       "msg": "Invalid mint"
     },
     {
-      "code": 6006,
+      "code": 6007,
       "name": "InvalidMintAuthority",
       "msg": "Invalid mint authority"
     },
     {
-      "code": 6007,
+      "code": 6008,
       "name": "InvalidMetadata",
       "msg": "Invalid token metadata"
     },
     {
-      "code": 6008,
+      "code": 6009,
       "name": "InvalidMetadataProgram",
       "msg": "Invalid token metadata program"
     },
     {
-      "code": 6009,
+      "code": 6010,
       "name": "InvalidMetadataPda",
       "msg": "Invalid token metadata PDA"
     },
     {
-      "code": 6010,
+      "code": 6011,
       "name": "ClaimClosed",
       "msg": "Claim is already closed"
     },
     {
-      "code": 6011,
+      "code": 6012,
       "name": "InvalidClaimUser",
       "msg": "Claim user does not match provided user"
     },
     {
-      "code": 6012,
+      "code": 6013,
       "name": "InvalidRemainingAccounts",
       "msg": "Invalid remaining accounts for pro-rata payouts"
     },
     {
-      "code": 6013,
+      "code": 6014,
       "name": "InvalidClaimUserTokenAccount",
       "msg": "Provided user USDC account does not belong to claim user"
     },
     {
-      "code": 6014,
+      "code": 6015,
       "name": "InvalidClaimAccount",
       "msg": "Invalid claim account"
     },
     {
-      "code": 6015,
+      "code": 6016,
       "name": "UserUsdcNotWritable",
       "msg": "User USDC token account must be writable"
     }
@@ -1252,65 +1284,28 @@
     },
     {
       "name": "LiquidityAdded",
-      "docs": ["Emitted when the admin deposits USDC into the payout vault."],
+      "docs": [
+        "Emitted when the admin deposits USDC into the payout vault."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
-          { "name": "admin", "type": "pubkey" },
-          { "name": "usdc_mint", "type": "pubkey" },
-          { "name": "payout_usdc_vault", "type": "pubkey" },
-          { "name": "usdc_amount", "type": "u64" }
-        ]
-      }
-    },
-    {
-      "name": "TokensBought",
-      "docs": ["Emitted when a user buys BNKR tokens with USDC."],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          { "name": "user", "type": "pubkey" },
-          { "name": "usdc_amount", "type": "u64" },
-          { "name": "token_amount", "type": "u64" },
-          { "name": "price_usdc_per_token", "type": "u64" }
-        ]
-      }
-    },
-    {
-      "name": "SellRegistered",
-      "docs": ["Emitted when a user locks BNKR tokens to register a sell."],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          { "name": "user", "type": "pubkey" },
-          { "name": "token_amount", "type": "u64" },
-          { "name": "claim_id", "type": "u64" }
-        ]
-      }
-    },
-    {
-      "name": "ClaimProcessed",
-      "docs": ["Emitted when the admin processes a claim payout to a user."],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          { "name": "admin", "type": "pubkey" },
-          { "name": "claim_id", "type": "u64" },
-          { "name": "user", "type": "pubkey" },
-          { "name": "usdc_paid", "type": "u64" },
-          { "name": "token_amount_locked", "type": "u64" }
-        ]
-      }
-    },
-    {
-      "name": "PriceUpdated",
-      "docs": ["Emitted when the admin updates the token price."],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          { "name": "admin", "type": "pubkey" },
-          { "name": "old_price", "type": "u64" },
-          { "name": "new_price", "type": "u64" }
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "usdc_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "payout_usdc_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "usdc_amount",
+            "type": "u64"
+          }
         ]
       }
     },

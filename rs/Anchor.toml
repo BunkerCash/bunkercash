@@ -7,10 +7,10 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-bunkercash = "84sMb85TrcfSrx1FVSfYk78PHqei9gDiZ3kJ7UKihx3X"
+bunkercash = "FosyJzxYLREM1u6jEDeBHMuFgMyoHWEoExfXs4W6kvDa"
 
 [programs.devnet]
-bunkercash = "84sMb85TrcfSrx1FVSfYk78PHqei9gDiZ3kJ7UKihx3X"
+bunkercash = "FosyJzxYLREM1u6jEDeBHMuFgMyoHWEoExfXs4W6kvDa"
 
 [registry]
 url = "https://api.apr.dev"
