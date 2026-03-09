@@ -2,7 +2,8 @@
 
 import { useState, useMemo, useCallback, useEffect, Fragment } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { Transaction } from "@solana/web3.js";
+import type { Idl, Program } from "@coral-xyz/anchor";
+import { PublicKey, Transaction, type TransactionInstruction } from "@solana/web3.js";
 import {
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountIdempotentInstruction,
@@ -14,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { useAllOpenClaims, type OpenClaim } from "@/hooks/useAllOpenClaims";
 import { usePayoutVault } from "@/hooks/usePayoutVault";
 import {
+  getClaimPriceSnapshotPda,
   getProgram,
   getPoolPda,
   getPoolSignerPda,
@@ -26,6 +28,35 @@ const TOKEN_DECIMALS = 9;
 
 const CACHE_TTL = 30_000 // 30 seconds
 let poolPriceCache: { data: bigint; timestamp: number } | null = null
+
+interface Stringable {
+  toString(): string
+}
+
+interface PoolStateAccount {
+  priceUsdcPerToken: Stringable
+}
+
+interface ClaimsTableAccountApi {
+  poolState: { fetch: (pubkey: PublicKey) => Promise<PoolStateAccount> }
+}
+
+interface ClaimsTableMethods {
+  processClaim: () => {
+    accounts: (accounts: {
+      pool: unknown
+      poolSigner: unknown
+      admin: unknown
+      claim: unknown
+      claimPriceSnapshot: unknown
+      payoutUsdcVault: unknown
+      userUsdc: unknown
+      usdcTokenProgram: unknown
+    }) => {
+      instruction: () => Promise<TransactionInstruction>
+    }
+  }
+}
 
 function truncateWallet(wallet: string): string {
   if (wallet.length <= 12) return wallet;
@@ -78,7 +109,7 @@ export function ClaimsTable() {
 
   const usdcMint = useMemo(() => {
     if (!connection) return null;
-    const endpoint = (connection as any).rpcEndpoint ?? "";
+    const endpoint = connection.rpcEndpoint ?? "";
     const cluster = getClusterFromEndpoint(endpoint);
     return getUsdcMintForCluster(cluster);
   }, [connection]);
@@ -90,7 +121,8 @@ export function ClaimsTable() {
       return;
     }
     try {
-      const pool = await (program.account as any).poolState.fetch(poolPda);
+      const accountApi = (program as Program<Idl>).account as ClaimsTableAccountApi
+      const pool = await accountApi.poolState.fetch(poolPda);
       const price = BigInt(pool.priceUsdcPerToken.toString());
       poolPriceCache = { data: price, timestamp: Date.now() };
       setPoolPrice(price);
@@ -103,9 +135,12 @@ export function ClaimsTable() {
     fetchPoolPrice();
   }, [fetchPoolPrice]);
 
-  const computeOwed = (tokenAmountLocked: string): bigint => {
-    if (!poolPrice) return BigInt(0);
-    return (BigInt(tokenAmountLocked) * poolPrice) / BigInt(10 ** TOKEN_DECIMALS);
+  const computeClaimOwed = (claim: OpenClaim): bigint => {
+    const price = claim.priceUsdcPerTokenSnapshot
+      ? BigInt(claim.priceUsdcPerTokenSnapshot)
+      : poolPrice;
+    if (!price) return BigInt(0);
+    return (BigInt(claim.tokenAmountLocked) * price) / BigInt(10 ** TOKEN_DECIMALS);
   };
 
   const openClaims = useMemo(
@@ -155,13 +190,15 @@ export function ClaimsTable() {
         ASSOCIATED_TOKEN_PROGRAM_ID
       );
 
-      const processIx = await (program.methods as any)
+      const methodsApi = (program as Program<Idl>).methods as unknown as ClaimsTableMethods
+      const processIx = await methodsApi
         .processClaim()
         .accounts({
           pool: poolPda,
           poolSigner: poolSignerPda,
           admin: wallet.publicKey,
           claim: claim.pubkey,
+          claimPriceSnapshot: getClaimPriceSnapshotPda(claim.pubkey, PROGRAM_ID),
           payoutUsdcVault,
           userUsdc: userUsdcAta,
           usdcTokenProgram: TOKEN_PROGRAM_ID,
@@ -179,9 +216,9 @@ export function ClaimsTable() {
       setRecentlyPaidPubkeys((prev) => new Set(prev).add(claim.pubkey.toBase58()));
       refresh();
       refreshVault();
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error("Error processing claim:", e);
-      setTxError(e.message || "Failed to process claim");
+      setTxError(e instanceof Error ? e.message : "Failed to process claim");
     } finally {
       setProcessingId(null);
     }
@@ -337,7 +374,7 @@ export function ClaimsTable() {
                 <tbody>
                   {openClaims.map((claim) => {
                     const isExpanded = expandedIds.has(claim.id);
-                    const owed = computeOwed(claim.tokenAmountLocked);
+                    const owed = computeClaimOwed(claim);
                     const paid = BigInt(claim.usdcPaid);
                     const remaining = owed > paid ? owed - paid : BigInt(0);
                     const progress =

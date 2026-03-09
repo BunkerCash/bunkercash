@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import {
@@ -57,23 +57,18 @@ interface RawMasterWithdrawalRecord {
 
 const CACHE_TTL = 30_000;
 
-let masterCache:
-  | {
-      pool: MasterPoolState | null;
-      withdrawals: MasterWithdrawal[];
-      timestamp: number;
-      endpoint: string;
-    }
-  | null = null;
-
 export function useMasterWithdrawals() {
   const { connection } = useConnection();
   const wallet = useWallet();
-  const [pool, setPool] = useState<MasterPoolState | null>(masterCache?.pool ?? null);
-  const [withdrawals, setWithdrawals] = useState<MasterWithdrawal[]>(
-    masterCache?.withdrawals ?? []
-  );
-  const [loading, setLoading] = useState(!masterCache);
+  const cacheRef = useRef<{
+    pool: MasterPoolState | null;
+    withdrawals: MasterWithdrawal[];
+    timestamp: number;
+    endpoint: string;
+  } | null>(null);
+  const [pool, setPool] = useState<MasterPoolState | null>(null);
+  const [withdrawals, setWithdrawals] = useState<MasterWithdrawal[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const program = useMemo(() => {
@@ -91,12 +86,12 @@ export function useMasterWithdrawals() {
 
       if (
         !bypassCache &&
-        masterCache &&
-        masterCache.endpoint === rpcEndpoint &&
-        Date.now() - masterCache.timestamp < CACHE_TTL
+        cacheRef.current &&
+        cacheRef.current.endpoint === rpcEndpoint &&
+        Date.now() - cacheRef.current.timestamp < CACHE_TTL
       ) {
-        setPool(masterCache.pool);
-        setWithdrawals(masterCache.withdrawals);
+        setPool(cacheRef.current.pool);
+        setWithdrawals(cacheRef.current.withdrawals);
         setLoading(false);
         return;
       }
@@ -140,7 +135,7 @@ export function useMasterWithdrawals() {
           }))
           .sort((a, b) => Number(b.id) - Number(a.id));
 
-        masterCache = {
+        cacheRef.current = {
           pool: normalizedPool,
           withdrawals: normalizedWithdrawals,
           timestamp: Date.now(),
@@ -162,6 +157,12 @@ export function useMasterWithdrawals() {
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
+
+  useEffect(() => {
+    return () => {
+      cacheRef.current = null;
+    };
+  }, []);
 
   const refresh = useCallback(() => fetchAll(true), [fetchAll]);
 

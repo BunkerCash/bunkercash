@@ -1193,6 +1193,53 @@
           "writable": true
         },
         {
+          "name": "claim_price_snapshot",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  99,
+                  108,
+                  97,
+                  105,
+                  109,
+                  95,
+                  112,
+                  114,
+                  105,
+                  99,
+                  101,
+                  95,
+                  115,
+                  110,
+                  97,
+                  112,
+                  115,
+                  104,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "claim"
+              }
+            ]
+          }
+        },
+        {
           "name": "payout_usdc_vault",
           "writable": true
         },
@@ -1331,6 +1378,54 @@
         {
           "name": "claim",
           "writable": true
+        },
+        {
+          "name": "claim_price_snapshot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  99,
+                  108,
+                  97,
+                  105,
+                  109,
+                  95,
+                  112,
+                  114,
+                  105,
+                  99,
+                  101,
+                  95,
+                  115,
+                  110,
+                  97,
+                  112,
+                  115,
+                  104,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "claim"
+              }
+            ]
+          }
         },
         {
           "name": "user",
@@ -1585,6 +1680,19 @@
   ],
   "accounts": [
     {
+      "name": "ClaimPriceSnapshotState",
+      "discriminator": [
+        234,
+        219,
+        25,
+        14,
+        40,
+        68,
+        158,
+        107
+      ]
+    },
+    {
       "name": "ClaimState",
       "discriminator": [
         71,
@@ -1786,9 +1894,43 @@
       "code": 6018,
       "name": "InvalidWithdrawalAccount",
       "msg": "Invalid withdrawal account"
+    },
+    {
+      "code": 6019,
+      "name": "InvalidClaimPriceSnapshot",
+      "msg": "Claim price snapshot is invalid"
+    },
+    {
+      "code": 6020,
+      "name": "ClaimPayoutTooSmall",
+      "msg": "Claim payout rounds down to zero"
     }
   ],
   "types": [
+    {
+      "name": "ClaimPriceSnapshotState",
+      "docs": [
+        "Price snapshot stored separately from `ClaimState` so existing deployed claim",
+        "accounts remain deserializable without resizing migrations."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "claim",
+            "type": "pubkey"
+          },
+          {
+            "name": "price_usdc_per_token",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
     {
       "name": "ClaimState",
       "type": {

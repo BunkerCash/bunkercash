@@ -1,29 +1,72 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useMemo, useState, useRef } from "react";
+import type { Idl, Program } from '@coral-xyz/anchor'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { BN } from '@coral-xyz/anchor'
-import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js'
+import { PublicKey, SystemProgram, Transaction, type TransactionInstruction } from '@solana/web3.js'
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
   createAssociatedTokenAccountIdempotentInstruction,
   getAssociatedTokenAddressSync,
 } from '@solana/spl-token'
-import { getBunkercashMintPda, getPoolPda, getPoolSignerPda, getProgram, PROGRAM_ID } from '@/lib/program'
+import {
+  getBunkercashMintPda,
+  getClaimPriceSnapshotPda,
+  getPoolPda,
+  getPoolSignerPda,
+  getProgram,
+  PROGRAM_ID,
+} from '@/lib/program'
 import { useTokenBalance } from "@/hooks/useTokenBalance";
 import { useMyClaims } from "@/hooks/useMyClaims";
 import { useToast } from "@/components/ui/ToastContext";
 
 /** Detect wallet rejection errors */
-function isWalletRejection(e: any): boolean {
-  const msg = (e?.message ?? e?.toString?.() ?? "").toLowerCase();
+function isWalletRejection(e: unknown): boolean {
+  const msg =
+    e instanceof Error
+      ? e.message.toLowerCase()
+      : String(e ?? "").toLowerCase();
   return (
     msg.includes("user rejected") ||
     msg.includes("user denied") ||
     msg.includes("rejected the request") ||
     msg.includes("transaction was not confirmed")
   );
+}
+
+interface Stringable {
+  toString(): string
+}
+
+interface PoolStateAccount {
+  claimCounter: Stringable
+}
+
+interface WithdrawAccountApi {
+  poolState: { fetch: (pubkey: PublicKey) => Promise<PoolStateAccount> }
+}
+
+interface RegisterSellMethods {
+  registerSell: (amount: BN) => {
+    accounts: (accounts: {
+      pool: PublicKey
+      poolSigner: PublicKey
+      bunkercashMint: PublicKey
+      claim: PublicKey
+      claimPriceSnapshot: PublicKey
+      user: PublicKey
+      userBunkercash: PublicKey
+      escrowBunkercashVault: PublicKey
+      tokenProgram: PublicKey
+      associatedTokenProgram: PublicKey
+      systemProgram: PublicKey
+    }) => {
+      instruction: () => Promise<TransactionInstruction>
+    }
+  }
 }
 
 export function WithdrawInterface() {
@@ -106,13 +149,15 @@ export function WithdrawInterface() {
       }
 
       // Derive claim PDA from current counter.
-      const poolState = await (program.account as any).poolState.fetch(poolPda);
-      const nextId = new BN(poolState.claimCounter as any).add(new BN(1));
+      const accountApi = (program as Program<Idl>).account as WithdrawAccountApi
+      const poolState = await accountApi.poolState.fetch(poolPda);
+      const nextId = new BN(poolState.claimCounter.toString()).add(new BN(1));
       const idLe = Uint8Array.from(nextId.toArray("le", 8));
       const [claimPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("claim"), poolPda.toBuffer(), idLe],
         PROGRAM_ID,
       );
+      const claimPriceSnapshotPda = getClaimPriceSnapshotPda(claimPda, PROGRAM_ID);
 
       // Ensure ATAs exist (idempotent).
       const createUserAtaIx = createAssociatedTokenAccountIdempotentInstruction(
@@ -124,13 +169,15 @@ export function WithdrawInterface() {
         ASSOCIATED_TOKEN_PROGRAM_ID,
       );
 
-      const registerIx = await (program.methods as any)
+      const methodsApi = (program as Program<Idl>).methods as unknown as RegisterSellMethods
+      const registerIx = await methodsApi
         .registerSell(sellAmount)
         .accounts({
           pool: poolPda,
           poolSigner: poolSignerPda,
           bunkercashMint: mintPda,
           claim: claimPda,
+          claimPriceSnapshot: claimPriceSnapshotPda,
           user: wallet.publicKey,
           userBunkercash: userBunkercashAta,
           escrowBunkercashVault: escrowVaultAta,
@@ -141,7 +188,9 @@ export function WithdrawInterface() {
         .instruction();
 
       const tx = new Transaction().add(createUserAtaIx, registerIx);
-      const sig = await (program.provider as any).sendAndConfirm(tx);
+      const sig = await (
+        program.provider as { sendAndConfirm: (tx: Transaction) => Promise<string> }
+      ).sendAndConfirm(tx);
       setTxSig(sig);
       setAmountUi("");
       await fetchTokenBalance();
@@ -152,12 +201,12 @@ export function WithdrawInterface() {
         await import("@/hooks/useMyTransactions");
       invalidateTransactionCache();
       setActiveView("history");
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (isWalletRejection(e)) {
         setError("Transaction was rejected in your wallet.");
         showToast("Transaction rejected by wallet", "warning");
       } else {
-        const msg = e?.message ?? "Transaction failed";
+        const msg = e instanceof Error ? e.message : "Transaction failed";
         setError(msg);
         showToast(msg, "error");
       }

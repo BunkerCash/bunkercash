@@ -37,6 +37,7 @@ const PROGRAM_ID = new PublicKey(idlJson.address);
 const POOL_SEED = "bunkercash_pool";
 const MINT_SEED = "bunkercash_mint";
 const POOL_SIGNER_SEED = "bunkercash_pool_signer";
+const CLAIM_PRICE_SNAPSHOT_SEED = "bunkercash_claim_price_snapshot";
 
 const USDC_DECIMALS = 6;
 const BNKR_DECIMALS = 9;
@@ -385,6 +386,10 @@ async function main() {
         program.programId
       );
       claimPda = pda;
+      const [claimPriceSnapshotPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from(CLAIM_PRICE_SNAPSHOT_SEED), pda.toBuffer()],
+        program.programId
+      );
       return await (program.methods as any)
         .registerSell(s.amount)
         .accounts({
@@ -392,6 +397,7 @@ async function main() {
           poolSigner: poolSignerPda,
           bunkercashMint: bunkercashMintPda,
           claim: pda,
+          claimPriceSnapshot: claimPriceSnapshotPda,
           user: wallet,
           userBunkercash: userBnkrAta,
           escrowBunkercashVault: escrowBnkrVaultAta,
@@ -488,6 +494,10 @@ async function main() {
       });
 
       const procSig = await rpcWithBlockhashRetry("process_claim", async () => {
+        const [claimPriceSnapshotPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from(CLAIM_PRICE_SNAPSHOT_SEED), claimPk.toBuffer()],
+          program.programId
+        );
         return await (program.methods as any)
           .processClaim()
           .accounts({
@@ -495,6 +505,7 @@ async function main() {
             poolSigner: poolSignerPda,
             admin,
             claim: claimPk,
+            claimPriceSnapshot: claimPriceSnapshotPda,
             payoutUsdcVault: payoutUsdcVaultAta,
             userUsdc: userUsdcAtaForClaim,
             usdcTokenProgram: TOKEN_PROGRAM_ID,
@@ -539,4 +550,3 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
-

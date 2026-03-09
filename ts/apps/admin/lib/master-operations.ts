@@ -8,9 +8,15 @@ export function formatUsdc(raw: string | bigint): string {
 }
 
 export function parseUsdcInput(value: string): bigint | null {
-  const parsed = Number.parseFloat(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
-  return BigInt(Math.round(parsed * 10 ** USDC_DECIMALS));
+  const trimmed = value.trim();
+  const match = /^(\d+)(?:\.(\d{0,6}))?$/.exec(trimmed);
+  if (!match) return null;
+
+  const whole = BigInt(match[1]);
+  const fracStr = (match[2] ?? "").padEnd(USDC_DECIMALS, "0").slice(0, USDC_DECIMALS);
+  const result = whole * BigInt(10 ** USDC_DECIMALS) + BigInt(fracStr);
+
+  return result > BigInt(0) ? result : null;
 }
 
 export function metadataBytesToHex(bytes: Iterable<number>): string {

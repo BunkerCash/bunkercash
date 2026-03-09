@@ -17,6 +17,8 @@ pub const POOL_SEED: &[u8] = b"bunkercash_pool";
 pub const BUNKERCASH_MINT_SEED: &[u8] = b"bunkercash_mint";
 /// PDA seed for a pool-controlled signer used to own escrow vaults.
 pub const POOL_SIGNER_SEED: &[u8] = b"bunkercash_pool_signer";
+/// PDA seed for the per-claim price snapshot captured at sell registration time.
+pub const CLAIM_PRICE_SNAPSHOT_SEED: &[u8] = b"bunkercash_claim_price_snapshot";
 /// PDA seed for master-ops bookkeeping state.
 pub const MASTER_OPS_SEED: &[u8] = b"bunkercash_master_ops";
 /// PDA seed for master withdrawal records.
@@ -193,9 +195,10 @@ pub mod bunkercash {
         let claim = &mut ctx.accounts.claim;
 
         let owed = owed_usdc_base_units(
-            ctx.accounts.pool.price_usdc_per_token,
+            ctx.accounts.claim_price_snapshot.price_usdc_per_token,
             claim.token_amount_locked,
         )?;
+        require!(owed > 0, ErrorCode::ClaimPayoutTooSmall);
 
         let remaining = owed.saturating_sub(claim.usdc_paid);
 
@@ -247,6 +250,12 @@ pub mod bunkercash {
             ErrorCode::InvalidMint
         );
 
+        let owed = owed_usdc_base_units(
+            ctx.accounts.pool.price_usdc_per_token,
+            token_amount,
+        )?;
+        require!(owed > 0, ErrorCode::ClaimPayoutTooSmall);
+
         // 1) Lock user's Bunker Cash tokens into the escrow vault (Token-2022).
         token_interface::transfer_checked(
             CpiContext::new(
@@ -278,6 +287,11 @@ pub mod bunkercash {
         claim.is_closed = false;
         claim.created_at = Clock::get()?.unix_timestamp;
         claim.bump = ctx.bumps.claim;
+
+        let claim_price_snapshot = &mut ctx.accounts.claim_price_snapshot;
+        claim_price_snapshot.claim = claim.key();
+        claim_price_snapshot.price_usdc_per_token = ctx.accounts.pool.price_usdc_per_token;
+        claim_price_snapshot.bump = ctx.bumps.claim_price_snapshot;
 
         Ok(())
     }
@@ -727,6 +741,13 @@ pub struct ProcessClaim<'info> {
     pub claim: Account<'info, ClaimState>,
 
     #[account(
+        seeds = [CLAIM_PRICE_SNAPSHOT_SEED, claim.key().as_ref()],
+        bump = claim_price_snapshot.bump,
+        constraint = claim_price_snapshot.claim == claim.key() @ ErrorCode::InvalidClaimPriceSnapshot
+    )]
+    pub claim_price_snapshot: Account<'info, ClaimPriceSnapshotState>,
+
+    #[account(
         mut,
         constraint = payout_usdc_vault.owner == pool_signer.key() @ ErrorCode::InvalidTokenAccountOwner
     )]
@@ -776,6 +797,15 @@ pub struct RegisterSell<'info> {
         bump
     )]
     pub claim: Account<'info, ClaimState>,
+
+    #[account(
+        init,
+        payer = user,
+        space = 8 + ClaimPriceSnapshotState::INIT_SPACE,
+        seeds = [CLAIM_PRICE_SNAPSHOT_SEED, claim.key().as_ref()],
+        bump
+    )]
+    pub claim_price_snapshot: Account<'info, ClaimPriceSnapshotState>,
 
     #[account(mut)]
     pub user: Signer<'info>,
@@ -1070,6 +1100,16 @@ pub struct ClaimState {
     pub bump: u8,
 }
 
+/// Price snapshot stored separately from `ClaimState` so existing deployed claim
+/// accounts remain deserializable without resizing migrations.
+#[account]
+#[derive(InitSpace)]
+pub struct ClaimPriceSnapshotState {
+    pub claim: Pubkey,
+    pub price_usdc_per_token: u64,
+    pub bump: u8,
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct MasterOpsState {
@@ -1131,6 +1171,10 @@ pub enum ErrorCode {
     WithdrawalAmountExceeded,
     #[msg("Invalid withdrawal account")]
     InvalidWithdrawalAccount,
+    #[msg("Claim price snapshot is invalid")]
+    InvalidClaimPriceSnapshot,
+    #[msg("Claim payout rounds down to zero")]
+    ClaimPayoutTooSmall,
 }
 
 /// Emitted when the admin deposits USDC into the payout vault.
