@@ -506,6 +506,7 @@ async function main() {
             admin,
             claim: claimPk,
             claimPriceSnapshot: claimPriceSnapshotPda,
+            usdcMint,
             payoutUsdcVault: payoutUsdcVaultAta,
             userUsdc: userUsdcAtaForClaim,
             usdcTokenProgram: TOKEN_PROGRAM_ID,

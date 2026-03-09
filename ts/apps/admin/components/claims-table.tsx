@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect, Fragment } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef, Fragment } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import type { Idl, Program } from "@coral-xyz/anchor";
 import { PublicKey, Transaction, type TransactionInstruction } from "@solana/web3.js";
@@ -27,7 +27,6 @@ const USDC_DECIMALS = 6;
 const TOKEN_DECIMALS = 9;
 
 const CACHE_TTL = 30_000 // 30 seconds
-let poolPriceCache: { data: bigint; timestamp: number } | null = null
 
 interface Stringable {
   toString(): string
@@ -49,6 +48,7 @@ interface ClaimsTableMethods {
       admin: unknown
       claim: unknown
       claimPriceSnapshot: unknown
+      usdcMint: unknown
       payoutUsdcVault: unknown
       userUsdc: unknown
       usdcTokenProgram: unknown
@@ -97,7 +97,8 @@ export function ClaimsTable() {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [recentlyPaidPubkeys, setRecentlyPaidPubkeys] = useState<Set<string>>(new Set());
   const [txError, setTxError] = useState<string | null>(null);
-  const [poolPrice, setPoolPrice] = useState<bigint | null>(poolPriceCache?.data ?? null);
+  const [poolPrice, setPoolPrice] = useState<bigint | null>(null);
+  const poolPriceCacheRef = useRef<{ data: bigint; timestamp: number } | null>(null);
 
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), []);
   const poolSignerPda = useMemo(() => getPoolSignerPda(poolPda, PROGRAM_ID), [poolPda]);
@@ -116,15 +117,19 @@ export function ClaimsTable() {
 
   const fetchPoolPrice = useCallback(async (bypassCache = false) => {
     if (!program) return;
-    if (!bypassCache && poolPriceCache && Date.now() - poolPriceCache.timestamp < CACHE_TTL) {
-      setPoolPrice(poolPriceCache.data);
+    if (
+      !bypassCache &&
+      poolPriceCacheRef.current &&
+      Date.now() - poolPriceCacheRef.current.timestamp < CACHE_TTL
+    ) {
+      setPoolPrice(poolPriceCacheRef.current.data);
       return;
     }
     try {
       const accountApi = (program as Program<Idl>).account as ClaimsTableAccountApi
       const pool = await accountApi.poolState.fetch(poolPda);
       const price = BigInt(pool.priceUsdcPerToken.toString());
-      poolPriceCache = { data: price, timestamp: Date.now() };
+      poolPriceCacheRef.current = { data: price, timestamp: Date.now() };
       setPoolPrice(price);
     } catch (e) {
       console.error("Error fetching pool price:", e);
@@ -134,6 +139,12 @@ export function ClaimsTable() {
   useEffect(() => {
     fetchPoolPrice();
   }, [fetchPoolPrice]);
+
+  useEffect(() => {
+    return () => {
+      poolPriceCacheRef.current = null;
+    };
+  }, []);
 
   const computeClaimOwed = (claim: OpenClaim): bigint => {
     const price = claim.priceUsdcPerTokenSnapshot
@@ -199,6 +210,7 @@ export function ClaimsTable() {
           admin: wallet.publicKey,
           claim: claim.pubkey,
           claimPriceSnapshot: getClaimPriceSnapshotPda(claim.pubkey, PROGRAM_ID),
+          usdcMint,
           payoutUsdcVault,
           userUsdc: userUsdcAta,
           usdcTokenProgram: TOKEN_PROGRAM_ID,

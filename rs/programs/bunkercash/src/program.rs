@@ -747,9 +747,12 @@ pub struct ProcessClaim<'info> {
     )]
     pub claim_price_snapshot: Account<'info, ClaimPriceSnapshotState>,
 
+    pub usdc_mint: Account<'info, SplMint>,
+
     #[account(
         mut,
-        constraint = payout_usdc_vault.owner == pool_signer.key() @ ErrorCode::InvalidTokenAccountOwner
+        constraint = payout_usdc_vault.owner == pool_signer.key() @ ErrorCode::InvalidTokenAccountOwner,
+        constraint = payout_usdc_vault.mint == usdc_mint.key() @ ErrorCode::InvalidMint
     )]
     pub payout_usdc_vault: Account<'info, SplTokenAccount>,
 
@@ -793,7 +796,15 @@ pub struct RegisterSell<'info> {
         init,
         payer = user,
         space = 8 + ClaimState::INIT_SPACE,
-        seeds = [b"claim", pool.key().as_ref(), &(pool.claim_counter + 1).to_le_bytes()],
+        seeds = [
+            b"claim",
+            pool.key().as_ref(),
+            &pool
+                .claim_counter
+                .checked_add(1)
+                .expect("claim counter overflow")
+                .to_le_bytes()
+        ],
         bump
     )]
     pub claim: Account<'info, ClaimState>,
@@ -866,7 +877,11 @@ pub struct MasterWithdraw<'info> {
         seeds = [
             MASTER_WITHDRAWAL_SEED,
             pool.key().as_ref(),
-            &(master_ops.withdrawal_counter + 1).to_le_bytes()
+            &master_ops
+                .withdrawal_counter
+                .checked_add(1)
+                .expect("master withdrawal counter overflow")
+                .to_le_bytes()
         ],
         bump
     )]

@@ -1051,7 +1051,53 @@
         },
         {
           "name": "withdrawal",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  97,
+                  115,
+                  116,
+                  101,
+                  114,
+                  95,
+                  119,
+                  105,
+                  116,
+                  104,
+                  100,
+                  114,
+                  97,
+                  119,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "account",
+                "path": "master_ops.withdrawal_counter.checked_add(1).expect(\"master withdrawal counter overflow\")",
+                "account": "MasterOpsState"
+              }
+            ]
+          }
         },
         {
           "name": "admin",
@@ -1240,6 +1286,9 @@
           }
         },
         {
+          "name": "usdc_mint"
+        },
+        {
           "name": "payout_usdc_vault",
           "writable": true
         },
@@ -1377,7 +1426,30 @@
         },
         {
           "name": "claim",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  108,
+                  97,
+                  105,
+                  109
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "account",
+                "path": "pool.claim_counter.checked_add(1).expect(\"claim counter overflow\")",
+                "account": "PoolState"
+              }
+            ]
+          }
         },
         {
           "name": "claim_price_snapshot",
