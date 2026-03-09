@@ -106,7 +106,8 @@ export function ClaimsTable() {
 
   const program = useMemo(
     () => (wallet.publicKey ? getProgram(connection, wallet) : null),
-    [connection, wallet]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [connection, wallet.publicKey]
   );
 
   const usdcMint = useMemo(() => {
@@ -147,12 +148,20 @@ export function ClaimsTable() {
     };
   }, []);
 
-  const computeClaimOwed = (claim: OpenClaim): bigint => {
-    const price = claim.priceUsdcPerTokenSnapshot
-      ? BigInt(claim.priceUsdcPerTokenSnapshot)
-      : poolPrice;
-    if (!price) return BigInt(0);
-    return (BigInt(claim.tokenAmountLocked) * price) / BigInt(10 ** TOKEN_DECIMALS);
+  const computeClaimOwed = (claim: OpenClaim): { owed: bigint; isEstimate: boolean } => {
+    if (claim.priceUsdcPerTokenSnapshot) {
+      const price = BigInt(claim.priceUsdcPerTokenSnapshot);
+      return {
+        owed: (BigInt(claim.tokenAmountLocked) * price) / BigInt(10 ** TOKEN_DECIMALS),
+        isEstimate: false,
+      };
+    }
+    // Snapshot unavailable — fall back to current pool price but flag as estimate.
+    if (!poolPrice) return { owed: BigInt(0), isEstimate: true };
+    return {
+      owed: (BigInt(claim.tokenAmountLocked) * poolPrice) / BigInt(10 ** TOKEN_DECIMALS),
+      isEstimate: true,
+    };
   };
 
   const openClaims = useMemo(
@@ -388,7 +397,7 @@ export function ClaimsTable() {
                 <tbody>
                   {openClaims.map((claim) => {
                     const isExpanded = expandedIds.has(claim.id);
-                    const owed = computeClaimOwed(claim);
+                    const { owed, isEstimate } = computeClaimOwed(claim);
                     const paid = BigInt(claim.usdcPaid);
                     const remaining = owed > paid ? owed - paid : BigInt(0);
                     const progress =
@@ -426,8 +435,15 @@ export function ClaimsTable() {
                             <span className="text-neutral-500">USDC</span>
                           </td>
                           <td className="px-5 py-3.5 text-sm text-right font-mono">
-                            <span className="text-emerald-400">${formatUsdc(remaining)}</span>{" "}
+                            <span className={isEstimate ? "text-amber-300" : "text-emerald-400"}>
+                              {isEstimate ? "~" : ""}${formatUsdc(remaining)}
+                            </span>{" "}
                             <span className="text-neutral-500">USDC</span>
+                            {isEstimate && (
+                              <span className="ml-1 text-[10px] text-amber-400" title="Price snapshot unavailable — using current pool price as estimate">
+                                est.
+                              </span>
+                            )}
                           </td>
                           <td className="px-5 py-3.5">
                             <div className="flex items-center justify-end gap-3">

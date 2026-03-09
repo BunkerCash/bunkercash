@@ -56,6 +56,14 @@ interface MasterWithdrawAccounts {
 
 type MasterAdjustAccounts = Omit<MasterWithdrawAccounts, "systemProgram">;
 
+interface MasterOpsAccount {
+  withdrawalCounter: { toString(): string };
+}
+
+interface MasterOpsAccountApi {
+  masterOpsState: { fetchNullable: (pubkey: PublicKey) => Promise<MasterOpsAccount | null> };
+}
+
 interface MasterProgramMethods {
   masterWithdraw: (amount: BN, metadataHash: number[]) => {
     accounts: (accounts: MasterWithdrawAccounts) => InstructionBuilder;
@@ -105,7 +113,8 @@ export function MasterOperationsCard() {
   const poolSignerPda = useMemo(() => getMasterPoolSignerPda(MASTER_PROGRAM_ID), []);
   const program = useMemo(
     () => (wallet.publicKey ? getMasterProgram(connection, wallet) : null),
-    [connection, wallet]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [connection, wallet.publicKey]
   );
   const cluster = useMemo(
     () => getClusterFromEndpoint(connection.rpcEndpoint ?? ""),
@@ -196,8 +205,13 @@ export function MasterOperationsCard() {
 
     try {
       const metadataHash = await parseMetadataHashInput(metadataInput);
+
+      // Fetch fresh on-chain counter to avoid stale-cache PDA collisions.
+      const accountApi = program.account as unknown as MasterOpsAccountApi;
+      const freshMasterOps = await accountApi.masterOpsState.fetchNullable(masterOpsPda);
+      const freshCounter = BigInt(freshMasterOps?.withdrawalCounter?.toString() ?? "0");
       const nextWithdrawalPda = getMasterWithdrawalPda(
-        BigInt(pool.withdrawalCounter) + BigInt(1),
+        freshCounter + BigInt(1),
         MASTER_PROGRAM_ID
       );
 
@@ -232,7 +246,13 @@ export function MasterOperationsCard() {
       refreshVault();
     } catch (e: unknown) {
       console.error("Error submitting master withdraw:", e);
-      setTxError(getErrorMessage(e, "Failed to submit withdrawal"));
+      const msg = getErrorMessage(e, "Failed to submit withdrawal");
+      if (msg.includes("already in use") || msg.includes("0x0")) {
+        setTxError("Withdrawal slot conflict — another withdrawal was submitted first. Please refresh and try again.");
+        refresh();
+      } else {
+        setTxError(msg);
+      }
     } finally {
       setSubmitting(null);
     }
