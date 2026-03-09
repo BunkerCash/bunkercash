@@ -60,8 +60,8 @@ export function getSquadsDashboardUrl(
 
 export const USDC_MINTS: Record<string, string> = {
   'mainnet-beta': 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-  'devnet': '2GCh5iHGbw2wwzTsQGxxm39bwwJ6wFsHdsf6ZBTyzpZ3',  // Custom devnet USDC mint (matches bootstrap script)
-  'testnet': '2GCh5iHGbw2wwzTsQGxxm39bwwJ6wFsHdsf6ZBTyzpZ3',  // Same as devnet for testing
+  'devnet': 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr',
+  'testnet': 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr',
 };
 
 export function getClusterFromEndpoint(endpoint: string): ClusterType {

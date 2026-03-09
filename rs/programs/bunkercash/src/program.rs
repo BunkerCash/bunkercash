@@ -17,6 +17,10 @@ pub const POOL_SEED: &[u8] = b"bunkercash_pool";
 pub const BUNKERCASH_MINT_SEED: &[u8] = b"bunkercash_mint";
 /// PDA seed for a pool-controlled signer used to own escrow vaults.
 pub const POOL_SIGNER_SEED: &[u8] = b"bunkercash_pool_signer";
+/// PDA seed for master-ops bookkeeping state.
+pub const MASTER_OPS_SEED: &[u8] = b"bunkercash_master_ops";
+/// PDA seed for master withdrawal records.
+pub const MASTER_WITHDRAWAL_SEED: &[u8] = b"bunkercash_master_withdrawal";
 
 /// Token decimals for the Bunker Cash mint.
 pub const BUNKERCASH_DECIMALS: u8 = 9;
@@ -274,6 +278,151 @@ pub mod bunkercash {
         claim.is_closed = false;
         claim.created_at = Clock::get()?.unix_timestamp;
         claim.bump = ctx.bumps.claim;
+
+        Ok(())
+    }
+
+    /// Admin withdrawal from the current payout vault.
+    ///
+    /// - Transfers `amount` USDC from the payout vault to the admin USDC account.
+    /// - Creates a `MasterWithdrawalState` record for later repayment/cancellation bookkeeping.
+    /// - Uses a separate master-ops PDA so the deployed pool account does not need resizing.
+    pub fn master_withdraw(
+        ctx: Context<MasterWithdraw>,
+        amount: u64,
+        metadata_hash: [u8; 32],
+    ) -> Result<()> {
+        require!(amount > 0, ErrorCode::InvalidAmount);
+        require!(
+            ctx.accounts.payout_usdc_vault.amount >= amount,
+            ErrorCode::InsufficientVaultFunds
+        );
+
+        let pool_key = ctx.accounts.pool.key();
+        let signer_seeds: &[&[u8]] = &[
+            POOL_SIGNER_SEED,
+            pool_key.as_ref(),
+            &[ctx.bumps.pool_signer],
+        ];
+
+        spl_token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.usdc_token_program.to_account_info(),
+                spl_token::Transfer {
+                    from: ctx.accounts.payout_usdc_vault.to_account_info(),
+                    to: ctx.accounts.admin_usdc.to_account_info(),
+                    authority: ctx.accounts.pool_signer.to_account_info(),
+                },
+                &[signer_seeds],
+            ),
+            amount,
+        )?;
+
+        let master_ops = &mut ctx.accounts.master_ops;
+        master_ops.withdrawal_counter = master_ops
+            .withdrawal_counter
+            .checked_add(1)
+            .ok_or(ErrorCode::MathError)?;
+        master_ops.bump = ctx.bumps.master_ops;
+
+        let withdrawal = &mut ctx.accounts.withdrawal;
+        withdrawal.pool = pool_key;
+        withdrawal.id = master_ops.withdrawal_counter;
+        withdrawal.amount = amount;
+        withdrawal.remaining = amount;
+        withdrawal.repaid_amount = 0;
+        withdrawal.cancelled_amount = 0;
+        withdrawal.metadata_hash = metadata_hash;
+        withdrawal.created_at = Clock::get()?.unix_timestamp;
+        withdrawal.bump = ctx.bumps.withdrawal;
+
+        emit!(MasterWithdrawalCreated {
+            id: withdrawal.id,
+            admin: ctx.accounts.admin.key(),
+            payout_usdc_vault: ctx.accounts.payout_usdc_vault.key(),
+            admin_usdc: ctx.accounts.admin_usdc.key(),
+            amount,
+            metadata_hash,
+        });
+
+        Ok(())
+    }
+
+    /// Repays part or all of a previously recorded admin withdrawal back into the payout vault.
+    pub fn master_repay(ctx: Context<MasterRepay>, amount: u64) -> Result<()> {
+        require!(amount > 0, ErrorCode::InvalidAmount);
+
+        let withdrawal = &mut ctx.accounts.withdrawal;
+        require!(withdrawal.remaining >= amount, ErrorCode::WithdrawalAmountExceeded);
+
+        spl_token::transfer(
+            CpiContext::new(
+                ctx.accounts.usdc_token_program.to_account_info(),
+                spl_token::Transfer {
+                    from: ctx.accounts.admin_usdc.to_account_info(),
+                    to: ctx.accounts.payout_usdc_vault.to_account_info(),
+                    authority: ctx.accounts.admin.to_account_info(),
+                },
+            ),
+            amount,
+        )?;
+
+        withdrawal.remaining = withdrawal
+            .remaining
+            .checked_sub(amount)
+            .ok_or(ErrorCode::MathError)?;
+        withdrawal.repaid_amount = withdrawal
+            .repaid_amount
+            .checked_add(amount)
+            .ok_or(ErrorCode::MathError)?;
+
+        emit!(MasterWithdrawalRepaid {
+            id: withdrawal.id,
+            admin: ctx.accounts.admin.key(),
+            amount,
+            remaining: withdrawal.remaining,
+        });
+
+        Ok(())
+    }
+
+    /// Cancels part or all of a previously recorded admin withdrawal by returning funds to the payout vault.
+    pub fn master_cancel_withdrawal(
+        ctx: Context<MasterCancelWithdrawal>,
+        amount: u64,
+    ) -> Result<()> {
+        require!(amount > 0, ErrorCode::InvalidAmount);
+
+        let withdrawal = &mut ctx.accounts.withdrawal;
+        require!(withdrawal.remaining >= amount, ErrorCode::WithdrawalAmountExceeded);
+
+        spl_token::transfer(
+            CpiContext::new(
+                ctx.accounts.usdc_token_program.to_account_info(),
+                spl_token::Transfer {
+                    from: ctx.accounts.admin_usdc.to_account_info(),
+                    to: ctx.accounts.payout_usdc_vault.to_account_info(),
+                    authority: ctx.accounts.admin.to_account_info(),
+                },
+            ),
+            amount,
+        )?;
+
+        withdrawal.remaining = withdrawal
+            .remaining
+            .checked_sub(amount)
+            .ok_or(ErrorCode::MathError)?;
+        withdrawal.cancelled_amount = withdrawal
+            .cancelled_amount
+            .checked_add(amount)
+            .ok_or(ErrorCode::MathError)?;
+
+        emit!(MasterWithdrawalCancelled {
+            id: withdrawal.id,
+            admin: ctx.accounts.admin.key(),
+            amount,
+            remaining: withdrawal.remaining,
+        });
 
         Ok(())
     }
@@ -654,6 +803,175 @@ pub struct RegisterSell<'info> {
 }
 
 #[derive(Accounts)]
+pub struct MasterWithdraw<'info> {
+    #[account(
+        seeds = [POOL_SEED],
+        bump = pool.bump,
+        constraint = (admin.key() == pool.admin)
+            || (pool.admin == SQUADS_MULTISIG_PUBKEY && admin.key() == SQUADS_VAULT_PUBKEY)
+            @ ErrorCode::Unauthorized
+    )]
+    pub pool: Account<'info, PoolState>,
+
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = 8 + MasterOpsState::INIT_SPACE,
+        seeds = [MASTER_OPS_SEED, pool.key().as_ref()],
+        bump
+    )]
+    pub master_ops: Account<'info, MasterOpsState>,
+
+    /// CHECK: PDA is derived and used only as a vault owner/authority.
+    #[account(
+        seeds = [POOL_SIGNER_SEED, pool.key().as_ref()],
+        bump
+    )]
+    pub pool_signer: UncheckedAccount<'info>,
+
+    #[account(
+        init,
+        payer = admin,
+        space = 8 + MasterWithdrawalState::INIT_SPACE,
+        seeds = [
+            MASTER_WITHDRAWAL_SEED,
+            pool.key().as_ref(),
+            &(master_ops.withdrawal_counter + 1).to_le_bytes()
+        ],
+        bump
+    )]
+    pub withdrawal: Account<'info, MasterWithdrawalState>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    pub usdc_mint: Account<'info, SplMint>,
+
+    #[account(
+        mut,
+        constraint = payout_usdc_vault.owner == pool_signer.key() @ ErrorCode::InvalidTokenAccountOwner,
+        constraint = payout_usdc_vault.mint == usdc_mint.key() @ ErrorCode::InvalidMint
+    )]
+    pub payout_usdc_vault: Account<'info, SplTokenAccount>,
+
+    #[account(
+        mut,
+        constraint = admin_usdc.owner == admin.key() @ ErrorCode::InvalidTokenAccountOwner,
+        constraint = admin_usdc.mint == usdc_mint.key() @ ErrorCode::InvalidMint
+    )]
+    pub admin_usdc: Account<'info, SplTokenAccount>,
+
+    pub usdc_token_program: Program<'info, SplToken>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct MasterRepay<'info> {
+    #[account(
+        seeds = [POOL_SEED],
+        bump = pool.bump,
+        constraint = (admin.key() == pool.admin)
+            || (pool.admin == SQUADS_MULTISIG_PUBKEY && admin.key() == SQUADS_VAULT_PUBKEY)
+            @ ErrorCode::Unauthorized
+    )]
+    pub pool: Account<'info, PoolState>,
+
+    #[account(
+        seeds = [MASTER_OPS_SEED, pool.key().as_ref()],
+        bump = master_ops.bump
+    )]
+    pub master_ops: Account<'info, MasterOpsState>,
+
+    /// CHECK: PDA is derived and used only as a vault owner/authority.
+    #[account(
+        seeds = [POOL_SIGNER_SEED, pool.key().as_ref()],
+        bump
+    )]
+    pub pool_signer: UncheckedAccount<'info>,
+
+    #[account(
+        mut,
+        constraint = withdrawal.id > 0 @ ErrorCode::InvalidWithdrawalAccount,
+        constraint = withdrawal.pool == pool.key() @ ErrorCode::InvalidWithdrawalAccount
+    )]
+    pub withdrawal: Account<'info, MasterWithdrawalState>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    pub usdc_mint: Account<'info, SplMint>,
+
+    #[account(
+        mut,
+        constraint = payout_usdc_vault.owner == pool_signer.key() @ ErrorCode::InvalidTokenAccountOwner,
+        constraint = payout_usdc_vault.mint == usdc_mint.key() @ ErrorCode::InvalidMint
+    )]
+    pub payout_usdc_vault: Account<'info, SplTokenAccount>,
+
+    #[account(
+        mut,
+        constraint = admin_usdc.owner == admin.key() @ ErrorCode::InvalidTokenAccountOwner,
+        constraint = admin_usdc.mint == usdc_mint.key() @ ErrorCode::InvalidMint
+    )]
+    pub admin_usdc: Account<'info, SplTokenAccount>,
+
+    pub usdc_token_program: Program<'info, SplToken>,
+}
+
+#[derive(Accounts)]
+pub struct MasterCancelWithdrawal<'info> {
+    #[account(
+        seeds = [POOL_SEED],
+        bump = pool.bump,
+        constraint = (admin.key() == pool.admin)
+            || (pool.admin == SQUADS_MULTISIG_PUBKEY && admin.key() == SQUADS_VAULT_PUBKEY)
+            @ ErrorCode::Unauthorized
+    )]
+    pub pool: Account<'info, PoolState>,
+
+    #[account(
+        seeds = [MASTER_OPS_SEED, pool.key().as_ref()],
+        bump = master_ops.bump
+    )]
+    pub master_ops: Account<'info, MasterOpsState>,
+
+    /// CHECK: PDA is derived and used only as a vault owner/authority.
+    #[account(
+        seeds = [POOL_SIGNER_SEED, pool.key().as_ref()],
+        bump
+    )]
+    pub pool_signer: UncheckedAccount<'info>,
+
+    #[account(
+        mut,
+        constraint = withdrawal.id > 0 @ ErrorCode::InvalidWithdrawalAccount,
+        constraint = withdrawal.pool == pool.key() @ ErrorCode::InvalidWithdrawalAccount
+    )]
+    pub withdrawal: Account<'info, MasterWithdrawalState>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    pub usdc_mint: Account<'info, SplMint>,
+
+    #[account(
+        mut,
+        constraint = payout_usdc_vault.owner == pool_signer.key() @ ErrorCode::InvalidTokenAccountOwner,
+        constraint = payout_usdc_vault.mint == usdc_mint.key() @ ErrorCode::InvalidMint
+    )]
+    pub payout_usdc_vault: Account<'info, SplTokenAccount>,
+
+    #[account(
+        mut,
+        constraint = admin_usdc.owner == admin.key() @ ErrorCode::InvalidTokenAccountOwner,
+        constraint = admin_usdc.mint == usdc_mint.key() @ ErrorCode::InvalidMint
+    )]
+    pub admin_usdc: Account<'info, SplTokenAccount>,
+
+    pub usdc_token_program: Program<'info, SplToken>,
+}
+
+#[derive(Accounts)]
 pub struct InitMintMetadata<'info> {
     #[account(
         seeds = [POOL_SEED],
@@ -752,6 +1070,27 @@ pub struct ClaimState {
     pub bump: u8,
 }
 
+#[account]
+#[derive(InitSpace)]
+pub struct MasterOpsState {
+    pub withdrawal_counter: u64,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct MasterWithdrawalState {
+    pub pool: Pubkey,
+    pub id: u64,
+    pub amount: u64,
+    pub remaining: u64,
+    pub repaid_amount: u64,
+    pub cancelled_amount: u64,
+    pub metadata_hash: [u8; 32],
+    pub created_at: i64,
+    pub bump: u8,
+}
+
 #[error_code]
 pub enum ErrorCode {
     #[msg("Invalid amount")]
@@ -788,6 +1127,10 @@ pub enum ErrorCode {
     InvalidClaimAccount,
     #[msg("User USDC token account must be writable")]
     UserUsdcNotWritable,
+    #[msg("Withdrawal amount exceeds the remaining balance")]
+    WithdrawalAmountExceeded,
+    #[msg("Invalid withdrawal account")]
+    InvalidWithdrawalAccount,
 }
 
 /// Emitted when the admin deposits USDC into the payout vault.
@@ -799,3 +1142,28 @@ pub struct LiquidityAdded {
     pub usdc_amount: u64,
 }
 
+#[event]
+pub struct MasterWithdrawalCreated {
+    pub id: u64,
+    pub admin: Pubkey,
+    pub payout_usdc_vault: Pubkey,
+    pub admin_usdc: Pubkey,
+    pub amount: u64,
+    pub metadata_hash: [u8; 32],
+}
+
+#[event]
+pub struct MasterWithdrawalRepaid {
+    pub id: u64,
+    pub admin: Pubkey,
+    pub amount: u64,
+    pub remaining: u64,
+}
+
+#[event]
+pub struct MasterWithdrawalCancelled {
+    pub id: u64,
+    pub admin: Pubkey,
+    pub amount: u64,
+    pub remaining: u64,
+}

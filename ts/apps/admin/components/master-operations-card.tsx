@@ -6,7 +6,7 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
-  TOKEN_2022_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountIdempotentInstruction,
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
@@ -19,10 +19,13 @@ import {
   Wallet,
 } from "lucide-react";
 import { useMasterWithdrawals } from "@/hooks/useMasterWithdrawals";
+import { usePayoutVault } from "@/hooks/usePayoutVault";
 import {
-  getMasterWithdrawalPda,
+  getMasterOpsPda,
   getMasterPoolPda,
+  getMasterPoolSignerPda,
   getMasterProgram,
+  getMasterWithdrawalPda,
   MASTER_PROGRAM_ID,
 } from "@/lib/master-program";
 import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
@@ -38,26 +41,30 @@ interface InstructionBuilder {
   instruction: () => Promise<Transaction["instructions"][number]>;
 }
 
-interface MasterMethodAccounts {
+interface MasterWithdrawAccounts {
   pool: PublicKey;
+  masterOps: PublicKey;
+  poolSigner: PublicKey;
   withdrawal: PublicKey;
-  poolUsdc?: PublicKey;
-  masterUsdc: PublicKey;
+  admin: PublicKey;
   usdcMint: PublicKey;
-  masterWallet: PublicKey;
-  tokenProgram: PublicKey;
-  systemProgram?: PublicKey;
+  payoutUsdcVault: PublicKey;
+  adminUsdc: PublicKey;
+  usdcTokenProgram: PublicKey;
+  systemProgram: PublicKey;
 }
+
+type MasterAdjustAccounts = Omit<MasterWithdrawAccounts, "systemProgram">;
 
 interface MasterProgramMethods {
   masterWithdraw: (amount: BN, metadataHash: number[]) => {
-    accounts: (accounts: Required<MasterMethodAccounts>) => InstructionBuilder;
+    accounts: (accounts: MasterWithdrawAccounts) => InstructionBuilder;
   };
   masterRepay: (amount: BN) => {
-    accounts: (accounts: Omit<Required<MasterMethodAccounts>, "systemProgram" | "poolUsdc"> & { poolUsdc: PublicKey }) => InstructionBuilder;
+    accounts: (accounts: MasterAdjustAccounts) => InstructionBuilder;
   };
   masterCancelWithdrawal: (amount: BN) => {
-    accounts: (accounts: Omit<Required<MasterMethodAccounts>, "systemProgram" | "poolUsdc"> & { poolUsdc: PublicKey }) => InstructionBuilder;
+    accounts: (accounts: MasterAdjustAccounts) => InstructionBuilder;
   };
 }
 
@@ -81,6 +88,7 @@ export function MasterOperationsCard() {
   const { connection } = useConnection();
   const wallet = useWallet();
   const { pool, withdrawals, loading, error, refresh } = useMasterWithdrawals();
+  const { balance: payoutVaultBalance, refresh: refreshVault } = usePayoutVault();
 
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [metadataInput, setMetadataInput] = useState("");
@@ -93,6 +101,8 @@ export function MasterOperationsCard() {
   const [txSuccess, setTxSuccess] = useState<{ label: string; signature: string } | null>(null);
 
   const poolPda = useMemo(() => getMasterPoolPda(MASTER_PROGRAM_ID), []);
+  const masterOpsPda = useMemo(() => getMasterOpsPda(MASTER_PROGRAM_ID), []);
+  const poolSignerPda = useMemo(() => getMasterPoolSignerPda(MASTER_PROGRAM_ID), []);
   const program = useMemo(
     () => (wallet.publicKey ? getMasterProgram(connection, wallet) : null),
     [connection, wallet]
@@ -117,9 +127,9 @@ export function MasterOperationsCard() {
     [activeWithdrawals, cancelWithdrawalId]
   );
 
-  const masterWallet = pool?.masterWallet ?? null;
+  const adminWallet = pool?.admin ?? null;
   const isAuthorizedWallet =
-    !!wallet.publicKey && !!masterWallet && wallet.publicKey.equals(masterWallet);
+    !!wallet.publicKey && !!adminWallet && wallet.publicKey.equals(adminWallet);
 
   const explorerTxUrl = (signature: string) => {
     const base = `https://explorer.solana.com/tx/${signature}`;
@@ -129,39 +139,39 @@ export function MasterOperationsCard() {
   const buildAtaInstructions = () => {
     if (!wallet.publicKey || !usdcMint) return null;
 
-    const poolUsdcAta = getAssociatedTokenAddressSync(
+    const payoutUsdcVault = getAssociatedTokenAddressSync(
       usdcMint,
-      poolPda,
+      poolSignerPda,
       true,
-      TOKEN_2022_PROGRAM_ID,
+      TOKEN_PROGRAM_ID,
       ASSOCIATED_TOKEN_PROGRAM_ID
     );
-    const masterUsdcAta = getAssociatedTokenAddressSync(
+    const adminUsdcAta = getAssociatedTokenAddressSync(
       usdcMint,
       wallet.publicKey,
       false,
-      TOKEN_2022_PROGRAM_ID,
+      TOKEN_PROGRAM_ID,
       ASSOCIATED_TOKEN_PROGRAM_ID
     );
 
-    const ensurePoolAtaIx = createAssociatedTokenAccountIdempotentInstruction(
+    const ensurePayoutVaultIx = createAssociatedTokenAccountIdempotentInstruction(
       wallet.publicKey,
-      poolUsdcAta,
-      poolPda,
+      payoutUsdcVault,
+      poolSignerPda,
       usdcMint,
-      TOKEN_2022_PROGRAM_ID,
+      TOKEN_PROGRAM_ID,
       ASSOCIATED_TOKEN_PROGRAM_ID
     );
-    const ensureMasterAtaIx = createAssociatedTokenAccountIdempotentInstruction(
+    const ensureAdminAtaIx = createAssociatedTokenAccountIdempotentInstruction(
       wallet.publicKey,
-      masterUsdcAta,
+      adminUsdcAta,
       wallet.publicKey,
       usdcMint,
-      TOKEN_2022_PROGRAM_ID,
+      TOKEN_PROGRAM_ID,
       ASSOCIATED_TOKEN_PROGRAM_ID
     );
 
-    return { poolUsdcAta, masterUsdcAta, ensurePoolAtaIx, ensureMasterAtaIx };
+    return { payoutUsdcVault, adminUsdcAta, ensurePayoutVaultIx, ensureAdminAtaIx };
   };
 
   const handleMasterWithdraw = async () => {
@@ -187,7 +197,7 @@ export function MasterOperationsCard() {
     try {
       const metadataHash = await parseMetadataHashInput(metadataInput);
       const nextWithdrawalPda = getMasterWithdrawalPda(
-        BigInt(pool.withdrawalCounter),
+        BigInt(pool.withdrawalCounter) + BigInt(1),
         MASTER_PROGRAM_ID
       );
 
@@ -195,31 +205,34 @@ export function MasterOperationsCard() {
         .masterWithdraw(new BN(amount.toString()), Array.from(metadataHash))
         .accounts({
           pool: poolPda,
+          masterOps: masterOpsPda,
+          poolSigner: poolSignerPda,
           withdrawal: nextWithdrawalPda,
-          poolUsdc: ataState.poolUsdcAta,
-          masterUsdc: ataState.masterUsdcAta,
+          admin: wallet.publicKey,
           usdcMint,
-          masterWallet: wallet.publicKey,
-          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          payoutUsdcVault: ataState.payoutUsdcVault,
+          adminUsdc: ataState.adminUsdcAta,
+          usdcTokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .instruction());
 
       const tx = new Transaction();
-      tx.add(ataState.ensurePoolAtaIx);
-      tx.add(ataState.ensureMasterAtaIx);
+      tx.add(ataState.ensurePayoutVaultIx);
+      tx.add(ataState.ensureAdminAtaIx);
       tx.add(ix);
 
       const provider = program.provider as ProviderLike;
       const signature = await provider.sendAndConfirm(tx);
 
-      setTxSuccess({ label: "Master withdrawal submitted", signature });
+      setTxSuccess({ label: "Withdrawal recorded and sent to admin wallet", signature });
       setWithdrawAmount("");
       setMetadataInput("");
       refresh();
+      refreshVault();
     } catch (e: unknown) {
       console.error("Error submitting master withdraw:", e);
-      setTxError(getErrorMessage(e, "Failed to submit master withdrawal"));
+      setTxError(getErrorMessage(e, "Failed to submit withdrawal"));
     } finally {
       setSubmitting(null);
     }
@@ -250,18 +263,20 @@ export function MasterOperationsCard() {
         .masterRepay(new BN(amount.toString()))
         .accounts({
           pool: poolPda,
+          masterOps: masterOpsPda,
+          poolSigner: poolSignerPda,
           withdrawal: repayTarget.pubkey,
-          masterUsdc: ataState.masterUsdcAta,
-          poolUsdc: ataState.poolUsdcAta,
+          admin: wallet.publicKey,
           usdcMint,
-          masterWallet: wallet.publicKey,
-          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          payoutUsdcVault: ataState.payoutUsdcVault,
+          adminUsdc: ataState.adminUsdcAta,
+          usdcTokenProgram: TOKEN_PROGRAM_ID,
         })
         .instruction());
 
       const tx = new Transaction();
-      tx.add(ataState.ensurePoolAtaIx);
-      tx.add(ataState.ensureMasterAtaIx);
+      tx.add(ataState.ensurePayoutVaultIx);
+      tx.add(ataState.ensureAdminAtaIx);
       tx.add(ix);
 
       const provider = program.provider as ProviderLike;
@@ -270,6 +285,7 @@ export function MasterOperationsCard() {
       setTxSuccess({ label: `Repaid withdrawal #${repayTarget.id}`, signature });
       setRepayAmount("");
       refresh();
+      refreshVault();
     } catch (e: unknown) {
       console.error("Error submitting master repay:", e);
       setTxError(getErrorMessage(e, "Failed to submit repayment"));
@@ -303,18 +319,20 @@ export function MasterOperationsCard() {
         .masterCancelWithdrawal(new BN(amount.toString()))
         .accounts({
           pool: poolPda,
+          masterOps: masterOpsPda,
+          poolSigner: poolSignerPda,
           withdrawal: cancelTarget.pubkey,
-          masterUsdc: ataState.masterUsdcAta,
-          poolUsdc: ataState.poolUsdcAta,
+          admin: wallet.publicKey,
           usdcMint,
-          masterWallet: wallet.publicKey,
-          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          payoutUsdcVault: ataState.payoutUsdcVault,
+          adminUsdc: ataState.adminUsdcAta,
+          usdcTokenProgram: TOKEN_PROGRAM_ID,
         })
         .instruction());
 
       const tx = new Transaction();
-      tx.add(ataState.ensurePoolAtaIx);
-      tx.add(ataState.ensureMasterAtaIx);
+      tx.add(ataState.ensurePayoutVaultIx);
+      tx.add(ataState.ensureAdminAtaIx);
       tx.add(ix);
 
       const provider = program.provider as ProviderLike;
@@ -323,6 +341,7 @@ export function MasterOperationsCard() {
       setTxSuccess({ label: `Cancelled withdrawal #${cancelTarget.id}`, signature });
       setCancelAmount("");
       refresh();
+      refreshVault();
     } catch (e: unknown) {
       console.error("Error submitting cancel withdrawal:", e);
       setTxError(getErrorMessage(e, "Failed to cancel withdrawal"));
@@ -337,11 +356,14 @@ export function MasterOperationsCard() {
         <div>
           <h1 className="text-xl font-semibold text-white">Master Operations</h1>
           <p className="text-sm text-neutral-500 mt-1">
-            Historical master-withdraw workflow backed by the configured master program.
+            Current-program admin withdrawals backed by the payout vault.
           </p>
         </div>
         <button
-          onClick={refresh}
+          onClick={() => {
+            refresh();
+            refreshVault();
+          }}
           disabled={loading}
           className="p-1.5 rounded-lg text-neutral-500 hover:text-white hover:bg-neutral-800/40 transition-colors disabled:opacity-50"
         >
@@ -349,7 +371,7 @@ export function MasterOperationsCard() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
         <div className="bg-neutral-900/40 border border-neutral-800/60 rounded-xl p-5">
           <div className="text-[11px] font-medium uppercase tracking-wider text-neutral-500 mb-2">
             Program
@@ -360,18 +382,26 @@ export function MasterOperationsCard() {
         </div>
         <div className="bg-neutral-900/40 border border-neutral-800/60 rounded-xl p-5">
           <div className="text-[11px] font-medium uppercase tracking-wider text-neutral-500 mb-2">
-            Master Wallet
+            Pool Admin
           </div>
           <p className="font-mono text-sm text-white break-all">
-            {masterWallet?.toBase58() ?? "Pool not found"}
+            {adminWallet?.toBase58() ?? "Pool not found"}
           </p>
         </div>
         <div className="bg-neutral-900/40 border border-neutral-800/60 rounded-xl p-5">
           <div className="text-[11px] font-medium uppercase tracking-wider text-neutral-500 mb-2">
-            NAV / Open Withdrawals
+            Payout Vault
           </div>
           <p className="text-white text-sm font-mono">
-            {pool ? `$${formatUsdc(pool.nav)} / ${activeWithdrawals.length}` : "Unavailable"}
+            {payoutVaultBalance !== null ? `$${payoutVaultBalance}` : "Unavailable"}
+          </p>
+        </div>
+        <div className="bg-neutral-900/40 border border-neutral-800/60 rounded-xl p-5">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-neutral-500 mb-2">
+            Price / Open
+          </div>
+          <p className="text-white text-sm font-mono">
+            {pool ? `$${formatUsdc(pool.priceUsdcPerToken)} / ${activeWithdrawals.length}` : "Unavailable"}
           </p>
         </div>
       </div>
@@ -380,16 +410,16 @@ export function MasterOperationsCard() {
         <div className="flex items-start gap-3 px-4 py-3 rounded-xl border border-amber-500/20 bg-amber-500/5">
           <Wallet className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
           <p className="text-sm text-amber-400">
-            Connect the configured master wallet to submit master operations.
+            Connect the current pool admin wallet to submit master operations.
           </p>
         </div>
       )}
 
-      {wallet.publicKey && masterWallet && !isAuthorizedWallet && (
+      {wallet.publicKey && adminWallet && !isAuthorizedWallet && (
         <div className="flex items-start gap-3 px-4 py-3 rounded-xl border border-red-500/20 bg-red-500/5">
           <ShieldAlert className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
           <p className="text-sm text-red-400">
-            Connected wallet {shortPk(wallet.publicKey.toBase58())} is not the on-chain master wallet.
+            Connected wallet {shortPk(wallet.publicKey.toBase58())} is not the current pool admin.
           </p>
         </div>
       )}
@@ -415,9 +445,7 @@ export function MasterOperationsCard() {
       {txSuccess && (
         <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4">
           <div className="flex items-start gap-3">
-            <p className="text-sm text-emerald-300">
-              {txSuccess.label}
-            </p>
+            <p className="text-sm text-emerald-300">{txSuccess.label}</p>
             <a
               href={explorerTxUrl(txSuccess.signature)}
               target="_blank"
@@ -436,7 +464,7 @@ export function MasterOperationsCard() {
           <div className="mb-4">
             <h2 className="text-sm font-medium text-white">Master Withdraw</h2>
             <p className="text-xs text-neutral-500 mt-1">
-              Creates a new withdrawal account and moves USDC from pool to master wallet.
+              Moves USDC from the current payout vault to the connected admin wallet and records a withdrawal.
             </p>
           </div>
           <label className="block text-xs text-neutral-400 mb-2">Amount (USDC)</label>
@@ -460,7 +488,9 @@ export function MasterOperationsCard() {
           />
           {metadataInput.trim() && (
             <p className="text-[11px] text-neutral-500 mt-2 break-all font-mono">
-              {metadataInput.trim().length > 64 ? "SHA-256 will be derived from the entered text" : "64-char hex is used directly; anything else is SHA-256 hashed"}
+              {metadataInput.trim().length > 64
+                ? "SHA-256 will be derived from the entered text"
+                : "64-char hex is used directly; anything else is SHA-256 hashed"}
             </p>
           )}
 
@@ -478,7 +508,7 @@ export function MasterOperationsCard() {
           <div className="mb-4">
             <h2 className="text-sm font-medium text-white">Master Repay</h2>
             <p className="text-xs text-neutral-500 mt-1">
-              Sends USDC back to the pool and reduces remaining balance while increasing NAV.
+              Sends USDC from the connected admin wallet back into the payout vault and reduces the outstanding balance.
             </p>
           </div>
 
@@ -507,7 +537,8 @@ export function MasterOperationsCard() {
           />
           {repayTarget && (
             <p className="text-[11px] text-neutral-500 mt-2">
-              Remaining balance: <span className="font-mono text-neutral-300">${formatUsdc(repayTarget.remaining)}</span>
+              Remaining balance:{" "}
+              <span className="font-mono text-neutral-300">${formatUsdc(repayTarget.remaining)}</span>
             </p>
           )}
 
@@ -525,7 +556,7 @@ export function MasterOperationsCard() {
           <div className="mb-4">
             <h2 className="text-sm font-medium text-white">Cancel Withdrawal</h2>
             <p className="text-xs text-neutral-500 mt-1">
-              Returns USDC to the pool and reduces remaining balance without changing NAV.
+              Returns USDC from the connected admin wallet to the payout vault and marks the return as cancellation.
             </p>
           </div>
 
@@ -554,7 +585,8 @@ export function MasterOperationsCard() {
           />
           {cancelTarget && (
             <p className="text-[11px] text-neutral-500 mt-2">
-              Remaining balance: <span className="font-mono text-neutral-300">${formatUsdc(cancelTarget.remaining)}</span>
+              Remaining balance:{" "}
+              <span className="font-mono text-neutral-300">${formatUsdc(cancelTarget.remaining)}</span>
             </p>
           )}
 
@@ -574,12 +606,10 @@ export function MasterOperationsCard() {
           <div>
             <h2 className="text-sm font-medium text-white">Withdrawals</h2>
             <p className="text-xs text-neutral-500 mt-1">
-              Open and historical withdrawal accounts from the master program.
+              Master withdrawal records stored in the current Bunker Cash program.
             </p>
           </div>
-          <span className="text-xs text-neutral-500">
-            {activeWithdrawals.length} open
-          </span>
+          <span className="text-xs text-neutral-500">{activeWithdrawals.length} open</span>
         </div>
 
         {loading ? (
@@ -601,6 +631,12 @@ export function MasterOperationsCard() {
                 <th className="text-right px-5 py-3 text-[11px] font-medium uppercase tracking-wider text-neutral-500">
                   Remaining
                 </th>
+                <th className="text-right px-5 py-3 text-[11px] font-medium uppercase tracking-wider text-neutral-500">
+                  Repaid
+                </th>
+                <th className="text-right px-5 py-3 text-[11px] font-medium uppercase tracking-wider text-neutral-500">
+                  Cancelled
+                </th>
                 <th className="text-left px-5 py-3 text-[11px] font-medium uppercase tracking-wider text-neutral-500">
                   Created
                 </th>
@@ -611,18 +647,29 @@ export function MasterOperationsCard() {
             </thead>
             <tbody>
               {withdrawals.map((item) => (
-                <tr key={item.pubkey.toBase58()} className="border-b border-neutral-800/30 last:border-b-0">
+                <tr
+                  key={item.pubkey.toBase58()}
+                  className="border-b border-neutral-800/30 last:border-b-0"
+                >
                   <td className="px-5 py-3 text-sm font-mono text-white">#{item.id}</td>
                   <td className="px-5 py-3 text-sm font-mono text-right text-neutral-300">
                     ${formatUsdc(item.amount)}
                   </td>
                   <td className="px-5 py-3 text-sm font-mono text-right">
-                    <span className={BigInt(item.remaining) > BigInt(0) ? "text-[#00FFB2]" : "text-neutral-500"}>
+                    <span
+                      className={BigInt(item.remaining) > BigInt(0) ? "text-[#00FFB2]" : "text-neutral-500"}
+                    >
                       ${formatUsdc(item.remaining)}
                     </span>
                   </td>
+                  <td className="px-5 py-3 text-sm font-mono text-right text-neutral-300">
+                    ${formatUsdc(item.repaidAmount)}
+                  </td>
+                  <td className="px-5 py-3 text-sm font-mono text-right text-neutral-300">
+                    ${formatUsdc(item.cancelledAmount)}
+                  </td>
                   <td className="px-5 py-3 text-sm text-neutral-400">
-                    {formatTimestamp(item.timestamp)}
+                    {formatTimestamp(item.createdAt)}
                   </td>
                   <td className="px-5 py-3 text-xs font-mono text-neutral-500">
                     {metadataBytesToHex(item.metadataHash).slice(0, 24)}...

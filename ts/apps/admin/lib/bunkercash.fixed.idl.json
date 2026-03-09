@@ -627,6 +627,474 @@
       ]
     },
     {
+      "name": "master_cancel_withdrawal",
+      "docs": [
+        "Cancels part or all of a previously recorded admin withdrawal by returning funds to the payout vault."
+      ],
+      "discriminator": [
+        254,
+        236,
+        97,
+        119,
+        73,
+        158,
+        24,
+        170
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "master_ops",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  97,
+                  115,
+                  116,
+                  101,
+                  114,
+                  95,
+                  111,
+                  112,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_signer",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  115,
+                  105,
+                  103,
+                  110,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "withdrawal",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "payout_usdc_vault",
+          "writable": true
+        },
+        {
+          "name": "admin_usdc",
+          "writable": true
+        },
+        {
+          "name": "usdc_token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "master_repay",
+      "docs": [
+        "Repays part or all of a previously recorded admin withdrawal back into the payout vault."
+      ],
+      "discriminator": [
+        196,
+        123,
+        175,
+        178,
+        81,
+        52,
+        168,
+        164
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "master_ops",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  97,
+                  115,
+                  116,
+                  101,
+                  114,
+                  95,
+                  111,
+                  112,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_signer",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  115,
+                  105,
+                  103,
+                  110,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "withdrawal",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "payout_usdc_vault",
+          "writable": true
+        },
+        {
+          "name": "admin_usdc",
+          "writable": true
+        },
+        {
+          "name": "usdc_token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "master_withdraw",
+      "docs": [
+        "Admin withdrawal from the current payout vault.",
+        "",
+        "- Transfers `amount` USDC from the payout vault to the admin USDC account.",
+        "- Creates a `MasterWithdrawalState` record for later repayment/cancellation bookkeeping.",
+        "- Uses a separate master-ops PDA so the deployed pool account does not need resizing."
+      ],
+      "discriminator": [
+        251,
+        226,
+        132,
+        202,
+        30,
+        7,
+        50,
+        85
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "master_ops",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  97,
+                  115,
+                  116,
+                  101,
+                  114,
+                  95,
+                  111,
+                  112,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_signer",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  115,
+                  105,
+                  103,
+                  110,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "withdrawal",
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "payout_usdc_vault",
+          "writable": true
+        },
+        {
+          "name": "admin_usdc",
+          "writable": true
+        },
+        {
+          "name": "usdc_token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "metadata_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "process_claim",
       "docs": [
         "Process a single claim payout.",
@@ -1130,6 +1598,32 @@
       ]
     },
     {
+      "name": "MasterOpsState",
+      "discriminator": [
+        201,
+        92,
+        23,
+        227,
+        8,
+        181,
+        43,
+        123
+      ]
+    },
+    {
+      "name": "MasterWithdrawalState",
+      "discriminator": [
+        134,
+        129,
+        178,
+        0,
+        159,
+        29,
+        153,
+        202
+      ]
+    },
+    {
       "name": "PoolState",
       "discriminator": [
         247,
@@ -1155,6 +1649,45 @@
         64,
         217,
         161
+      ]
+    },
+    {
+      "name": "MasterWithdrawalCancelled",
+      "discriminator": [
+        136,
+        142,
+        39,
+        154,
+        49,
+        110,
+        125,
+        68
+      ]
+    },
+    {
+      "name": "MasterWithdrawalCreated",
+      "discriminator": [
+        67,
+        55,
+        236,
+        95,
+        45,
+        217,
+        81,
+        242
+      ]
+    },
+    {
+      "name": "MasterWithdrawalRepaid",
+      "discriminator": [
+        154,
+        94,
+        251,
+        132,
+        181,
+        164,
+        212,
+        94
       ]
     }
   ],
@@ -1243,6 +1776,16 @@
       "code": 6016,
       "name": "UserUsdcNotWritable",
       "msg": "User USDC token account must be writable"
+    },
+    {
+      "code": 6017,
+      "name": "WithdrawalAmountExceeded",
+      "msg": "Withdrawal amount exceeds the remaining balance"
+    },
+    {
+      "code": 6018,
+      "name": "InvalidWithdrawalAccount",
+      "msg": "Invalid withdrawal account"
     }
   ],
   "types": [
@@ -1305,6 +1848,156 @@
           {
             "name": "usdc_amount",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MasterOpsState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "withdrawal_counter",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MasterWithdrawalCancelled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "id",
+            "type": "u64"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "remaining",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MasterWithdrawalCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "id",
+            "type": "u64"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "payout_usdc_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin_usdc",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "metadata_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "MasterWithdrawalRepaid",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "id",
+            "type": "u64"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "remaining",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MasterWithdrawalState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "id",
+            "type": "u64"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "remaining",
+            "type": "u64"
+          },
+          {
+            "name": "repaid_amount",
+            "type": "u64"
+          },
+          {
+            "name": "cancelled_amount",
+            "type": "u64"
+          },
+          {
+            "name": "metadata_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }
