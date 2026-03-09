@@ -188,7 +188,10 @@
       "docs": [
         "Fixed-price primary buy:",
         "- transfer `usdc_amount` from user -> payout USDC vault (legacy SPL token; owned by Pool Signer PDA)",
-        "- mint Bunker Cash tokens to user (Token-2022) at fixed price"
+        "- mint Bunker Cash tokens to user (Token-2022) at fixed price",
+        "",
+        "The payout vault must already exist. Admin should create it via",
+        "`add_liquidity(0)` so the first buyer never pays the ATA rent."
       ],
       "discriminator": [
         89,
@@ -312,60 +315,7 @@
         },
         {
           "name": "payout_usdc_vault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "account",
-                "path": "pool_signer"
-              },
-              {
-                "kind": "account",
-                "path": "usdc_token_program"
-              },
-              {
-                "kind": "account",
-                "path": "usdc_mint"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
-              ]
-            }
-          }
+          "writable": true
         },
         {
           "name": "user_bunkercash",
@@ -380,14 +330,6 @@
           "docs": [
             "Token program for Bunker Cash mint (Token-2022)."
           ]
-        },
-        {
-          "name": "associated_token_program",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -1051,53 +993,7 @@
         },
         {
           "name": "withdrawal",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  98,
-                  117,
-                  110,
-                  107,
-                  101,
-                  114,
-                  99,
-                  97,
-                  115,
-                  104,
-                  95,
-                  109,
-                  97,
-                  115,
-                  116,
-                  101,
-                  114,
-                  95,
-                  119,
-                  105,
-                  116,
-                  104,
-                  100,
-                  114,
-                  97,
-                  119,
-                  97,
-                  108
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "pool"
-              },
-              {
-                "kind": "account",
-                "path": "master_ops.withdrawal_counter.checked_add(1).expect(\"master withdrawal counter overflow\")",
-                "account": "MasterOpsState"
-              }
-            ]
-          }
+          "writable": true
         },
         {
           "name": "admin",
@@ -1240,6 +1136,7 @@
         },
         {
           "name": "claim_price_snapshot",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -1284,6 +1181,10 @@
               }
             ]
           }
+        },
+        {
+          "name": "claim_rent_recipient",
+          "writable": true
         },
         {
           "name": "usdc_mint"
@@ -1426,30 +1327,7 @@
         },
         {
           "name": "claim",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  108,
-                  97,
-                  105,
-                  109
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "pool"
-              },
-              {
-                "kind": "account",
-                "path": "pool.claim_counter.checked_add(1).expect(\"claim counter overflow\")",
-                "account": "PoolState"
-              }
-            ]
-          }
+          "writable": true
         },
         {
           "name": "claim_price_snapshot",

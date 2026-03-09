@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import type { Idl, Program } from '@coral-xyz/anchor'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
-import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js'
+import { PublicKey, Transaction, type TransactionInstruction } from '@solana/web3.js'
 import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import {
   getBunkercashMintPda,
@@ -27,9 +28,33 @@ function toUi(amount: bigint, decimals: number): string {
 }
 
 /** Detect wallet rejection errors */
-function isWalletRejection(e: any): boolean {
-  const msg = (e?.message ?? e?.toString?.() ?? '').toLowerCase()
+function isWalletRejection(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message.toLowerCase() : String(e ?? '').toLowerCase()
   return msg.includes('user rejected') || msg.includes('user denied') || msg.includes('rejected the request') || msg.includes('transaction was not confirmed')
+}
+
+interface PoolStateAccount {
+  priceUsdcPerToken: BN;
+  admin: PublicKey;
+}
+
+interface BuyPrimaryMethods {
+  buyPrimary: (amount: BN) => {
+    accounts: (accounts: {
+      pool: PublicKey;
+      poolSigner: PublicKey;
+      bunkercashMint: PublicKey;
+      user: PublicKey;
+      usdcMint: PublicKey;
+      userUsdc: PublicKey;
+      payoutUsdcVault: PublicKey;
+      userBunkercash: PublicKey;
+      usdcTokenProgram: PublicKey;
+      tokenProgram: PublicKey;
+    }) => {
+      instruction: () => Promise<TransactionInstruction>;
+    };
+  };
 }
 
 export function BuyPrimaryInterface() {
@@ -61,8 +86,7 @@ export function BuyPrimaryInterface() {
 
   const usdcMint = useMemo(() => {
     if (!connection) return null;
-    // connection structure might vary, safer to cast or check
-    const endpoint = (connection as any).rpcEndpoint ?? "";
+    const endpoint = connection.rpcEndpoint ?? "";
     const cluster = getClusterFromEndpoint(endpoint);
     return getUsdcMintForCluster(cluster);
   }, [connection]);
@@ -70,18 +94,13 @@ export function BuyPrimaryInterface() {
   const fetchPoolState = useCallback(async () => {
     if (!program || !connection) return;
     try {
-      const state = await (
-        program.account as {
-          poolState: {
-            fetch: (
-              key: PublicKey,
-            ) => Promise<{ priceUsdcPerToken: BN; admin: PublicKey }>;
-          };
-        }
-      ).poolState.fetch(poolPda);
+      const accountApi = (program as Program<Idl>).account as {
+        poolState: { fetch: (key: PublicKey) => Promise<PoolStateAccount> };
+      }
+      const state = await accountApi.poolState.fetch(poolPda);
       setPoolState({
-        priceUsdcPerToken: state.priceUsdcPerToken as BN,
-        admin: state.admin as PublicKey,
+        priceUsdcPerToken: state.priceUsdcPerToken,
+        admin: state.admin,
       });
       setPoolError(null);
     } catch {
@@ -107,10 +126,10 @@ export function BuyPrimaryInterface() {
         );
         const balance = await connection.getTokenAccountBalance(userUsdc);
         setUsdcBalance(balance.value.uiAmountString ?? "0");
-      } catch (e: any) {
+      } catch (e: unknown) {
         // If the account doesn't exist, it throws.
         // We can double check if it's an account-not-found error, but for now defaulting to 0 is safe for UI.
-        if (e.message?.includes("could not find account")) {
+        if (e instanceof Error && e.message.includes("could not find account")) {
           setUsdcBalance("0");
         } else {
           console.error("Error fetching USDC balance:", e);
@@ -127,7 +146,7 @@ export function BuyPrimaryInterface() {
         TOKEN_PROGRAM_ID,
         ASSOCIATED_TOKEN_PROGRAM_ID,
       ),
-      (info) => {
+      () => {
         // For simplicity, just refetch or parse info. Here avoiding intricate parsing for speed.
         void fetchBalance();
       },
@@ -215,6 +234,16 @@ export function BuyPrimaryInterface() {
         TOKEN_PROGRAM_ID,
         ASSOCIATED_TOKEN_PROGRAM_ID,
       );
+      const payoutVaultInfo = await connection.getAccountInfo(payoutUsdcVault);
+      if (!payoutVaultInfo) {
+        const msg =
+          "Protocol payout vault is not initialized. Admin must run add liquidity once before purchases.";
+        setError(msg);
+        showToast(msg, "error");
+        txInFlight.current = false;
+        setLoading(false);
+        return;
+      }
       const userBunkercash = getAssociatedTokenAddressSync(
         bunkercashMintPda,
         wallet.publicKey,
@@ -242,7 +271,8 @@ export function BuyPrimaryInterface() {
           ASSOCIATED_TOKEN_PROGRAM_ID,
         );
 
-      const buyPrimaryIx = await (program.methods as any)
+      const methodsApi = (program as Program<Idl>).methods as unknown as BuyPrimaryMethods
+      const buyPrimaryIx = await methodsApi
         .buyPrimary(new BN(usdcAmountRaw.toString()))
         .accounts({
           pool: poolPda,
@@ -255,8 +285,6 @@ export function BuyPrimaryInterface() {
           userBunkercash,
           usdcTokenProgram: TOKEN_PROGRAM_ID,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
-          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
         })
         .instruction();
 
@@ -278,12 +306,12 @@ export function BuyPrimaryInterface() {
       const { invalidateTransactionCache } =
         await import("@/hooks/useMyTransactions");
       invalidateTransactionCache();
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (isWalletRejection(e)) {
         setError("Transaction was rejected in your wallet.");
         showToast("Transaction rejected by wallet", "warning");
       } else {
-        const msg = e?.message ?? "Transaction failed";
+        const msg = e instanceof Error ? e.message : "Transaction failed";
         setError(msg);
         showToast(msg, "error");
       }
@@ -483,7 +511,7 @@ npx ts-node -P tsconfig.json scripts/bootstrap-fixed-price.ts`}
         </div>
         <div className="opacity-50">
           Network:{" "}
-          {getClusterFromEndpoint((connection as any).rpcEndpoint ?? "")} |
+          {getClusterFromEndpoint(connection.rpcEndpoint ?? "")} |
           Mint: {usdcMint?.toBase58().slice(0, 4)}...
           {usdcMint?.toBase58().slice(-4)}
         </div>

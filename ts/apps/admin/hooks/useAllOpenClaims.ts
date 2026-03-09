@@ -151,7 +151,7 @@ export function useAllOpenClaims() {
     } finally {
       setLoading(false)
     }
-  }, [cacheRef, program, rpcEndpoint])
+  }, [program, rpcEndpoint])
 
   useEffect(() => {
     fetchClaims()
@@ -161,7 +161,7 @@ export function useAllOpenClaims() {
     return () => {
       cacheRef.current = null
     }
-  }, [cacheRef])
+  }, [])
 
   const refresh = useCallback(() => fetchClaims(true), [fetchClaims])
 

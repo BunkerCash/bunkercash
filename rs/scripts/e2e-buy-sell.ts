@@ -343,8 +343,6 @@ async function main() {
         userBunkercash: userBnkrAta,
         usdcTokenProgram: TOKEN_PROGRAM_ID,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
-        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
       })
       .rpc({ commitment: "confirmed" });
   });
@@ -506,6 +504,7 @@ async function main() {
             admin,
             claim: claimPk,
             claimPriceSnapshot: claimPriceSnapshotPda,
+            claimRentRecipient: userPk,
             usdcMint,
             payoutUsdcVault: payoutUsdcVaultAta,
             userUsdc: userUsdcAtaForClaim,

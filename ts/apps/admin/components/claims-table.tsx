@@ -48,6 +48,7 @@ interface ClaimsTableMethods {
       admin: unknown
       claim: unknown
       claimPriceSnapshot: unknown
+      claimRentRecipient: unknown
       usdcMint: unknown
       payoutUsdcVault: unknown
       userUsdc: unknown
@@ -210,6 +211,7 @@ export function ClaimsTable() {
           admin: wallet.publicKey,
           claim: claim.pubkey,
           claimPriceSnapshot: getClaimPriceSnapshotPda(claim.pubkey, PROGRAM_ID),
+          claimRentRecipient: claim.user,
           usdcMint,
           payoutUsdcVault,
           userUsdc: userUsdcAta,

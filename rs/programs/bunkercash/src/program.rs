@@ -59,6 +59,10 @@ fn owed_usdc_base_units(price_usdc_per_token: u64, token_amount_locked: u64) -> 
     Ok(owed_u128 as u64)
 }
 
+fn next_counter_seed_bytes(counter: u64) -> [u8; 8] {
+    counter.saturating_add(1).to_le_bytes()
+}
+
 #[program]
 pub mod bunkercash {
     use super::*;
@@ -90,6 +94,9 @@ pub mod bunkercash {
     /// Fixed-price primary buy:
     /// - transfer `usdc_amount` from user -> payout USDC vault (legacy SPL token; owned by Pool Signer PDA)
     /// - mint Bunker Cash tokens to user (Token-2022) at fixed price
+    ///
+    /// The payout vault must already exist. Admin should create it via
+    /// `add_liquidity(0)` so the first buyer never pays the ATA rent.
     pub fn buy_primary(ctx: Context<BuyPrimary>, usdc_amount: u64) -> Result<()> {
         require!(usdc_amount > 0, ErrorCode::InvalidAmount);
         require!(
@@ -640,11 +647,9 @@ pub struct BuyPrimary<'info> {
     pub user_usdc: Account<'info, SplTokenAccount>,
 
     #[account(
-        init_if_needed,
-        payer = user,
-        associated_token::mint = usdc_mint,
-        associated_token::authority = pool_signer,
-        associated_token::token_program = usdc_token_program
+        mut,
+        constraint = payout_usdc_vault.owner == pool_signer.key() @ ErrorCode::InvalidTokenAccountOwner,
+        constraint = payout_usdc_vault.mint == usdc_mint.key() @ ErrorCode::InvalidMint
     )]
     pub payout_usdc_vault: Account<'info, SplTokenAccount>,
 
@@ -658,8 +663,6 @@ pub struct BuyPrimary<'info> {
     pub usdc_token_program: Program<'info, SplToken>,
     /// Token program for Bunker Cash mint (Token-2022).
     pub token_program: Interface<'info, TokenInterface>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
-    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -736,16 +739,23 @@ pub struct ProcessClaim<'info> {
 
     #[account(
         mut,
+        close = claim_rent_recipient,
         constraint = !claim.is_closed @ ErrorCode::ClaimClosed
     )]
     pub claim: Account<'info, ClaimState>,
 
     #[account(
+        mut,
+        close = claim_rent_recipient,
         seeds = [CLAIM_PRICE_SNAPSHOT_SEED, claim.key().as_ref()],
         bump = claim_price_snapshot.bump,
         constraint = claim_price_snapshot.claim == claim.key() @ ErrorCode::InvalidClaimPriceSnapshot
     )]
     pub claim_price_snapshot: Account<'info, ClaimPriceSnapshotState>,
+
+    /// CHECK: Receives rent refunds for closed claim accounts; must be the original claimer.
+    #[account(mut, constraint = claim_rent_recipient.key() == claim.user @ ErrorCode::InvalidClaimUser)]
+    pub claim_rent_recipient: UncheckedAccount<'info>,
 
     pub usdc_mint: Account<'info, SplMint>,
 
@@ -799,11 +809,7 @@ pub struct RegisterSell<'info> {
         seeds = [
             b"claim",
             pool.key().as_ref(),
-            &pool
-                .claim_counter
-                .checked_add(1)
-                .expect("claim counter overflow")
-                .to_le_bytes()
+            &next_counter_seed_bytes(pool.claim_counter)
         ],
         bump
     )]
@@ -877,11 +883,7 @@ pub struct MasterWithdraw<'info> {
         seeds = [
             MASTER_WITHDRAWAL_SEED,
             pool.key().as_ref(),
-            &master_ops
-                .withdrawal_counter
-                .checked_add(1)
-                .expect("master withdrawal counter overflow")
-                .to_le_bytes()
+            &next_counter_seed_bytes(master_ops.withdrawal_counter)
         ],
         bump
     )]
