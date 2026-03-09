@@ -192,6 +192,12 @@ pub mod bunkercash {
         Ok(())
     }
 
+    /// Admin-only: create the shared escrow Bunker Cash vault (Token-2022 ATA owned by pool_signer).
+    /// Must be called before any `register_sell` so the first seller does not pay the ATA rent.
+    pub fn create_escrow_vault(_ctx: Context<CreateEscrowVault>) -> Result<()> {
+        Ok(())
+    }
+
     /// Process a single claim payout.
     ///
     /// - Pays the exact remaining owed USDC for one claim from the vault to the user.
@@ -247,6 +253,9 @@ pub mod bunkercash {
     /// - transfer `token_amount` of Bunker Cash from the user into a program-owned escrow vault (Token-2022)
     /// - create a ClaimState record
     /// - increment `claim_counter`
+    ///
+    /// The escrow vault must already exist. Admin should call `create_escrow_vault`
+    /// so the first seller does not pay the ATA rent.
     ///
     /// IMPORTANT: No burn is allowed in this flow.
     pub fn register_sell(ctx: Context<RegisterSell>, token_amount: u64) -> Result<()> {
@@ -714,6 +723,49 @@ pub struct AddLiquidity<'info> {
 }
 
 #[derive(Accounts)]
+pub struct CreateEscrowVault<'info> {
+    #[account(
+        seeds = [POOL_SEED],
+        bump = pool.bump,
+        constraint = (admin.key() == pool.admin)
+            || (pool.admin == SQUADS_MULTISIG_PUBKEY && admin.key() == SQUADS_VAULT_PUBKEY)
+            @ ErrorCode::Unauthorized
+    )]
+    pub pool: Account<'info, PoolState>,
+
+    /// PDA that owns all program vault ATAs (escrow + payout).
+    /// CHECK: PDA is derived and used only as a vault owner.
+    #[account(
+        seeds = [POOL_SIGNER_SEED, pool.key().as_ref()],
+        bump
+    )]
+    pub pool_signer: UncheckedAccount<'info>,
+
+    #[account(
+        seeds = [BUNKERCASH_MINT_SEED],
+        bump,
+    )]
+    pub bunkercash_mint: InterfaceAccount<'info, Mint>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    #[account(
+        init,
+        payer = admin,
+        associated_token::mint = bunkercash_mint,
+        associated_token::authority = pool_signer,
+        associated_token::token_program = token_program
+    )]
+    pub escrow_bunkercash_vault: InterfaceAccount<'info, TokenAccount>,
+
+    /// Token program for the Bunker Cash mint (Token-2022).
+    pub token_program: Interface<'info, TokenInterface>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct ProcessClaim<'info> {
     #[account(
         seeds = [POOL_SEED],
@@ -835,8 +887,7 @@ pub struct RegisterSell<'info> {
     pub user_bunkercash: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
-        init_if_needed,
-        payer = user,
+        mut,
         associated_token::mint = bunkercash_mint,
         associated_token::authority = pool_signer,
         associated_token::token_program = token_program
@@ -845,7 +896,6 @@ pub struct RegisterSell<'info> {
 
     /// Token program for the Bunker Cash mint (Token-2022).
     pub token_program: Interface<'info, TokenInterface>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }
 
@@ -938,8 +988,13 @@ pub struct MasterRepay<'info> {
 
     #[account(
         mut,
+        seeds = [
+            MASTER_WITHDRAWAL_SEED,
+            pool.key().as_ref(),
+            &withdrawal.id.to_le_bytes()
+        ],
+        bump = withdrawal.bump,
         constraint = withdrawal.id > 0 @ ErrorCode::InvalidWithdrawalAccount,
-        constraint = withdrawal.pool == pool.key() @ ErrorCode::InvalidWithdrawalAccount
     )]
     pub withdrawal: Account<'info, MasterWithdrawalState>,
 
@@ -991,8 +1046,13 @@ pub struct MasterCancelWithdrawal<'info> {
 
     #[account(
         mut,
+        seeds = [
+            MASTER_WITHDRAWAL_SEED,
+            pool.key().as_ref(),
+            &withdrawal.id.to_le_bytes()
+        ],
+        bump = withdrawal.bump,
         constraint = withdrawal.id > 0 @ ErrorCode::InvalidWithdrawalAccount,
-        constraint = withdrawal.pool == pool.key() @ ErrorCode::InvalidWithdrawalAccount
     )]
     pub withdrawal: Account<'info, MasterWithdrawalState>,
 

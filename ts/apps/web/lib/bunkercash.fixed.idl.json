@@ -340,6 +340,197 @@
       ]
     },
     {
+      "name": "create_escrow_vault",
+      "docs": [
+        "Admin-only: create the shared escrow Bunker Cash vault (Token-2022 ATA owned by pool_signer).",
+        "Must be called before any `register_sell` so the first seller does not pay the ATA rent."
+      ],
+      "discriminator": [
+        173,
+        104,
+        100,
+        171,
+        101,
+        99,
+        103,
+        28
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_signer",
+          "docs": [
+            "PDA that owns all program vault ATAs (escrow + payout)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  115,
+                  105,
+                  103,
+                  110,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "bunkercash_mint",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "escrow_bunkercash_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "pool_signer"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "bunkercash_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "Token program for the Bunker Cash mint (Token-2022)."
+          ]
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "init_mint_metadata",
       "docs": [
         "Creates Metaplex token metadata for the Bunker Cash mint (Token-2022).",
@@ -688,7 +879,53 @@
         },
         {
           "name": "withdrawal",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  97,
+                  115,
+                  116,
+                  101,
+                  114,
+                  95,
+                  119,
+                  105,
+                  116,
+                  104,
+                  100,
+                  114,
+                  97,
+                  119,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "account",
+                "path": "withdrawal.id",
+                "account": "MasterWithdrawalState"
+              }
+            ]
+          }
         },
         {
           "name": "admin",
@@ -838,7 +1075,53 @@
         },
         {
           "name": "withdrawal",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  97,
+                  115,
+                  116,
+                  101,
+                  114,
+                  95,
+                  119,
+                  105,
+                  116,
+                  104,
+                  100,
+                  114,
+                  97,
+                  119,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "account",
+                "path": "withdrawal.id",
+                "account": "MasterWithdrawalState"
+              }
+            ]
+          }
         },
         {
           "name": "admin",
@@ -1215,6 +1498,9 @@
         "- create a ClaimState record",
         "- increment `claim_counter`",
         "",
+        "The escrow vault must already exist. Admin should call `create_escrow_vault`",
+        "so the first seller does not pay the ATA rent.",
+        "",
         "IMPORTANT: No burn is allowed in this flow."
       ],
       "discriminator": [
@@ -1448,10 +1734,6 @@
           "docs": [
             "Token program for the Bunker Cash mint (Token-2022)."
           ]
-        },
-        {
-          "name": "associated_token_program",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
         },
         {
           "name": "system_program",
