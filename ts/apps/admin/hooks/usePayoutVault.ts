@@ -1,17 +1,17 @@
 "use client"
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useConnection } from '@solana/wallet-adapter-react'
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import { getPoolPda, getPoolSignerPda, PROGRAM_ID } from '@/lib/program'
 import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
 
 const CACHE_TTL = 30_000 // 30 seconds
-let vaultCache: { data: string; timestamp: number; endpoint: string } | null = null
 
 export function usePayoutVault() {
   const { connection } = useConnection()
-  const [balance, setBalance] = useState<string | null>(vaultCache?.data ?? null)
-  const [loading, setLoading] = useState(!vaultCache)
+  const cacheRef = useRef<{ data: string; timestamp: number; endpoint: string } | null>(null)
+  const [balance, setBalance] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), [])
@@ -39,8 +39,8 @@ export function usePayoutVault() {
   const fetchBalance = useCallback(async (bypassCache = false) => {
     if (!connection || !payoutUsdcVault) return
 
-    if (!bypassCache && vaultCache && vaultCache.endpoint === rpcEndpoint && Date.now() - vaultCache.timestamp < CACHE_TTL) {
-      setBalance(vaultCache.data)
+    if (!bypassCache && cacheRef.current && cacheRef.current.endpoint === rpcEndpoint && Date.now() - cacheRef.current.timestamp < CACHE_TTL) {
+      setBalance(cacheRef.current.data)
       setLoading(false)
       return
     }
@@ -50,12 +50,12 @@ export function usePayoutVault() {
     try {
       const bal = await connection.getTokenAccountBalance(payoutUsdcVault)
       const value = bal.value.uiAmountString ?? '0'
-      vaultCache = { data: value, timestamp: Date.now(), endpoint: rpcEndpoint }
+      cacheRef.current = { data: value, timestamp: Date.now(), endpoint: rpcEndpoint }
       setBalance(value)
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'Failed to fetch balance'
       if (message.includes('could not find account')) {
-        vaultCache = { data: '0', timestamp: Date.now(), endpoint: rpcEndpoint }
+        cacheRef.current = { data: '0', timestamp: Date.now(), endpoint: rpcEndpoint }
         setBalance('0')
       } else {
         console.error('Error fetching payout vault balance:', e)
@@ -77,14 +77,14 @@ export function usePayoutVault() {
     const subscriptionId = connection.onAccountChange(
       payoutUsdcVault,
       () => {
-        vaultCache = null
+        cacheRef.current = null
         void fetchBalance(true)
       },
       "confirmed"
     )
 
     const handleFocus = () => {
-      vaultCache = null
+      cacheRef.current = null
       void fetchBalance(true)
     }
 
@@ -97,6 +97,12 @@ export function usePayoutVault() {
       document.removeEventListener("visibilitychange", handleFocus)
     }
   }, [connection, payoutUsdcVault, fetchBalance])
+
+  useEffect(() => {
+    return () => {
+      cacheRef.current = null
+    }
+  }, [])
 
   const refresh = useCallback(() => fetchBalance(true), [fetchBalance])
 

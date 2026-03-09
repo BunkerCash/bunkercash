@@ -61,7 +61,6 @@ interface RegisterSellMethods {
       userBunkercash: PublicKey
       escrowBunkercashVault: PublicKey
       tokenProgram: PublicKey
-      associatedTokenProgram: PublicKey
       systemProgram: PublicKey
     }) => {
       instruction: () => Promise<TransactionInstruction>
@@ -182,7 +181,6 @@ export function WithdrawInterface() {
           userBunkercash: userBunkercashAta,
           escrowBunkercashVault: escrowVaultAta,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
-          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .instruction();
@@ -193,6 +191,7 @@ export function WithdrawInterface() {
       ).sendAndConfirm(tx);
       setTxSig(sig);
       setAmountUi("");
+      setConfirmed(false);
       await fetchTokenBalance();
       await fetchClaims();
       showToast(`Sell registered! Tx: ${sig.slice(0, 8)}…`, "success");
@@ -202,13 +201,16 @@ export function WithdrawInterface() {
       invalidateTransactionCache();
       setActiveView("history");
     } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e ?? "");
       if (isWalletRejection(e)) {
         setError("Transaction was rejected in your wallet.");
         showToast("Transaction rejected by wallet", "warning");
+      } else if (msg.includes("already in use") || msg.includes("0x0")) {
+        setError("Claim slot conflict — another transaction landed first. Please try again.");
+        showToast("Claim slot taken, please retry", "warning");
       } else {
-        const msg = e instanceof Error ? e.message : "Transaction failed";
-        setError(msg);
-        showToast(msg, "error");
+        setError(msg || "Transaction failed");
+        showToast(msg || "Transaction failed", "error");
       }
     } finally {
       setSubmitting(false);
