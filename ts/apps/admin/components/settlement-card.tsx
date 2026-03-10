@@ -12,7 +12,6 @@ import {
 } from "@solana/spl-token";
 import {
   AlertCircle,
-  Calendar,
   CheckCircle2,
   Loader2,
   RefreshCw,
@@ -81,14 +80,6 @@ function truncateWallet(wallet: string): string {
   return `${wallet.slice(0, 4)}...${wallet.slice(-4)}`;
 }
 
-function isFirstDayOfMonth(): boolean {
-  return new Date().getDate() === 1;
-}
-
-function getMonthLabel(): string {
-  return new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
-}
-
 export function SettlementCard() {
   const { connection } = useConnection();
   const wallet = useWallet();
@@ -99,7 +90,6 @@ export function SettlementCard() {
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [results, setResults] = useState<{ succeeded: number; failed: number; signatures: string[] } | null>(null);
   const [txError, setTxError] = useState<string | null>(null);
-  const [bypassDateCheck, setBypassDateCheck] = useState(false);
 
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), []);
   const poolSignerPda = useMemo(() => getPoolSignerPda(poolPda, PROGRAM_ID), [poolPda]);
@@ -179,7 +169,7 @@ export function SettlementCard() {
     ? Math.round(Number((totalPayout * BigInt(10000)) / totalRemaining)) / 100
     : 0;
 
-  const canSettle = (isFirstDayOfMonth() || bypassDateCheck) && settlementPlan.length > 0 && !settling;
+  const canSettle = settlementPlan.length > 0 && !settling;
 
   const handleSettleAll = useCallback(async () => {
     if (!program || !wallet.publicKey || !usdcMint || settlementPlan.length === 0) return;
@@ -263,9 +253,9 @@ export function SettlementCard() {
       {/* Header */}
       <div className="flex items-center justify-between mb-2">
         <div>
-          <h1 className="text-xl font-semibold text-white">Monthly Settlement</h1>
+          <h1 className="text-xl font-semibold text-white">Claim Distribution</h1>
           <p className="text-sm text-neutral-500 mt-1">
-            Proportional claim distribution for {getMonthLabel()}
+            Distribute the currently available pool USDC across all open claims.
           </p>
         </div>
         <button
@@ -286,14 +276,14 @@ export function SettlementCard() {
           <p className="text-white text-lg font-mono font-semibold">
             {vaultLoading ? "..." : `$${vaultBalance ?? "0"}`}
           </p>
-          <p className="text-xs text-neutral-500 mt-1">USDC available</p>
+          <p className="text-xs text-neutral-500 mt-1">USDC available in pool</p>
         </div>
         <div className="bg-neutral-900/40 border border-neutral-800/60 rounded-xl p-5">
           <div className="text-[11px] font-medium uppercase tracking-wider text-neutral-500 mb-2">
-            Open Claims
+            Eligible Claims
           </div>
           <p className="text-white text-lg font-semibold">{settlementPlan.length}</p>
-          <p className="text-xs text-neutral-500 mt-1">eligible for settlement</p>
+          <p className="text-xs text-neutral-500 mt-1">will receive this distribution</p>
         </div>
         <div className="bg-neutral-900/40 border border-neutral-800/60 rounded-xl p-5">
           <div className="text-[11px] font-medium uppercase tracking-wider text-neutral-500 mb-2">
@@ -322,25 +312,8 @@ export function SettlementCard() {
         <div className="flex items-start gap-3 px-4 py-3 rounded-xl border border-amber-500/20 bg-amber-500/5">
           <Wallet className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
           <p className="text-sm text-amber-400">
-            Connect the admin wallet (or Squads vault) to process settlements.
+            Connect the admin wallet to distribute claim payouts.
           </p>
-        </div>
-      )}
-
-      {!isFirstDayOfMonth() && !bypassDateCheck && (
-        <div className="flex items-start gap-3 px-4 py-3 rounded-xl border border-amber-500/20 bg-amber-500/5">
-          <Calendar className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm text-amber-400">
-              Settlements are scheduled for the 1st of each month. Today is the {new Date().getDate()}th.
-            </p>
-            <button
-              onClick={() => setBypassDateCheck(true)}
-              className="mt-2 text-xs text-amber-300 underline underline-offset-2 hover:text-amber-200"
-            >
-              Override and settle anyway
-            </button>
-          </div>
         </div>
       )}
 
@@ -414,10 +387,10 @@ export function SettlementCard() {
           {settling ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              Settling {progress.current}/{progress.total}...
+              Distributing {progress.current}/{progress.total}...
             </>
           ) : (
-            `Settle All Claims — $${formatUsdc(totalPayout)} USDC`
+            `Distribute Available Balance — $${formatUsdc(totalPayout)} USDC`
           )}
         </button>
       )}
@@ -426,7 +399,7 @@ export function SettlementCard() {
       <div className="bg-neutral-900/40 border border-neutral-800/60 rounded-xl overflow-hidden">
         <div className="px-5 py-4 border-b border-neutral-800/60 flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-medium text-white">Settlement Plan</h2>
+            <h2 className="text-sm font-medium text-white">Distribution Plan</h2>
             <p className="text-xs text-neutral-500 mt-1">
               {payoutRatio >= 100
                 ? "Full payout for all claims"

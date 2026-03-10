@@ -16,6 +16,7 @@ pub mod bunkercash {
         master_wallet: Pubkey,
     ) -> Result<()> {
         let pool = &mut ctx.accounts.pool;
+        let timestamp = Clock::get()?.unix_timestamp;
         pool.master_wallet = master_wallet;
         pool.nav = 0;
         pool.total_brent_supply = 0;
@@ -23,6 +24,12 @@ pub mod bunkercash {
         pool.claim_counter = 0;
         pool.withdrawal_counter = 0;
         pool.bump = ctx.bumps.pool;
+
+        emit!(PoolInitializedEvent {
+            pool: pool.key(),
+            master_wallet,
+            timestamp,
+        });
 
         msg!("bRENT pool initialized with master wallet: {}", master_wallet);
         Ok(())
@@ -33,6 +40,7 @@ pub mod bunkercash {
         usdc_amount: u64,
     ) -> Result<()> {
         let pool = &mut ctx.accounts.pool;
+        let user = ctx.accounts.user.key();
 
         let brent_to_mint = if pool.total_brent_supply == 0 {
             usdc_amount
@@ -64,6 +72,8 @@ pub mod bunkercash {
 
         let pool_bump = pool.bump;
         let new_nav = pool.nav;
+        let new_total_brent_supply = pool.total_brent_supply;
+        let timestamp = Clock::get()?.unix_timestamp;
 
         let seeds = &[
             b"pool".as_ref(),
@@ -77,12 +87,22 @@ pub mod bunkercash {
                 anchor_spl::token_2022::MintTo {
                     mint: ctx.accounts.brent_mint.to_account_info(),
                     to: ctx.accounts.user_brent.to_account_info(),
-                    authority: ctx.accounts.pool.to_account_info(),
+                    authority: pool.to_account_info(),
                 },
                 signer,
             ),
             brent_to_mint,
         )?;
+
+        emit!(UsdcDepositedEvent {
+            pool: pool.key(),
+            user,
+            usdc_amount,
+            brent_minted: brent_to_mint,
+            new_nav,
+            new_total_brent_supply,
+            timestamp,
+        });
 
         msg!("Deposited {} USDC, minted {} bRENT. New NAV: {}", usdc_amount, brent_to_mint, new_nav);
         Ok(())
@@ -94,6 +114,7 @@ pub mod bunkercash {
     ) -> Result<()> {
         let pool = &mut ctx.accounts.pool;
         let claim = &mut ctx.accounts.claim;
+        let user = ctx.accounts.user.key();
 
         require!(pool.nav > 0 && pool.total_brent_supply > 0, ErrorCode::InvalidNAV);
 
@@ -119,12 +140,27 @@ pub mod bunkercash {
         pool.total_pending_claims = pool.total_pending_claims.checked_add(usdc_value).unwrap();
         pool.claim_counter = pool.claim_counter.checked_add(1).unwrap();
 
-        claim.user = ctx.accounts.user.key();
+        let claim_id = pool.claim_counter - 1;
+        let timestamp = Clock::get()?.unix_timestamp;
+
+        claim.user = user;
         claim.usdc_amount = usdc_value;
-        claim.timestamp = Clock::get()?.unix_timestamp;
+        claim.timestamp = timestamp;
         claim.processed = false;
         claim.paid_amount = 0;
         claim.bump = ctx.bumps.claim;
+
+        emit!(ClaimFiledEvent {
+            pool: pool.key(),
+            claim: claim.key(),
+            claim_id,
+            user,
+            brent_amount,
+            usdc_amount: usdc_value,
+            total_pending_claims: pool.total_pending_claims,
+            remaining_brent_supply: pool.total_brent_supply,
+            timestamp,
+        });
 
         msg!("Filed claim for {} bRENT ({} USDC value)", brent_amount, usdc_value);
         Ok(())
@@ -135,19 +171,15 @@ pub mod bunkercash {
         _claim_indices: Vec<u8>,
     ) -> Result<()> {
         let pool = &mut ctx.accounts.pool;
+        let master_wallet = ctx.accounts.master_wallet.key();
 
         require!(
-            ctx.accounts.master_wallet.key() == pool.master_wallet,
+            master_wallet == pool.master_wallet,
             ErrorCode::Unauthorized
         );
 
         let usdc_balance = accessor::amount(&ctx.accounts.pool_usdc.to_account_info())?;
         let total_claimable = usdc_balance.min(pool.total_pending_claims);
-
-        if total_claimable == 0 {
-            return Ok(());
-        }
-
         let payout_ratio = if pool.total_pending_claims > 0 {
             (total_claimable as u128)
                 .checked_mul(1_000_000)
@@ -157,6 +189,22 @@ pub mod bunkercash {
         } else {
             0
         };
+        let timestamp = Clock::get()?.unix_timestamp;
+
+        if total_claimable == 0 {
+            emit!(ClaimsSettledEvent {
+                pool: pool.key(),
+                master_wallet,
+                total_claimable,
+                payout_ratio_ppm: payout_ratio,
+                claims_settled: 0,
+                total_paid: 0,
+                new_nav: pool.nav,
+                remaining_pending_claims: pool.total_pending_claims,
+                timestamp,
+            });
+            return Ok(());
+        }
 
         let pool_bump = pool.bump;
         let seeds = &[
@@ -164,6 +212,8 @@ pub mod bunkercash {
             &[pool_bump],
         ];
         let signer = &[&seeds[..]];
+        let mut claims_settled = 0u64;
+        let mut total_paid = 0u64;
 
         for (idx, claim_account_info) in ctx.remaining_accounts.iter().enumerate() {
             if idx % 2 == 0 {
@@ -197,16 +247,40 @@ pub mod bunkercash {
 
                     pool.total_pending_claims = pool.total_pending_claims.checked_sub(claim_usdc_amount).unwrap();
                     pool.nav = pool.nav.checked_sub(payout).unwrap();
+                    claims_settled = claims_settled.checked_add(1).unwrap();
+                    total_paid = total_paid.checked_add(payout).unwrap();
 
                     let mut updated_claim = claim;
                     updated_claim.processed = true;
                     updated_claim.paid_amount = payout;
                     updated_claim.serialize(&mut &mut claim_data[8..])?;
 
+                    emit!(ClaimSettledEvent {
+                        pool: pool.key(),
+                        claim: claim_account_info.key(),
+                        user: updated_claim.user,
+                        original_usdc_amount: claim_usdc_amount,
+                        paid_amount: payout,
+                        payout_ratio_ppm: payout_ratio,
+                        timestamp,
+                    });
+
                     msg!("Settled claim {} with payout {}/{} USDC", idx, payout, claim_usdc_amount);
                 }
             }
         }
+
+        emit!(ClaimsSettledEvent {
+            pool: pool.key(),
+            master_wallet,
+            total_claimable,
+            payout_ratio_ppm: payout_ratio,
+            claims_settled,
+            total_paid,
+            new_nav: pool.nav,
+            remaining_pending_claims: pool.total_pending_claims,
+            timestamp,
+        });
 
         Ok(())
     }
@@ -394,6 +468,18 @@ pub mod bunkercash {
             .invoke_signed(signer)?;
 
         msg!("Token metadata set: name={} symbol={} uri={}", name, symbol, uri);
+
+        emit!(MintMetadataInitializedEvent {
+            pool: pool.key(),
+            admin: ctx.accounts.admin.key(),
+            mint: ctx.accounts.brent_mint.key(),
+            metadata: ctx.accounts.metadata.key(),
+            name,
+            symbol,
+            uri,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+
         Ok(())
     }
 
@@ -413,9 +499,9 @@ pub mod bunkercash {
         let signer = &[&seeds[..]];
 
         let data = DataV2 {
-            name,
-            symbol,
-            uri,
+            name: name.clone(),
+            symbol: symbol.clone(),
+            uri: uri.clone(),
             seller_fee_basis_points: 0,
             creators: None,
             collection: None,
@@ -428,6 +514,17 @@ pub mod bunkercash {
             .data(data)
             .is_mutable(true)
             .invoke_signed(signer)?;
+
+        emit!(MintMetadataUpdatedEvent {
+            pool: pool.key(),
+            admin: ctx.accounts.admin.key(),
+            mint: ctx.accounts.brent_mint.key(),
+            metadata: ctx.accounts.metadata.key(),
+            name,
+            symbol,
+            uri,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
 
         Ok(())
     }
@@ -711,6 +808,61 @@ pub struct MasterWithdrawalEvent {
 }
 
 #[event]
+pub struct PoolInitializedEvent {
+    pub pool: Pubkey,
+    pub master_wallet: Pubkey,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct UsdcDepositedEvent {
+    pub pool: Pubkey,
+    pub user: Pubkey,
+    pub usdc_amount: u64,
+    pub brent_minted: u64,
+    pub new_nav: u64,
+    pub new_total_brent_supply: u64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct ClaimFiledEvent {
+    pub pool: Pubkey,
+    pub claim: Pubkey,
+    pub claim_id: u64,
+    pub user: Pubkey,
+    pub brent_amount: u64,
+    pub usdc_amount: u64,
+    pub total_pending_claims: u64,
+    pub remaining_brent_supply: u64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct ClaimSettledEvent {
+    pub pool: Pubkey,
+    pub claim: Pubkey,
+    pub user: Pubkey,
+    pub original_usdc_amount: u64,
+    pub paid_amount: u64,
+    pub payout_ratio_ppm: u64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct ClaimsSettledEvent {
+    pub pool: Pubkey,
+    pub master_wallet: Pubkey,
+    pub total_claimable: u64,
+    pub payout_ratio_ppm: u64,
+    pub claims_settled: u64,
+    pub total_paid: u64,
+    pub new_nav: u64,
+    pub remaining_pending_claims: u64,
+    pub timestamp: i64,
+}
+
+#[event]
 pub struct MasterRepaymentEvent {
     pub withdrawal_id: u64,
     pub master_wallet: Pubkey,
@@ -727,6 +879,30 @@ pub struct MasterCancelWithdrawalEvent {
     pub amount: u64,
     pub remaining: u64,
     pub nav: u64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct MintMetadataInitializedEvent {
+    pub pool: Pubkey,
+    pub admin: Pubkey,
+    pub mint: Pubkey,
+    pub metadata: Pubkey,
+    pub name: String,
+    pub symbol: String,
+    pub uri: String,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct MintMetadataUpdatedEvent {
+    pub pool: Pubkey,
+    pub admin: Pubkey,
+    pub mint: Pubkey,
+    pub metadata: Pubkey,
+    pub name: String,
+    pub symbol: String,
+    pub uri: String,
     pub timestamp: i64,
 }
 
