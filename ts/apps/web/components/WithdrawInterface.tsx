@@ -17,6 +17,7 @@ import {
   getProgram,
   PROGRAM_ID,
 } from '@/lib/program'
+import { countFractionalDigits, parseUiAmountToBaseUnits } from '@/lib/amounts'
 import { useTokenBalance } from "@/hooks/useTokenBalance";
 import { useMyClaims } from "@/hooks/useMyClaims";
 import { useToast } from "@/components/ui/ToastContext";
@@ -83,6 +84,11 @@ export function WithdrawInterface() {
   const { balance: tokenBalanceUi, refreshBalance: fetchTokenBalance } =
     useTokenBalance();
   const { claims, refreshClaims: fetchClaims } = useMyClaims();
+  const amountRaw = useMemo(() => parseUiAmountToBaseUnits(amountUi, 6), [amountUi])
+  const tokenBalanceRaw = useMemo(
+    () => parseUiAmountToBaseUnits(tokenBalanceUi, 6),
+    [tokenBalanceUi]
+  )
 
   const userBunkercashAta = useMemo(() => {
     if (!wallet.publicKey) return null
@@ -95,15 +101,18 @@ export function WithdrawInterface() {
     )
   }, [wallet.publicKey, mintPda])
 
-  function uiToBaseUnits(uiAmount: string, decimals: number): BN {
-    const s = uiAmount.trim()
-    if (!s) throw new Error('empty amount')
-    if (!/^\d+(\.\d+)?$/.test(s)) throw new Error(`invalid amount: "${uiAmount}"`)
-    const [head, tailRaw = ''] = s.split('.')
-    const tail = tailRaw.padEnd(decimals, '0').slice(0, decimals)
-    const raw = `${head}${tail}`.replace(/^0+/, '') || '0'
-    return new BN(raw)
-  }
+  const inputError = useMemo(() => {
+    if (!amountUi) return null
+    if (countFractionalDigits(amountUi) > 6) return "Max 6 decimal places"
+    if (amountRaw == null) return "Enter a valid amount"
+    if (amountRaw <= 0n) return "Amount must be greater than 0"
+    if (tokenBalanceRaw != null && amountRaw > tokenBalanceRaw) {
+      return "Amount exceeds your bRENT balance"
+    }
+    return null
+  }, [amountRaw, amountUi, tokenBalanceRaw])
+
+  const displayError = error ?? inputError
 
   const handleRegisterSell = async () => {
     if (!program || !wallet.publicKey || !connection || !userBunkercashAta)
@@ -117,11 +126,14 @@ export function WithdrawInterface() {
     setTxSig(null);
     setSubmitting(true);
     try {
-      const sellAmount = uiToBaseUnits(amountUi, 6);
-      if (sellAmount.lte(new BN(0))) throw new Error("Amount must be > 0");
+      if (inputError || amountRaw == null || amountRaw <= 0n) {
+        throw new Error(inputError ?? "Amount must be greater than 0")
+      }
+
+      const sellAmount = new BN(amountRaw.toString())
 
       // Validate against actual balance
-      if (parseFloat(amountUi) > parseFloat(tokenBalanceUi)) {
+      if (tokenBalanceRaw != null && amountRaw > tokenBalanceRaw) {
         setError("Amount exceeds your bRENT balance");
         showToast("Insufficient bRENT balance", "error");
         txInFlight.current = false;
@@ -183,6 +195,9 @@ export function WithdrawInterface() {
       if (isWalletRejection(e)) {
         setError("Transaction was rejected in your wallet.");
         showToast("Transaction rejected by wallet", "warning");
+      } else if (msg.includes("ClaimAmountTooSmall") || msg.includes("non-zero USDC value")) {
+        setError("Amount is too small to produce any USDC at the current NAV.");
+        showToast("Claim amount too small at current NAV", "warning");
       } else if (msg.includes("already in use") || msg.includes("0x0")) {
         setError("Claim slot conflict — another transaction landed first. Please try again.");
         showToast("Claim slot taken, please retry", "warning");
@@ -286,9 +301,9 @@ export function WithdrawInterface() {
             </label>
           </div>
 
-          {error && (
+          {displayError && (
             <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-              {error}
+              {displayError}
             </div>
           )}
           {txSig && (
@@ -300,7 +315,7 @@ export function WithdrawInterface() {
           <button
             onClick={() => void handleRegisterSell()}
             disabled={
-              submitting || !amountUi || parseFloat(amountUi) <= 0 || !confirmed
+              submitting || !amountRaw || amountRaw <= 0n || !confirmed || !!inputError
             }
             className="w-full bg-[#00FFB2] hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600 text-black font-semibold py-5 rounded-xl transition-all text-lg"
           >

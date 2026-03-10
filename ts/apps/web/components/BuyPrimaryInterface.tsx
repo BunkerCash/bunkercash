@@ -11,12 +11,16 @@ import {
   getProgram,
   PROGRAM_ID,
 } from "@/lib/program";
+import { countFractionalDigits, parseUiAmountToBaseUnits } from "@/lib/amounts";
 import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
 import { ArrowDown, AlertCircle } from "lucide-react";
 import { BN } from '@coral-xyz/anchor'
 import { useToast } from "@/components/ui/ToastContext";
 
 const USDC_DECIMALS = 6
+const USDC_SCALE = 10n ** BigInt(USDC_DECIMALS)
+const MIN_USDC_AMOUNT_RAW = USDC_SCALE / 100n
+const MAX_USDC_AMOUNT_RAW = 1_000_000n * USDC_SCALE
 
 function toUi(amount: bigint, decimals: number): string {
   const s = amount.toString().padStart(decimals + 1, '0')
@@ -187,10 +191,13 @@ export function BuyPrimaryInterface() {
     !!usdcTokenProgram && usdcTokenProgram.equals(TOKEN_2022_PROGRAM_ID)
 
   const usdcAmountRaw = useMemo(() => {
-    const v = parseFloat(usdcAmount);
-    if (Number.isNaN(v) || v <= 0) return null;
-    return BigInt(Math.round(v * 10 ** USDC_DECIMALS));
+    return parseUiAmountToBaseUnits(usdcAmount, USDC_DECIMALS)
   }, [usdcAmount]);
+
+  const usdcBalanceRaw = useMemo(() => {
+    if (!usdcBalance) return null
+    return parseUiAmountToBaseUnits(usdcBalance, USDC_DECIMALS)
+  }, [usdcBalance])
 
   const tokenAmountRaw = useMemo(() => {
     if (!poolState || !usdcAmountRaw) return null;
@@ -206,17 +213,15 @@ export function BuyPrimaryInterface() {
   // Input validation
   const inputError = useMemo(() => {
     if (!usdcAmount) return null;
-    const v = parseFloat(usdcAmount);
-    if (Number.isNaN(v)) return "Enter a valid number";
-    if (v < 0.01) return "Minimum amount is 0.01 USDC";
-    if (v > 1000000) return "Maximum specific limit is 1M USDC";
-    // Check max 6 decimal places
-    const parts = usdcAmount.split(".");
-    if (parts[1] && parts[1].length > 6) return "Max 6 decimal places";
-    if (usdcBalance && v > parseFloat(usdcBalance))
+    if (countFractionalDigits(usdcAmount) > USDC_DECIMALS) return "Max 6 decimal places";
+    if (usdcAmountRaw == null) return "Enter a valid number";
+    if (usdcAmountRaw < MIN_USDC_AMOUNT_RAW) return "Minimum amount is 0.01 USDC";
+    if (usdcAmountRaw > MAX_USDC_AMOUNT_RAW) return "Maximum specific limit is 1M USDC";
+    if (usdcBalanceRaw != null && usdcAmountRaw > usdcBalanceRaw) {
       return "Insufficient USDC balance";
+    }
     return null;
-  }, [usdcAmount, usdcBalance]);
+  }, [usdcAmount, usdcAmountRaw, usdcBalanceRaw]);
 
   const handleBuy = async () => {
     if (
@@ -235,7 +240,7 @@ export function BuyPrimaryInterface() {
     txInFlight.current = true;
 
     // Check insufficient balance before sending
-    if (usdcBalance && parseFloat(usdcAmount) > parseFloat(usdcBalance)) {
+    if (usdcBalanceRaw != null && usdcAmountRaw > usdcBalanceRaw) {
       setError("Insufficient USDC balance");
       showToast("Insufficient USDC balance", "error");
       txInFlight.current = false;

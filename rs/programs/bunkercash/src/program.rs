@@ -13,6 +13,26 @@ use spl_token_2022::state::Mint as Token2022Mint;
 
 declare_id!("DemMc7to6i31v3mvGF9aieyWixUqhNRLJtfQ9ZouqViR");
 
+fn calculate_claim_usdc_value(
+    brent_amount: u64,
+    nav: u64,
+    total_brent_supply: u64,
+) -> Option<u64> {
+    if brent_amount == 0 || nav == 0 || total_brent_supply == 0 {
+        return None;
+    }
+
+    let usdc_value = (brent_amount as u128)
+        .checked_mul(nav as u128)?
+        .checked_div(total_brent_supply as u128)? as u64;
+
+    if usdc_value == 0 {
+        return None;
+    }
+
+    Some(usdc_value)
+}
+
 #[program]
 pub mod bunkercash {
     use super::*;
@@ -186,11 +206,12 @@ pub mod bunkercash {
 
         require!(pool.nav > 0 && pool.total_brent_supply > 0, ErrorCode::InvalidNAV);
 
-        let usdc_value = (brent_amount as u128)
-            .checked_mul(pool.nav as u128)
-            .unwrap()
-            .checked_div(pool.total_brent_supply as u128)
-            .unwrap() as u64;
+        let usdc_value = calculate_claim_usdc_value(
+            brent_amount,
+            pool.nav,
+            pool.total_brent_supply,
+        )
+        .ok_or(ErrorCode::ClaimAmountTooSmall)?;
 
         anchor_spl::token_2022::burn(
             CpiContext::new(
@@ -1016,4 +1037,29 @@ pub enum ErrorCode {
     RepaymentExceedsWithdrawal,
     #[msg("Bunker Cash mint PDA is already initialized")]
     MintAlreadyInitialized,
+    #[msg("Claim amount must burn a non-zero amount of bRENT for a non-zero USDC value")]
+    ClaimAmountTooSmall,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::calculate_claim_usdc_value;
+
+    #[test]
+    fn claim_value_rejects_zero_burn_amount() {
+        assert_eq!(calculate_claim_usdc_value(0, 1_000_000, 1_000_000), None);
+    }
+
+    #[test]
+    fn claim_value_rejects_truncation_to_zero() {
+        assert_eq!(calculate_claim_usdc_value(1, 1, 2), None);
+    }
+
+    #[test]
+    fn claim_value_accepts_non_zero_payouts() {
+        assert_eq!(
+            calculate_claim_usdc_value(250_000, 1_000_000, 1_000_000),
+            Some(250_000)
+        );
+    }
 }

@@ -993,6 +993,11 @@
       "code": 6003,
       "name": "MintAlreadyInitialized",
       "msg": "Bunker Cash mint PDA is already initialized"
+    },
+    {
+      "code": 6004,
+      "name": "ClaimAmountTooSmall",
+      "msg": "Claim amount must burn a non-zero amount of bRENT for a non-zero USDC value"
     }
   ],
   "types": [

@@ -44,17 +44,6 @@ export function getPoolSignerPda(poolPda: PublicKey, programId: PublicKey = PROG
   return poolPda
 }
 
-export function getClaimPriceSnapshotPda(
-  claimPda: PublicKey,
-  programId: PublicKey = PROGRAM_ID
-): PublicKey {
-  const [pda] = PublicKey.findProgramAddressSync(
-    [Buffer.from('bunkercash_claim_price_snapshot'), claimPda.toBuffer()],
-    programId
-  )
-  return pda
-}
-
 export { PROGRAM_ID }
 
 async function passthroughTransaction<T extends Transaction | VersionedTransaction>(tx: T): Promise<T> {
