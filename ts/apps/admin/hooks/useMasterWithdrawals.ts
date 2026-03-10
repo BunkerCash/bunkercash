@@ -4,15 +4,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import {
-  getMasterOpsPda,
   getMasterPoolPda,
   getReadonlyMasterProgram,
   getMasterProgram,
 } from "@/lib/master-program";
 
 export interface MasterPoolState {
-  admin: PublicKey;
-  priceUsdcPerToken: string;
+  masterWallet: PublicKey;
+  nav: string;
+  totalBrentSupply: string;
+  totalPendingClaims: string;
   claimCounter: string;
   withdrawalCounter: string;
 }
@@ -22,8 +23,6 @@ export interface MasterWithdrawal {
   id: string;
   amount: string;
   remaining: string;
-  repaidAmount: string;
-  cancelledAmount: string;
   metadataHash: number[];
   createdAt: string;
 }
@@ -33,12 +32,11 @@ interface Stringable {
 }
 
 interface RawPoolAccount {
-  admin: PublicKey;
-  priceUsdcPerToken: Stringable;
+  masterWallet: PublicKey;
+  nav: Stringable;
+  totalBrentSupply: Stringable;
+  totalPendingClaims: Stringable;
   claimCounter: Stringable;
-}
-
-interface RawMasterOpsAccount {
   withdrawalCounter: Stringable;
 }
 
@@ -48,10 +46,8 @@ interface RawMasterWithdrawalRecord {
     id: Stringable;
     amount: Stringable;
     remaining: Stringable;
-    repaidAmount: Stringable;
-    cancelledAmount: Stringable;
     metadataHash: Iterable<number>;
-    createdAt: Stringable;
+    timestamp: Stringable;
   };
 }
 
@@ -77,7 +73,6 @@ export function useMasterWithdrawals() {
   }, [connection, wallet]);
 
   const poolPda = useMemo(() => getMasterPoolPda(), []);
-  const masterOpsPda = useMemo(() => getMasterOpsPda(), []);
   const rpcEndpoint = connection.rpcEndpoint ?? "";
 
   const fetchAll = useCallback(
@@ -100,27 +95,23 @@ export function useMasterWithdrawals() {
       setError(null);
       try {
         const accountApi = program.account as {
-          poolState: { fetchNullable: (pubkey: PublicKey) => Promise<RawPoolAccount | null> };
-          masterOpsState: {
-            fetchNullable: (pubkey: PublicKey) => Promise<RawMasterOpsAccount | null>;
-          };
-          masterWithdrawalState: { all: () => Promise<RawMasterWithdrawalRecord[]> };
+          pool: { fetch: (pubkey: PublicKey) => Promise<RawPoolAccount> };
+          withdrawal: { all: () => Promise<RawMasterWithdrawalRecord[]> };
         };
 
-        const [poolAccount, masterOpsAccount, allWithdrawals] = await Promise.all([
-          accountApi.poolState.fetchNullable(poolPda),
-          accountApi.masterOpsState.fetchNullable(masterOpsPda),
-          accountApi.masterWithdrawalState.all(),
+        const [poolAccount, allWithdrawals] = await Promise.all([
+          accountApi.pool.fetch(poolPda),
+          accountApi.withdrawal.all(),
         ]);
 
-        const normalizedPool: MasterPoolState | null = poolAccount
-          ? {
-              admin: poolAccount.admin as PublicKey,
-              priceUsdcPerToken: poolAccount.priceUsdcPerToken.toString(),
-              claimCounter: poolAccount.claimCounter.toString(),
-              withdrawalCounter: masterOpsAccount?.withdrawalCounter.toString() ?? "0",
-            }
-          : null;
+        const normalizedPool: MasterPoolState = {
+          masterWallet: poolAccount.masterWallet as PublicKey,
+          nav: poolAccount.nav.toString(),
+          totalBrentSupply: poolAccount.totalBrentSupply.toString(),
+          totalPendingClaims: poolAccount.totalPendingClaims.toString(),
+          claimCounter: poolAccount.claimCounter.toString(),
+          withdrawalCounter: poolAccount.withdrawalCounter.toString(),
+        };
 
         const normalizedWithdrawals: MasterWithdrawal[] = allWithdrawals
           .map((item) => ({
@@ -128,10 +119,8 @@ export function useMasterWithdrawals() {
             id: item.account.id.toString(),
             amount: item.account.amount.toString(),
             remaining: item.account.remaining.toString(),
-            repaidAmount: item.account.repaidAmount.toString(),
-            cancelledAmount: item.account.cancelledAmount.toString(),
             metadataHash: Array.from(item.account.metadataHash as number[]),
-            createdAt: item.account.createdAt.toString(),
+            createdAt: item.account.timestamp.toString(),
           }))
           .sort((a, b) => Number(b.id) - Number(a.id));
 
@@ -151,11 +140,11 @@ export function useMasterWithdrawals() {
         setLoading(false);
       }
     },
-    [program, poolPda, masterOpsPda, rpcEndpoint]
+    [program, poolPda, rpcEndpoint]
   );
 
   useEffect(() => {
-    fetchAll();
+    void fetchAll();
   }, [fetchAll]);
 
   useEffect(() => {

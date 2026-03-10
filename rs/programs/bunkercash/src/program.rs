@@ -1,9 +1,15 @@
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::{
+    program::invoke_signed,
+    program_pack::Pack,
+    system_instruction,
+};
 use anchor_spl::token_2022::Token2022;
 use anchor_spl::token::accessor;
 use mpl_token_metadata::instructions::{CreateMetadataAccountV3CpiBuilder, UpdateMetadataAccountV2CpiBuilder};
 use mpl_token_metadata::types::DataV2;
 use mpl_token_metadata::ID as TOKEN_METADATA_PROGRAM_ID;
+use spl_token_2022::state::Mint as Token2022Mint;
 
 declare_id!("DemMc7to6i31v3mvGF9aieyWixUqhNRLJtfQ9ZouqViR");
 
@@ -105,6 +111,68 @@ pub mod bunkercash {
         });
 
         msg!("Deposited {} USDC, minted {} bRENT. New NAV: {}", usdc_amount, brent_to_mint, new_nav);
+        Ok(())
+    }
+
+    pub fn create_brent_mint(ctx: Context<CreateBrentMint>) -> Result<()> {
+        let pool = &ctx.accounts.pool;
+        require!(
+            ctx.accounts.admin.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+        require!(
+            ctx.accounts.brent_mint.data_is_empty(),
+            ErrorCode::MintAlreadyInitialized
+        );
+
+        let rent = Rent::get()?;
+        let mint_space = Token2022Mint::LEN;
+        let mint_lamports = rent.minimum_balance(mint_space);
+        let mint_bump = ctx.bumps.brent_mint;
+        let mint_seeds = &[b"bunkercash_mint".as_ref(), &[mint_bump]];
+        let mint_signer = &[&mint_seeds[..]];
+
+        invoke_signed(
+            &system_instruction::create_account(
+                &ctx.accounts.admin.key(),
+                &ctx.accounts.brent_mint.key(),
+                mint_lamports,
+                mint_space as u64,
+                &ctx.accounts.token_program.key(),
+            ),
+            &[
+                ctx.accounts.admin.to_account_info(),
+                ctx.accounts.brent_mint.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+            ],
+            mint_signer,
+        )?;
+
+        anchor_spl::token_2022::initialize_mint2(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                anchor_spl::token_2022::InitializeMint2 {
+                    mint: ctx.accounts.brent_mint.to_account_info(),
+                },
+            ),
+            6,
+            &pool.key(),
+            Some(&pool.key()),
+        )?;
+
+        emit!(BrentMintCreatedEvent {
+            pool: pool.key(),
+            admin: ctx.accounts.admin.key(),
+            mint: ctx.accounts.brent_mint.key(),
+            decimals: 6,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+
+        msg!(
+            "bRENT mint created at {} with authority {}",
+            ctx.accounts.brent_mint.key(),
+            pool.key()
+        );
         Ok(())
     }
 
@@ -616,6 +684,29 @@ pub struct FileClaim<'info> {
 }
 
 #[derive(Accounts)]
+pub struct CreateBrentMint<'info> {
+    #[account(
+        seeds = [b"pool"],
+        bump = pool.bump
+    )]
+    pub pool: Account<'info, Pool>,
+
+    /// CHECK: Mint PDA created and initialized in this instruction
+    #[account(
+        mut,
+        seeds = [b"bunkercash_mint"],
+        bump
+    )]
+    pub brent_mint: AccountInfo<'info>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    pub token_program: Program<'info, Token2022>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct SettleClaims<'info> {
     #[account(
         mut,
@@ -826,6 +917,15 @@ pub struct UsdcDepositedEvent {
 }
 
 #[event]
+pub struct BrentMintCreatedEvent {
+    pub pool: Pubkey,
+    pub admin: Pubkey,
+    pub mint: Pubkey,
+    pub decimals: u8,
+    pub timestamp: i64,
+}
+
+#[event]
 pub struct ClaimFiledEvent {
     pub pool: Pubkey,
     pub claim: Pubkey,
@@ -914,4 +1014,6 @@ pub enum ErrorCode {
     Unauthorized,
     #[msg("Repayment amount exceeds withdrawal remaining balance")]
     RepaymentExceedsWithdrawal,
+    #[msg("Bunker Cash mint PDA is already initialized")]
+    MintAlreadyInitialized,
 }

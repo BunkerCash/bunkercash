@@ -3,8 +3,7 @@ import type { Connection } from "@solana/web3.js";
 import type { WalletContextState } from "@solana/wallet-adapter-react";
 import { getPoolPda, getPoolSignerPda, getProgram, getReadonlyProgram, PROGRAM_ID } from "@/lib/program";
 
-const MASTER_OPS_SEED = Buffer.from("bunkercash_master_ops");
-const MASTER_WITHDRAWAL_SEED = Buffer.from("bunkercash_master_withdrawal");
+const MASTER_WITHDRAWAL_SEED = Buffer.from("withdrawal");
 
 function encodeU64Le(value: bigint): Uint8Array {
   const bytes = new Uint8Array(8);
@@ -36,14 +35,6 @@ export function getMasterPoolSignerPda(programId: PublicKey = MASTER_PROGRAM_ID)
   return getPoolSignerPda(getMasterPoolPda(programId), programId);
 }
 
-export function getMasterOpsPda(programId: PublicKey = MASTER_PROGRAM_ID): PublicKey {
-  const [pda] = PublicKey.findProgramAddressSync(
-    [MASTER_OPS_SEED, getMasterPoolPda(programId).toBuffer()],
-    programId
-  );
-  return pda;
-}
-
 export function getMasterWithdrawalPda(
   withdrawalId: bigint,
   programId: PublicKey = MASTER_PROGRAM_ID
@@ -51,7 +42,6 @@ export function getMasterWithdrawalPda(
   const [pda] = PublicKey.findProgramAddressSync(
     [
       MASTER_WITHDRAWAL_SEED,
-      getMasterPoolPda(programId).toBuffer(),
       encodeU64Le(withdrawalId),
     ],
     programId

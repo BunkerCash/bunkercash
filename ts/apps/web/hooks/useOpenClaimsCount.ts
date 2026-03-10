@@ -1,4 +1,5 @@
 "use client"
+
 import { useEffect, useState, useMemo } from 'react'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { getProgram, getReadonlyProgram } from '@/lib/program'
@@ -15,34 +16,30 @@ export function useOpenClaimsCount() {
       return getProgram(connection, wallet)
     }
     return getReadonlyProgram(connection)
-  }, [connection, wallet.publicKey])
+  }, [connection, wallet])
 
   useEffect(() => {
     const fetchOpenClaims = async () => {
       if (!program) return
-      
+
       setLoading(true)
       setError(null)
       try {
-        // Fetch all ClaimState accounts
-        // Note: In a production environment with many claims, we would want 
-        // to use `memcmp` filters to only fetch isClosed=false, 
-        // or rely on an indexer. `program.account.claimState.all()` fetches everything.
-        const allClaims = await (program.account as any).claimState.all()
-        
-        // Filter for open claims (isClosed === false)
-        const openClaims = allClaims.filter((c: any) => !c.account.isClosed)
-        
+        const accountApi = program.account as {
+          claim: { all: () => Promise<Array<{ account: { processed: boolean } }>> }
+        }
+        const allClaims = await accountApi.claim.all()
+        const openClaims = allClaims.filter((c) => !c.account.processed)
         setCount(openClaims.length)
-      } catch (e: any) {
-        setError(e.message || 'Failed to fetch open claims')
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Failed to fetch open claims')
         setCount(null)
       } finally {
         setLoading(false)
       }
     }
 
-    fetchOpenClaims()
+    void fetchOpenClaims()
   }, [program])
 
   return { count, loading, error }

@@ -13,9 +13,7 @@ import {
 } from '@solana/spl-token'
 import {
   getBunkercashMintPda,
-  getClaimPriceSnapshotPda,
   getPoolPda,
-  getPoolSignerPda,
   getProgram,
   PROGRAM_ID,
 } from '@/lib/program'
@@ -41,25 +39,22 @@ interface Stringable {
   toString(): string
 }
 
-interface PoolStateAccount {
+interface PoolAccount {
   claimCounter: Stringable
 }
 
 interface WithdrawAccountApi {
-  poolState: { fetch: (pubkey: PublicKey) => Promise<PoolStateAccount> }
+  pool: { fetch: (pubkey: PublicKey) => Promise<PoolAccount> }
 }
 
-interface RegisterSellMethods {
-  registerSell: (amount: BN) => {
+interface FileClaimMethods {
+  fileClaim: (amount: BN) => {
     accounts: (accounts: {
       pool: PublicKey
-      poolSigner: PublicKey
-      bunkercashMint: PublicKey
       claim: PublicKey
-      claimPriceSnapshot: PublicKey
       user: PublicKey
-      userBunkercash: PublicKey
-      escrowBunkercashVault: PublicKey
+      userBrent: PublicKey
+      brentMint: PublicKey
       tokenProgram: PublicKey
       systemProgram: PublicKey
     }) => {
@@ -84,7 +79,6 @@ export function WithdrawInterface() {
   const program = useMemo(() => (wallet.publicKey ? getProgram(connection, wallet) : null), [connection, wallet])
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), [])
   const mintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), [])
-  const poolSignerPda = useMemo(() => getPoolSignerPda(poolPda, PROGRAM_ID), [poolPda])
 
   const { balance: tokenBalanceUi, refreshBalance: fetchTokenBalance } =
     useTokenBalance();
@@ -100,18 +94,6 @@ export function WithdrawInterface() {
       ASSOCIATED_TOKEN_PROGRAM_ID
     )
   }, [wallet.publicKey, mintPda])
-
-  const escrowVaultAta = useMemo(
-    () =>
-      getAssociatedTokenAddressSync(
-        mintPda,
-        poolSignerPda,
-        true,
-        TOKEN_2022_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      ),
-    [mintPda, poolSignerPda]
-  )
 
   function uiToBaseUnits(uiAmount: string, decimals: number): BN {
     const s = uiAmount.trim()
@@ -135,13 +117,13 @@ export function WithdrawInterface() {
     setTxSig(null);
     setSubmitting(true);
     try {
-      const sellAmount = uiToBaseUnits(amountUi, 9);
+      const sellAmount = uiToBaseUnits(amountUi, 6);
       if (sellAmount.lte(new BN(0))) throw new Error("Amount must be > 0");
 
       // Validate against actual balance
       if (parseFloat(amountUi) > parseFloat(tokenBalanceUi)) {
-        setError("Amount exceeds your Banker Cash balance");
-        showToast("Insufficient Banker Cash balance", "error");
+        setError("Amount exceeds your bRENT balance");
+        showToast("Insufficient bRENT balance", "error");
         txInFlight.current = false;
         setSubmitting(false);
         return;
@@ -149,14 +131,13 @@ export function WithdrawInterface() {
 
       // Derive claim PDA from current counter.
       const accountApi = (program as Program<Idl>).account as WithdrawAccountApi
-      const poolState = await accountApi.poolState.fetch(poolPda);
-      const nextId = new BN(poolState.claimCounter.toString()).add(new BN(1));
+      const poolState = await accountApi.pool.fetch(poolPda);
+      const nextId = new BN(poolState.claimCounter.toString());
       const idLe = Uint8Array.from(nextId.toArray("le", 8));
       const [claimPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("claim"), poolPda.toBuffer(), idLe],
+        [Buffer.from("claim"), wallet.publicKey.toBuffer(), idLe],
         PROGRAM_ID,
       );
-      const claimPriceSnapshotPda = getClaimPriceSnapshotPda(claimPda, PROGRAM_ID);
 
       // Ensure ATAs exist (idempotent).
       const createUserAtaIx = createAssociatedTokenAccountIdempotentInstruction(
@@ -168,18 +149,15 @@ export function WithdrawInterface() {
         ASSOCIATED_TOKEN_PROGRAM_ID,
       );
 
-      const methodsApi = (program as Program<Idl>).methods as unknown as RegisterSellMethods
+      const methodsApi = (program as Program<Idl>).methods as unknown as FileClaimMethods
       const registerIx = await methodsApi
-        .registerSell(sellAmount)
+        .fileClaim(sellAmount)
         .accounts({
           pool: poolPda,
-          poolSigner: poolSignerPda,
-          bunkercashMint: mintPda,
           claim: claimPda,
-          claimPriceSnapshot: claimPriceSnapshotPda,
           user: wallet.publicKey,
-          userBunkercash: userBunkercashAta,
-          escrowBunkercashVault: escrowVaultAta,
+          userBrent: userBunkercashAta,
+          brentMint: mintPda,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
@@ -194,7 +172,7 @@ export function WithdrawInterface() {
       setConfirmed(false);
       await fetchTokenBalance();
       await fetchClaims();
-      showToast(`Sell registered! Tx: ${sig.slice(0, 8)}…`, "success");
+      showToast(`Claim filed. Tx: ${sig.slice(0, 8)}…`, "success");
       // Invalidate transactions cache so Transactions tab fetches fresh data
       const { invalidateTransactionCache } =
         await import("@/hooks/useMyTransactions");
@@ -229,7 +207,7 @@ export function WithdrawInterface() {
               : "text-neutral-500 hover:text-white"
           }`}
         >
-          Register Sell
+          File Claim
         </button>
         <button
           onClick={() => setActiveView("history")}
@@ -247,11 +225,11 @@ export function WithdrawInterface() {
         <div className="space-y-6">
           <div className="bg-neutral-900/50 rounded-xl p-4 border border-neutral-800">
             <p className="text-sm text-neutral-300 font-semibold mb-1">
-              Irreversible escrow lock
+              Irreversible burn
             </p>
             <p className="text-xs text-neutral-500">
-              Registering a sell transfers your Banker Cash into a program-owned
-              escrow vault. No burn happens, but the lock is irreversible.
+              Filing a claim burns your bRENT and creates a USDC redemption
+              request at the current pool NAV.
             </p>
           </div>
 
@@ -261,7 +239,7 @@ export function WithdrawInterface() {
                 Amount
               </span>
               <span className="text-xs text-neutral-600">
-                Balance: {tokenBalanceUi} Banker Cash
+                Balance: {tokenBalanceUi} bRENT
               </span>
             </div>
             <div className="flex items-center gap-4">
@@ -274,7 +252,7 @@ export function WithdrawInterface() {
               />
               <div className="flex items-center gap-2 bg-[#00FFB2]/10 border-2 border-[#00FFB2] px-5 py-3 rounded-xl">
                 <span className="font-semibold text-sm text-[#00FFB2]">
-                  Banker Cash
+                  bRENT
                 </span>
               </div>
             </div>
@@ -303,7 +281,8 @@ export function WithdrawInterface() {
             >
               I understand that this action is{" "}
               <span className="text-red-400 font-semibold">irreversible</span>.
-              Registered tokens will be permanently locked in the escrow vault.
+              The submitted bRENT will be burned and converted into a pending
+              USDC claim.
             </label>
           </div>
 
@@ -314,7 +293,7 @@ export function WithdrawInterface() {
           )}
           {txSig && (
             <div className="rounded-xl border border-[#00FFB2]/30 bg-[#00FFB2]/10 px-4 py-3 text-sm text-[#00FFB2]">
-              Registered. Tx: {txSig.slice(0, 8)}…{txSig.slice(-8)}
+              Claim filed. Tx: {txSig.slice(0, 8)}…{txSig.slice(-8)}
             </div>
           )}
 
@@ -325,18 +304,18 @@ export function WithdrawInterface() {
             }
             className="w-full bg-[#00FFB2] hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600 text-black font-semibold py-5 rounded-xl transition-all text-lg"
           >
-            {submitting ? "Registering…" : "Register Sell"}
+            {submitting ? "Filing Claim…" : "File Claim"}
           </button>
         </div>
       ) : (
         <div className="space-y-3">
           {!wallet.publicKey ? (
             <div className="text-center py-12 text-neutral-600">
-              Connect your wallet to view registrations
+              Connect your wallet to view claims
             </div>
           ) : claims.length === 0 ? (
             <div className="text-center py-12 text-neutral-600">
-              No sell registrations yet
+              No claims yet
             </div>
           ) : (
             claims.map((c) => (
@@ -348,23 +327,23 @@ export function WithdrawInterface() {
                   <div>
                     <div className="text-lg font-semibold">Claim #{c.id}</div>
                     <div className="text-sm text-neutral-500">
-                      Locked: {Number(c.tokenAmountLocked) / 1e9} bRENT
+                      Requested: {Number(c.requestedUsdc) / 1e6} USDC
                     </div>
                   </div>
                   <div
                     className={`px-3 py-1 rounded-full text-xs font-medium ${
-                      c.isClosed
+                      c.processed
                         ? "bg-[#00FFB2]/20 text-[#00FFB2]"
                         : "bg-neutral-800 text-neutral-400"
                     }`}
                   >
-                    {c.isClosed ? "closed" : "open"}
+                    {c.processed ? "processed" : "pending"}
                   </div>
                 </div>
                 <div className="mt-2 flex justify-between text-sm">
                   <span className="text-neutral-500">USDC paid</span>
                   <span className="text-neutral-300">
-                    {Number(c.usdcPaid) / 1e6} USDC
+                    {Number(c.paidUsdc) / 1e6} USDC
                   </span>
                 </div>
                 <div className="mt-1 flex justify-between text-sm">

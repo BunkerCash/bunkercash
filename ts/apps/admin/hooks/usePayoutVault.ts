@@ -1,7 +1,7 @@
 "use client"
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useConnection } from '@solana/wallet-adapter-react'
-import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
+import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import { getPoolPda, getPoolSignerPda, PROGRAM_ID } from '@/lib/program'
 import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
 
@@ -31,7 +31,7 @@ export function usePayoutVault() {
       usdcMint,
       poolSignerPda,
       true,
-      TOKEN_PROGRAM_ID,
+      TOKEN_2022_PROGRAM_ID,
       ASSOCIATED_TOKEN_PROGRAM_ID
     )
   }, [usdcMint, poolSignerPda])

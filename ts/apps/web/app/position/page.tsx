@@ -9,42 +9,27 @@ import { Badge } from "@/components/ui/badge";
 import { useTokenBalance } from "@/hooks/useTokenBalance";
 import { type Claim, useMyClaims } from "@/hooks/useMyClaims";
 
-const TOKEN_DECIMALS = 9;
 const USDC_DECIMALS = 6;
-
-function formatTokenAmount(raw: string) {
-  return (Number(raw) / 10 ** TOKEN_DECIMALS).toLocaleString(undefined, {
-    maximumFractionDigits: 4,
-  });
-}
 
 function formatUsdcAmount(raw: bigint) {
   return Number(raw) / 10 ** USDC_DECIMALS;
 }
 
-function getClaimOwedRaw(claim: Claim) {
-  if (!claim.priceUsdcPerTokenSnapshot) return null;
-  return (
-    (BigInt(claim.tokenAmountLocked) * BigInt(claim.priceUsdcPerTokenSnapshot)) /
-    BigInt(10 ** TOKEN_DECIMALS)
-  );
-}
-
 function getClaimProgress(claim: Claim) {
-  const owedRaw = getClaimOwedRaw(claim);
-  const paidRaw = BigInt(claim.usdcPaid);
+  const requestedRaw = BigInt(claim.requestedUsdc);
+  const paidRaw = BigInt(claim.paidUsdc);
 
-  if (claim.isClosed) {
-    return { owedRaw, paidRaw, progressPct: 100 };
+  if (claim.processed) {
+    return { requestedRaw, paidRaw, progressPct: 100 };
   }
 
-  if (!owedRaw || owedRaw <= BigInt(0)) {
-    return { owedRaw, paidRaw, progressPct: paidRaw > BigInt(0) ? 100 : 0 };
+  if (requestedRaw <= BigInt(0)) {
+    return { requestedRaw, paidRaw, progressPct: paidRaw > BigInt(0) ? 100 : 0 };
   }
 
-  const cappedPaidRaw = paidRaw > owedRaw ? owedRaw : paidRaw;
-  const progressPct = Number((cappedPaidRaw * BigInt(10000)) / owedRaw) / 100;
-  return { owedRaw, paidRaw: cappedPaidRaw, progressPct };
+  const cappedPaidRaw = paidRaw > requestedRaw ? requestedRaw : paidRaw;
+  const progressPct = Number((cappedPaidRaw * BigInt(10000)) / requestedRaw) / 100;
+  return { requestedRaw, paidRaw: cappedPaidRaw, progressPct };
 }
 
 const MyPosition = () => {
@@ -56,16 +41,21 @@ const MyPosition = () => {
   } = useTokenBalance();
   const { claims, loading: isLoadingClaims, error: claimsError } = useMyClaims();
 
-  const lockedTokens = useMemo(
+  const pendingClaims = useMemo(
     () =>
       claims
-        .filter((c) => !c.isClosed)
-        .reduce((acc, c) => acc + Number(c.tokenAmountLocked) / 10 ** TOKEN_DECIMALS, 0),
+        .filter((c) => !c.processed)
+        .length,
+    [claims]
+  );
+
+  const totalRequestedUsdc = useMemo(
+    () => claims.reduce((acc, c) => acc + Number(c.requestedUsdc) / 10 ** USDC_DECIMALS, 0),
     [claims]
   );
 
   const totalUsdcPaid = useMemo(
-    () => claims.reduce((acc, c) => acc + Number(c.usdcPaid) / 10 ** USDC_DECIMALS, 0),
+    () => claims.reduce((acc, c) => acc + Number(c.paidUsdc) / 10 ** USDC_DECIMALS, 0),
     [claims]
   );
 
@@ -120,33 +110,40 @@ const MyPosition = () => {
             </div>
             <div>
               <StatCard
-                label="Locked Tokens"
+                label="Pending Claims"
                 value={
-                  !connected ? "-" : `${lockedTokens.toLocaleString()} BNKR`
+                  !connected ? "-" : pendingClaims.toString()
                 }
-                note="In open claims"
+                note="Awaiting settlement"
               />
             </div>
             <div>
               <StatCard
-                label="Total USDC Paid"
+                label="Requested USDC"
                 value={
                   !connected ? (
                     "-"
                   ) : (
                     <span className="text-primary">
-                      ${totalUsdcPaid.toLocaleString()}
+                      ${totalRequestedUsdc.toLocaleString()}
                     </span>
                   )
                 }
-                note="Lifetime earnings"
+                note="Total sell requests"
+              />
+            </div>
+            <div>
+              <StatCard
+                label="Total USDC Paid"
+                value={!connected ? "-" : `$${totalUsdcPaid.toLocaleString()}`}
+                note="Settlements received"
               />
             </div>
             <div>
               <StatCard
                 label="Total Claims"
                 value={!connected ? "-" : totalClaims.toString()}
-                note="Registered sells"
+                note="Filed redemptions"
               />
             </div>
           </div>
@@ -175,10 +172,10 @@ const MyPosition = () => {
                         ID
                       </th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                        Locked Amount
+                        Requested
                       </th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                        USDC Paid
+                        Paid
                       </th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
                         Progress
@@ -190,8 +187,8 @@ const MyPosition = () => {
                   </thead>
                   <tbody>
                     {claims.map((claim) => {
-                      const { owedRaw, paidRaw, progressPct } = getClaimProgress(claim);
-                      const isPartiallyPaid = !claim.isClosed && paidRaw > BigInt(0);
+                      const { requestedRaw, paidRaw, progressPct } = getClaimProgress(claim);
+                      const isPartiallyPaid = !claim.processed && paidRaw > BigInt(0);
 
                       return (
                         <tr
@@ -202,19 +199,19 @@ const MyPosition = () => {
                             #{claim.id}
                           </td>
                           <td className="py-4 px-4 text-sm font-medium text-foreground">
-                            {formatTokenAmount(claim.tokenAmountLocked)} BNKR
+                            ${formatUsdcAmount(BigInt(claim.requestedUsdc)).toLocaleString()}
                           </td>
                           <td className="py-4 px-4 text-sm font-medium text-foreground">
-                            ${formatUsdcAmount(BigInt(claim.usdcPaid)).toLocaleString()}
+                            ${formatUsdcAmount(BigInt(claim.paidUsdc)).toLocaleString()}
                           </td>
                           <td className="py-4 px-4 min-w-[220px]">
                             <div className="space-y-2">
                               <div className="flex items-center justify-between text-xs text-muted-foreground">
                                 <span>
-                                  {owedRaw ? (
+                                  {requestedRaw > BigInt(0) ? (
                                     <>
                                       ${formatUsdcAmount(paidRaw).toLocaleString()} / $
-                                      {formatUsdcAmount(owedRaw).toLocaleString()}
+                                      {formatUsdcAmount(requestedRaw).toLocaleString()}
                                     </>
                                   ) : (
                                     "Settlement amount pending"
@@ -232,25 +229,25 @@ const MyPosition = () => {
                           </td>
                           <td className="py-4 px-4">
                             <Badge
-                              variant={claim.isClosed ? "secondary" : "default"}
+                              variant={claim.processed ? "secondary" : "default"}
                               className={
-                                claim.isClosed
+                                claim.processed
                                   ? "bg-secondary/20 text-secondary hover:bg-secondary/30"
                                   : isPartiallyPaid
                                     ? "bg-primary/20 text-primary hover:bg-primary/30"
                                     : "bg-muted text-muted-foreground hover:bg-muted"
                               }
                             >
-                              {claim.isClosed ? (
+                              {claim.processed ? (
                                 <CheckCircle className="mr-1 h-3 w-3" />
                               ) : (
                                 <AlertCircle className="mr-1 h-3 w-3" />
                               )}
-                              {claim.isClosed
-                                ? "Closed"
+                              {claim.processed
+                                ? "Processed"
                                 : isPartiallyPaid
                                   ? "Partially Paid"
-                                  : "Open"}
+                                  : "Pending"}
                             </Badge>
                           </td>
                         </tr>

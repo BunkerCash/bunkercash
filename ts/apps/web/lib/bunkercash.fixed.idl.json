@@ -8,6 +8,79 @@
   },
   "instructions": [
     {
+      "name": "create_brent_mint",
+      "discriminator": [
+        213,
+        166,
+        71,
+        31,
+        110,
+        208,
+        112,
+        58
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "brent_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "deposit_usdc",
       "discriminator": [
         184,
@@ -757,6 +830,19 @@
   ],
   "events": [
     {
+      "name": "BrentMintCreatedEvent",
+      "discriminator": [
+        241,
+        135,
+        76,
+        199,
+        247,
+        215,
+        140,
+        190
+      ]
+    },
+    {
       "name": "ClaimFiledEvent",
       "discriminator": [
         122,
@@ -902,9 +988,42 @@
       "code": 6002,
       "name": "RepaymentExceedsWithdrawal",
       "msg": "Repayment amount exceeds withdrawal remaining balance"
+    },
+    {
+      "code": 6003,
+      "name": "MintAlreadyInitialized",
+      "msg": "Bunker Cash mint PDA is already initialized"
     }
   ],
   "types": [
+    {
+      "name": "BrentMintCreatedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "decimals",
+            "type": "u8"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
     {
       "name": "Claim",
       "type": {

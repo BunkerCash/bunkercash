@@ -41,7 +41,7 @@ export function TradeInterface({ initialTab = 'buy-primary', hiddenTabs = [] }: 
                 : 'text-neutral-500 hover:text-white border-transparent'
             }`}
           >
-            Sell
+            File Claim
           </button>
         )}
         {isTabVisible('transactions') && (
@@ -61,13 +61,13 @@ export function TradeInterface({ initialTab = 'buy-primary', hiddenTabs = [] }: 
       <div className="p-8">
         {activeTab === 'buy-primary' && isTabVisible('buy-primary') && (
           <>
-            <h3 className="mb-6 text-lg font-semibold text-[#00FFB2]">Buy Bunker Cash (fixed price)</h3>
+            <h3 className="mb-6 text-lg font-semibold text-[#00FFB2]">Buy Bunker Cash</h3>
             <BuyPrimaryInterface />
           </>
         )}
         {activeTab === 'withdraw' && isTabVisible('withdraw') && (
           <>
-            <h3 className="mb-6 text-lg font-semibold text-[#00FFB2]">Register sell (escrow lock)</h3>
+            <h3 className="mb-6 text-lg font-semibold text-[#00FFB2]">File Claim</h3>
             <WithdrawInterface />
           </>
         )}

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  getMasterOpsPda,
   getMasterPoolPda,
   getMasterWithdrawalPda,
   MASTER_PROGRAM_ID,
@@ -9,22 +8,16 @@ import {
 describe("master-program PDA derivation", () => {
   it("derives the current pool PDA deterministically", () => {
     expect(getMasterPoolPda(MASTER_PROGRAM_ID).toBase58()).toBe(
-      "6jymNtocKLECpahNSqKrWHuMF8vCXgPhYAKVTBZKJsJY"
-    );
-  });
-
-  it("derives the current master-ops PDA deterministically", () => {
-    expect(getMasterOpsPda(MASTER_PROGRAM_ID).toBase58()).toBe(
-      "5GrKZtZu9LkW42JVSzG8SH3rKAEVxHrDaK1nm3H1Go4Y"
+      "BF7L1FWXKV15c6YkGACjwxKxDn8imuc8m9RQQDCnS54W"
     );
   });
 
   it("derives withdrawal PDAs for known ids", () => {
     expect(getMasterWithdrawalPda(BigInt(1), MASTER_PROGRAM_ID).toBase58()).toBe(
-      "E8ckjccrV9tCpunFQpFvBpHyCY5WVHhQsy1tLVpzb8Qa"
+      "BLYj2t4Sjmywh4zqQtAyESuA1neQFjpenRehE2JSZZuv"
     );
     expect(getMasterWithdrawalPda(BigInt(7), MASTER_PROGRAM_ID).toBase58()).toBe(
-      "DZovjdG7ZHv9haRpFCKfxT3NnJzEHwaL3HYQfbtH6nLP"
+      "EtjgCAgkkkJyPmq7NZM3gWGH6z3xjo3w15cJ1ETdTxVM"
     );
   });
 });

@@ -2,7 +2,22 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { getProgram, getReadonlyProgram, getPoolPda, PROGRAM_ID } from '@/lib/program'
-import { BN } from '@coral-xyz/anchor'
+import { PublicKey } from '@solana/web3.js'
+
+interface Stringable {
+  toString(): string
+}
+
+interface PoolAccount {
+  masterWallet: PublicKey
+  nav: Stringable
+  totalBrentSupply: Stringable
+}
+
+function derivePrice(navRaw: bigint, supplyRaw: bigint): number {
+  if (supplyRaw === BigInt(0)) return 1
+  return Number(navRaw) / Number(supplyRaw)
+}
 
 export function useTokenPrice() {
   const { connection } = useConnection()
@@ -16,7 +31,7 @@ export function useTokenPrice() {
       return getProgram(connection, wallet)
     }
     return getReadonlyProgram(connection)
-  }, [connection, wallet.publicKey])
+  }, [connection, wallet])
 
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), [])
 
@@ -27,19 +42,18 @@ export function useTokenPrice() {
       setLoading(true)
       setError(null)
       try {
-        // Fetch PoolState account
-        // casting to any because generated types might be slightly off or tricky to get perfect here
-        // verify account name in IDL is 'poolState' (camelCase of 'PoolState')
-        // IDL has "accounts": [{"name": "PoolState", ...}] -> anchor converts to poolState
-        const poolAccount = await (program.account as any).poolState.fetch(poolPda)
-        
-        // price_usdc_per_token is u64 representing USDC base units (6 decimals)
-        const priceRaw = poolAccount.priceUsdcPerToken as BN
-        const priceFloat = Number(priceRaw.toString()) / 1e6
-        
+        const accountApi = program.account as {
+          pool: { fetch: (pubkey: PublicKey) => Promise<PoolAccount> }
+        }
+        const poolAccount = await accountApi.pool.fetch(poolPda)
+        const priceFloat = derivePrice(
+          BigInt(poolAccount.nav.toString()),
+          BigInt(poolAccount.totalBrentSupply.toString())
+        )
+
         setPrice(priceFloat)
-      } catch (e: any) {
-        setError(e.message || 'Failed to fetch token price')
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Failed to fetch token price')
         setPrice(null)
       } finally {
         setLoading(false)

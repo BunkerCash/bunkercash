@@ -10,36 +10,24 @@ interface Stringable {
 interface RawClaimRecord {
   publicKey: PublicKey;
   account: {
-    id: Stringable;
     user: PublicKey;
-    tokenAmountLocked: Stringable;
-    usdcPaid: Stringable;
-    isClosed: boolean;
-    createdAt: Stringable;
-  };
-}
-
-interface RawClaimPriceSnapshotRecord {
-  account: {
-    claim: PublicKey;
-    priceUsdcPerToken: Stringable;
+    usdcAmount: Stringable;
+    timestamp: Stringable;
+    processed: boolean;
+    paidAmount: Stringable;
   };
 }
 
 interface ClaimsAccountApi {
-  claimState: { all: () => Promise<RawClaimRecord[]> };
-  claimPriceSnapshotState?: {
-    all: () => Promise<RawClaimPriceSnapshotRecord[]>;
-  };
+  claim: { all: () => Promise<RawClaimRecord[]> };
 }
 
 export interface Claim {
   pubkey: PublicKey;
   id: string;
-  tokenAmountLocked: string;
-  priceUsdcPerTokenSnapshot: string | null;
-  usdcPaid: string;
-  isClosed: boolean;
+  requestedUsdc: string;
+  paidUsdc: string;
+  processed: boolean;
   createdAt: string;
 }
 
@@ -52,7 +40,7 @@ export function useMyClaims() {
 
   const program = useMemo(
     () => (wallet.publicKey ? getProgram(connection, wallet) : null),
-    [connection, wallet]
+    [connection, wallet],
   );
 
   const fetchClaims = useCallback(async () => {
@@ -61,43 +49,32 @@ export function useMyClaims() {
       return;
     }
 
-    const userPublicKey = wallet.publicKey;
+    const userPublicKey = wallet.publicKey.toBase58();
 
     setLoading(true);
     setError(null);
     try {
       const accountApi = program.account as ClaimsAccountApi;
-      const [all, allSnapshots] = await Promise.all([
-        accountApi.claimState.all(),
-        accountApi.claimPriceSnapshotState?.all() ?? Promise.resolve([]),
-      ]);
-
-      const snapshotMap = new Map<string, string>();
-      for (const snapshot of allSnapshots) {
-        snapshotMap.set(
-          snapshot.account.claim.toBase58(),
-          snapshot.account.priceUsdcPerToken.toString()
-        );
-      }
+      const all = await accountApi.claim.all();
 
       const mine = all.filter(
-        (x) => x.account.user.toBase58() === userPublicKey.toBase58()
+        (item) => item.account.user.toBase58() === userPublicKey,
       );
 
       const normalized = mine
-        .map((x) => ({
-          pubkey: x.publicKey,
-          id: x.account.id?.toString?.() ?? String(x.account.id),
-          tokenAmountLocked:
-            x.account.tokenAmountLocked?.toString?.() ??
-            String(x.account.tokenAmountLocked),
-          priceUsdcPerTokenSnapshot:
-            snapshotMap.get(x.publicKey.toBase58()) ?? null,
-          usdcPaid: x.account.usdcPaid?.toString?.() ?? String(x.account.usdcPaid),
-          isClosed: Boolean(x.account.isClosed),
-          createdAt: x.account.createdAt?.toString?.() ?? String(x.account.createdAt),
+        .map((item) => ({
+          pubkey: item.publicKey,
+          id: item.publicKey.toBase58().slice(0, 8),
+          requestedUsdc:
+            item.account.usdcAmount?.toString?.() ?? String(item.account.usdcAmount),
+          paidUsdc:
+            item.account.paidAmount?.toString?.() ?? String(item.account.paidAmount),
+          processed: Boolean(item.account.processed),
+          createdAt:
+            item.account.timestamp?.toString?.() ?? String(item.account.timestamp),
         }))
-        .sort((a, b) => Number(b.id) - Number(a.id));
+        .sort((a, b) => Number(b.createdAt) - Number(a.createdAt));
+
       setClaims(normalized);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to fetch claims");
@@ -107,7 +84,7 @@ export function useMyClaims() {
   }, [program, wallet.publicKey]);
 
   useEffect(() => {
-    fetchClaims();
+    void fetchClaims();
   }, [fetchClaims]);
 
   return { claims, loading, error, refreshClaims: fetchClaims };
