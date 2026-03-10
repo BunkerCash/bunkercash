@@ -20,6 +20,10 @@ interface AuthContextType {
   logout: () => void;
 }
 
+interface PoolAccountLike {
+  masterWallet: { toBase58: () => string };
+}
+
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -44,8 +48,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const program = getReadonlyProgram(connection);
         const poolPda = getPoolPda();
-        const poolState = await (program.account as any).poolState.fetch(poolPda);
-        const onChainAdmin = poolState.admin.toBase58();
+        const accountApi = program.account as {
+          pool: { fetch: (pubkey: ReturnType<typeof getPoolPda>) => Promise<PoolAccountLike> };
+        };
+        const poolState = await accountApi.pool.fetch(poolPda);
+        const onChainAdmin = poolState.masterWallet.toBase58();
 
         if (cancelled) return;
 

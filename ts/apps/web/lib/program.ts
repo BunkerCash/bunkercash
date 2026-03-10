@@ -25,7 +25,7 @@ export function getProgram(connection: Connection, wallet: WalletContextState): 
 
 export function getPoolPda(programId: PublicKey = PROGRAM_ID): PublicKey {
   const [pda] = PublicKey.findProgramAddressSync(
-    [Buffer.from('bunkercash_pool')],
+    [Buffer.from('pool')],
     programId
   )
   return pda
@@ -40,11 +40,8 @@ export function getBunkercashMintPda(programId: PublicKey = PROGRAM_ID): PublicK
 }
 
 export function getPoolSignerPda(poolPda: PublicKey, programId: PublicKey = PROGRAM_ID): PublicKey {
-  const [pda] = PublicKey.findProgramAddressSync(
-    [Buffer.from('bunkercash_pool_signer'), poolPda.toBuffer()],
-    programId
-  )
-  return pda
+  void programId
+  return poolPda
 }
 
 export function getClaimPriceSnapshotPda(

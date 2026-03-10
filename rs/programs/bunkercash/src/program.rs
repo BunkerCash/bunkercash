@@ -5,7 +5,7 @@ use mpl_token_metadata::instructions::{CreateMetadataAccountV3CpiBuilder, Update
 use mpl_token_metadata::types::DataV2;
 use mpl_token_metadata::ID as TOKEN_METADATA_PROGRAM_ID;
 
-declare_id!("84sMb85TrcfSrx1FVSfYk78PHqei9gDiZ3kJ7UKihx3X");
+declare_id!("DemMc7to6i31v3mvGF9aieyWixUqhNRLJtfQ9ZouqViR");
 
 #[program]
 pub mod bunkercash {
