@@ -202,6 +202,8 @@ async function main() {
         userBunkercash: userBunkercashAta,
         usdcTokenProgram: TOKEN_PROGRAM_ID,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
       })
       .rpc({ commitment: "confirmed" });
 
@@ -217,3 +219,4 @@ main()
     console.error(e);
     process.exit(1);
   });
+

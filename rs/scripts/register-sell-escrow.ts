@@ -34,7 +34,6 @@ const PROGRAM_ID = new PublicKey(idlJson.address);
 const POOL_SEED = "bunkercash_pool";
 const MINT_SEED = "bunkercash_mint";
 const POOL_SIGNER_SEED = "bunkercash_pool_signer";
-const CLAIM_PRICE_SNAPSHOT_SEED = "bunkercash_claim_price_snapshot";
 
 function bnU64LE(v: BN): Buffer {
   return v.toArrayLike(Buffer, "le", 8);
@@ -94,10 +93,6 @@ async function main() {
     [Buffer.from("claim"), poolPda.toBuffer(), bnU64LE(nextId)],
     program.programId
   );
-  const [claimPriceSnapshotPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from(CLAIM_PRICE_SNAPSHOT_SEED), claimPda.toBuffer()],
-    program.programId
-  );
 
   const beforeUser = await provider.connection.getTokenAccountBalance(userBunkercashAta, "confirmed").catch(() => null);
   const beforeEscrow = await provider.connection.getTokenAccountBalance(escrowVaultAta, "confirmed").catch(() => null);
@@ -117,7 +112,6 @@ async function main() {
       poolSigner: poolSignerPda,
       bunkercashMint: bunkercashMintPda,
       claim: claimPda,
-      claimPriceSnapshot: claimPriceSnapshotPda,
       user: wallet,
       userBunkercash: userBunkercashAta,
       escrowBunkercashVault: escrowVaultAta,
@@ -155,3 +149,4 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
+

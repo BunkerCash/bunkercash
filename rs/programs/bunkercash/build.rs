@@ -9,6 +9,7 @@
 ///   SQUADS_VAULT_PUBKEY     — Squads v4 vault PDA (vaultIndex = 0); set as pool.admin
 ///   SQUADS_MULTISIG_PUBKEY  — Squads v4 multisig address
 ///   SQUADS_MEMBER_1 … 4     — 4 member pubkeys (placeholders OK)
+
 use std::io::Write;
 
 fn main() {
@@ -45,7 +46,18 @@ fn main() {
                 key
             )
         });
-        writeln!(out, r#"/// From .env: {}."#, key).expect("write doc");
-        writeln!(out, r#"pub const {}: Pubkey = pubkey!("{}");"#, key, val).expect("write const");
+        writeln!(
+            out,
+            r#"/// From .env: {}."#,
+            key
+        )
+        .expect("write doc");
+        writeln!(
+            out,
+            r#"pub const {}: Pubkey = pubkey!("{}");"#,
+            key,
+            val
+        )
+        .expect("write const");
     }
 }
