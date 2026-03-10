@@ -1,62 +1,114 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useConnection, useWallet } from '@solana/wallet-adapter-react'
-import { PublicKey } from '@solana/web3.js'
-import { getProgram, PROGRAM_ID } from '@/lib/program'
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { PublicKey } from "@solana/web3.js";
+import { getProgram } from "@/lib/program";
+
+interface Stringable {
+  toString(): string;
+}
+
+interface RawClaimRecord {
+  publicKey: PublicKey;
+  account: {
+    id: Stringable;
+    user: PublicKey;
+    tokenAmountLocked: Stringable;
+    usdcPaid: Stringable;
+    isClosed: boolean;
+    createdAt: Stringable;
+  };
+}
+
+interface RawClaimPriceSnapshotRecord {
+  account: {
+    claim: PublicKey;
+    priceUsdcPerToken: Stringable;
+  };
+}
+
+interface ClaimsAccountApi {
+  claimState: { all: () => Promise<RawClaimRecord[]> };
+  claimPriceSnapshotState?: {
+    all: () => Promise<RawClaimPriceSnapshotRecord[]>;
+  };
+}
 
 export interface Claim {
-  pubkey: PublicKey
-  id: string
-  tokenAmountLocked: string
-  usdcPaid: string
-  isClosed: boolean
-  createdAt: string
+  pubkey: PublicKey;
+  id: string;
+  tokenAmountLocked: string;
+  priceUsdcPerTokenSnapshot: string | null;
+  usdcPaid: string;
+  isClosed: boolean;
+  createdAt: string;
 }
 
 export function useMyClaims() {
-  const { connection } = useConnection()
-  const wallet = useWallet()
-  const [claims, setClaims] = useState<Claim[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { connection } = useConnection();
+  const wallet = useWallet();
+  const [claims, setClaims] = useState<Claim[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const program = useMemo(() => (wallet.publicKey ? getProgram(connection, wallet) : null), [connection, wallet])
+  const program = useMemo(
+    () => (wallet.publicKey ? getProgram(connection, wallet) : null),
+    [connection, wallet]
+  );
 
   const fetchClaims = useCallback(async () => {
     if (!program || !wallet.publicKey) {
-        setClaims([])
-        return
+      setClaims([]);
+      return;
     }
-    
-    setLoading(true)
-    setError(null)
+
+    const userPublicKey = wallet.publicKey;
+
+    setLoading(true);
+    setError(null);
     try {
-      // ClaimState: fetch all and filter by user (memcmp on pubkey varies by RPC)
-      // TODO: Optimize with memcmp filters when index is ready
-      const all = await (program.account as any).claimState.all()
+      const accountApi = program.account as ClaimsAccountApi;
+      const [all, allSnapshots] = await Promise.all([
+        accountApi.claimState.all(),
+        accountApi.claimPriceSnapshotState?.all() ?? Promise.resolve([]),
+      ]);
+
+      const snapshotMap = new Map<string, string>();
+      for (const snapshot of allSnapshots) {
+        snapshotMap.set(
+          snapshot.account.claim.toBase58(),
+          snapshot.account.priceUsdcPerToken.toString()
+        );
+      }
+
       const mine = all.filter(
-        (x: any) => (x.account.user as PublicKey)?.toBase58?.() === wallet.publicKey!.toBase58()
-      )
+        (x) => x.account.user.toBase58() === userPublicKey.toBase58()
+      );
+
       const normalized = mine
-        .map((x: any) => ({
-          pubkey: x.publicKey as PublicKey,
+        .map((x) => ({
+          pubkey: x.publicKey,
           id: x.account.id?.toString?.() ?? String(x.account.id),
-          tokenAmountLocked: x.account.tokenAmountLocked?.toString?.() ?? String(x.account.tokenAmountLocked),
+          tokenAmountLocked:
+            x.account.tokenAmountLocked?.toString?.() ??
+            String(x.account.tokenAmountLocked),
+          priceUsdcPerTokenSnapshot:
+            snapshotMap.get(x.publicKey.toBase58()) ?? null,
           usdcPaid: x.account.usdcPaid?.toString?.() ?? String(x.account.usdcPaid),
           isClosed: Boolean(x.account.isClosed),
           createdAt: x.account.createdAt?.toString?.() ?? String(x.account.createdAt),
         }))
-        .sort((a: any, b: any) => Number(b.id) - Number(a.id))
-      setClaims(normalized)
-    } catch (e: any) {
-        setError(e.message || "Failed to fetch claims")
+        .sort((a, b) => Number(b.id) - Number(a.id));
+      setClaims(normalized);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to fetch claims");
     } finally {
-        setLoading(false)
+      setLoading(false);
     }
-  }, [program, wallet.publicKey])
+  }, [program, wallet.publicKey]);
 
   useEffect(() => {
-    fetchClaims()
-  }, [fetchClaims])
+    fetchClaims();
+  }, [fetchClaims]);
 
-  return { claims, loading, error, refreshClaims: fetchClaims }
+  return { claims, loading, error, refreshClaims: fetchClaims };
 }
