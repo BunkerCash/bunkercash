@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Zap, Lock, Square, Wallet } from "lucide-react";
+import { Zap, Lock, Square, Wallet, CalendarCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
 
@@ -30,6 +30,12 @@ const navItems = [
     label: "Claims",
     icon: Square,
     iconColor: "text-neutral-400",
+  },
+  {
+    href: "/dashboard/settlement",
+    label: "Settlement",
+    icon: CalendarCheck,
+    iconColor: "text-blue-400",
   },
   {
     href: "/dashboard/master-ops",

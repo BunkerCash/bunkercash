@@ -1748,6 +1748,176 @@
       ]
     },
     {
+      "name": "settle_claim",
+      "docs": [
+        "Partial claim settlement for proportional monthly payouts.",
+        "",
+        "- Pays `payout_amount` of USDC from the vault to the claim user.",
+        "- Updates `claim.usdc_paid` without closing the claim unless fully paid.",
+        "- Only the admin (or Squads vault) can trigger settlements."
+      ],
+      "discriminator": [
+        205,
+        203,
+        21,
+        66,
+        255,
+        231,
+        209,
+        155
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_signer",
+          "docs": [
+            "PDA that owns all program vault ATAs (escrow + payout)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108,
+                  95,
+                  115,
+                  105,
+                  103,
+                  110,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "claim",
+          "writable": true
+        },
+        {
+          "name": "claim_price_snapshot",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  99,
+                  108,
+                  97,
+                  105,
+                  109,
+                  95,
+                  112,
+                  114,
+                  105,
+                  99,
+                  101,
+                  95,
+                  115,
+                  110,
+                  97,
+                  112,
+                  115,
+                  104,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "claim"
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "payout_usdc_vault",
+          "writable": true
+        },
+        {
+          "name": "user_usdc",
+          "docs": [
+            "The claim user's USDC token account (recipient of the payout)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "usdc_token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "payout_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "update_mint_metadata",
       "docs": [
         "Updates Metaplex token metadata for the Bunker Cash mint."
@@ -1979,6 +2149,19 @@
   ],
   "events": [
     {
+      "name": "ClaimSettled",
+      "discriminator": [
+        144,
+        220,
+        131,
+        115,
+        8,
+        187,
+        224,
+        236
+      ]
+    },
+    {
       "name": "LiquidityAdded",
       "discriminator": [
         154,
@@ -2159,6 +2342,38 @@
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ClaimSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "claim_id",
+            "type": "u64"
+          },
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "payout_amount",
+            "type": "u64"
+          },
+          {
+            "name": "total_paid",
+            "type": "u64"
+          },
+          {
+            "name": "total_owed",
+            "type": "u64"
+          },
+          {
+            "name": "is_closed",
+            "type": "bool"
           }
         ]
       }
