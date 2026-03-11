@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import type { Idl, Program } from '@coral-xyz/anchor'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
-import { PublicKey, SystemProgram, Transaction, type TransactionInstruction } from '@solana/web3.js'
+import { PublicKey, SendTransactionError, SystemProgram, Transaction, type TransactionInstruction } from '@solana/web3.js'
 import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import {
   getBunkercashMintPda,
@@ -357,6 +357,14 @@ export function BuyPrimaryInterface() {
       if (isWalletRejection(e)) {
         setError("Transaction was rejected in your wallet.");
         showToast("Transaction rejected by wallet", "warning");
+      } else if (e instanceof SendTransactionError) {
+        const logs = await e.getLogs(connection);
+        if (logs?.length) {
+          console.error('Deposit transaction logs:', logs);
+        }
+        const msg = e.message || "Transaction failed";
+        setError(msg);
+        showToast(msg, "error");
       } else {
         const msg = e instanceof Error ? e.message : "Transaction failed";
         setError(msg);

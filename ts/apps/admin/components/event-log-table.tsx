@@ -13,16 +13,20 @@ import {
 const filterTabs: Array<{ label: string; value: EventType | "All" }> = [
   { label: "All", value: "All" },
   { label: "Buy", value: "Buy" },
-  { label: "Register Sell", value: "Register Sell" },
-  { label: "Claim", value: "Claim" },
-  { label: "Liquidity", value: "Liquidity" },
+  { label: "File Claim", value: "File Claim" },
+  { label: "Settlement", value: "Settlement" },
+  { label: "Withdraw", value: "Master Withdraw" },
+  { label: "Repay", value: "Master Repay" },
+  { label: "Cancel", value: "Master Cancel" },
 ];
 
 const typeBadgeStyles: Record<EventType, string> = {
   Buy: "bg-[#00FFB2]/15 text-[#00FFB2]",
-  Claim: "bg-amber-500/15 text-amber-400",
-  "Register Sell": "bg-emerald-500/15 text-emerald-400",
-  Liquidity: "bg-neutral-500/15 text-neutral-400",
+  "File Claim": "bg-emerald-500/15 text-emerald-400",
+  Settlement: "bg-amber-500/15 text-amber-400",
+  "Master Withdraw": "bg-rose-500/15 text-rose-300",
+  "Master Repay": "bg-sky-500/15 text-sky-300",
+  "Master Cancel": "bg-neutral-500/15 text-neutral-300",
 };
 
 function truncateWallet(wallet: string): string {
@@ -51,9 +55,7 @@ export function EventLogTable() {
   const { events, loading, error, refresh } = useRecentProgramEvents(10);
 
   const explorerClusterParam = useMemo(() => {
-    const cluster = getClusterFromEndpoint(
-      (connection as any).rpcEndpoint ?? ""
-    );
+    const cluster = getClusterFromEndpoint(connection.rpcEndpoint ?? "");
     return cluster === "mainnet-beta" ? "" : `?cluster=${cluster}`;
   }, [connection]);
 

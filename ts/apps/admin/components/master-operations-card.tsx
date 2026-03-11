@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { BN } from "@coral-xyz/anchor";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { PublicKey, Transaction } from "@solana/web3.js";
+import { PublicKey, SendTransactionError, Transaction } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
@@ -123,8 +123,10 @@ export function MasterOperationsCard() {
   );
 
   const adminWallet = pool?.masterWallet ?? null;
+  const adminWalletBase58 = adminWallet?.toBase58() ?? null;
+  const connectedWalletBase58 = wallet.publicKey?.toBase58() ?? null;
   const isAuthorizedWallet =
-    !!wallet.publicKey && !!adminWallet && wallet.publicKey.equals(adminWallet);
+    !!connectedWalletBase58 && !!adminWalletBase58 && connectedWalletBase58 === adminWalletBase58;
 
   const explorerTxUrl = (signature: string) => {
     const base = `https://explorer.solana.com/tx/${signature}`;
@@ -221,6 +223,12 @@ export function MasterOperationsCard() {
       refreshVault();
     } catch (e: unknown) {
       console.error("Error submitting master withdraw:", e);
+      if (e instanceof SendTransactionError) {
+        const logs = await e.getLogs(connection);
+        if (logs?.length) {
+          console.error("Master withdraw transaction logs:", logs);
+        }
+      }
       const msg = getErrorMessage(e, "Failed to submit withdrawal");
       if (msg.includes("already in use") || msg.includes("0x0")) {
         setTxError("Withdrawal slot conflict. Refresh and retry.");
@@ -281,6 +289,12 @@ export function MasterOperationsCard() {
       refreshVault();
     } catch (e: unknown) {
       console.error("Error submitting master repay:", e);
+      if (e instanceof SendTransactionError) {
+        const logs = await e.getLogs(connection);
+        if (logs?.length) {
+          console.error("Master repay transaction logs:", logs);
+        }
+      }
       setTxError(getErrorMessage(e, "Failed to submit repayment"));
     } finally {
       setSubmitting(null);
@@ -335,6 +349,12 @@ export function MasterOperationsCard() {
       refreshVault();
     } catch (e: unknown) {
       console.error("Error submitting cancel withdrawal:", e);
+      if (e instanceof SendTransactionError) {
+        const logs = await e.getLogs(connection);
+        if (logs?.length) {
+          console.error("Cancel withdrawal transaction logs:", logs);
+        }
+      }
       setTxError(getErrorMessage(e, "Failed to cancel withdrawal"));
     } finally {
       setSubmitting(null);

@@ -18,16 +18,12 @@ function formatUsdcAmount(raw: bigint) {
 function getClaimProgress(claim: Claim) {
   const requestedRaw = BigInt(claim.requestedUsdc);
   const paidRaw = BigInt(claim.paidUsdc);
-
-  if (claim.processed) {
-    return { requestedRaw, paidRaw, progressPct: 100 };
-  }
+  const cappedPaidRaw = paidRaw > requestedRaw ? requestedRaw : paidRaw;
 
   if (requestedRaw <= BigInt(0)) {
-    return { requestedRaw, paidRaw, progressPct: paidRaw > BigInt(0) ? 100 : 0 };
+    return { requestedRaw, paidRaw: cappedPaidRaw, progressPct: paidRaw > BigInt(0) ? 100 : 0 };
   }
 
-  const cappedPaidRaw = paidRaw > requestedRaw ? requestedRaw : paidRaw;
   const progressPct = Number((cappedPaidRaw * BigInt(10000)) / requestedRaw) / 100;
   return { requestedRaw, paidRaw: cappedPaidRaw, progressPct };
 }

@@ -75,17 +75,6 @@ fn validate_settlement_accounts<'info>(
             Claim::try_deserialize(&mut &claim_data[..])?
         };
 
-        let expected_claim = Pubkey::find_program_address(
-            &[CLAIM_SEED, claim.user.as_ref(), &claim.id.to_le_bytes()],
-            program_id,
-        )
-        .0;
-
-        require_keys_eq!(
-            claim_account_info.key(),
-            expected_claim,
-            ErrorCode::InvalidClaimAccount
-        );
         require_keys_eq!(
             accessor::authority(user_usdc)?,
             claim.user,
@@ -112,7 +101,6 @@ pub mod bunkercash {
         let pool = &mut ctx.accounts.pool;
         let timestamp = Clock::get()?.unix_timestamp;
         pool.master_wallet = master_wallet;
-        pool.usdc_mint = ctx.accounts.usdc_mint.key();
         pool.nav = 0;
         pool.total_brent_supply = 0;
         pool.total_pending_claims = 0;
@@ -120,17 +108,19 @@ pub mod bunkercash {
         pool.withdrawal_counter = 0;
         pool.bump = ctx.bumps.pool;
 
+        let usdc_mint_key = ctx.accounts.usdc_mint.key();
+
         emit!(PoolInitializedEvent {
             pool: pool.key(),
             master_wallet,
-            usdc_mint: pool.usdc_mint,
+            usdc_mint: usdc_mint_key,
             timestamp,
         });
 
         msg!(
             "bRENT pool initialized with master wallet {} and USDC mint {}",
             master_wallet,
-            pool.usdc_mint
+            usdc_mint_key
         );
         Ok(())
     }
@@ -308,7 +298,6 @@ pub mod bunkercash {
         let claim_id = pool.claim_counter - 1;
         let timestamp = Clock::get()?.unix_timestamp;
 
-        claim.id = claim_id;
         claim.user = user;
         claim.usdc_amount = usdc_value;
         claim.timestamp = timestamp;
@@ -351,13 +340,28 @@ pub mod bunkercash {
             ctx.remaining_accounts,
         )?;
 
+        // Compute actual total remaining from the claims being settled
+        // (pool.total_pending_claims may be stale from the old program)
+        let mut actual_total_remaining = 0u64;
+        for (idx, claim_account_info) in ctx.remaining_accounts.iter().enumerate() {
+            if idx % 2 == 0 {
+                let claim_data = claim_account_info.try_borrow_data()?;
+                let claim = Claim::try_deserialize(&mut &claim_data[..])?;
+                if claim.paid_amount < claim.usdc_amount {
+                    actual_total_remaining = actual_total_remaining
+                        .checked_add(claim.usdc_amount.saturating_sub(claim.paid_amount))
+                        .unwrap();
+                }
+            }
+        }
+
         let usdc_balance = accessor::amount(&ctx.accounts.pool_usdc.to_account_info())?;
-        let total_claimable = usdc_balance.min(pool.total_pending_claims);
-        let payout_ratio = if pool.total_pending_claims > 0 {
+        let total_claimable = usdc_balance.min(actual_total_remaining);
+        let payout_ratio = if actual_total_remaining > 0 {
             (total_claimable as u128)
                 .checked_mul(1_000_000)
                 .unwrap()
-                .checked_div(pool.total_pending_claims as u128)
+                .checked_div(actual_total_remaining as u128)
                 .unwrap() as u64
         } else {
             0
@@ -393,13 +397,19 @@ pub mod bunkercash {
                 let mut claim_data = claim_account_info.try_borrow_mut_data()?;
                 let claim = Claim::try_deserialize(&mut &claim_data[..])?;
 
-                if !claim.processed {
+                if claim.paid_amount < claim.usdc_amount {
                     let claim_usdc_amount = claim.usdc_amount;
-                    let payout = (claim_usdc_amount as u128)
+                    let claim_paid_amount = claim.paid_amount;
+                    let claim_remaining_amount = claim_usdc_amount.saturating_sub(claim.paid_amount);
+                    let payout = (claim_remaining_amount as u128)
                         .checked_mul(payout_ratio as u128)
                         .unwrap()
                         .checked_div(1_000_000)
                         .unwrap() as u64;
+
+                    if payout == 0 {
+                        continue;
+                    }
 
                     let user_usdc = &ctx.remaining_accounts[idx + 1];
 
@@ -418,14 +428,16 @@ pub mod bunkercash {
                         ctx.accounts.usdc_mint.decimals,
                     )?;
 
-                    pool.total_pending_claims = pool.total_pending_claims.checked_sub(claim_usdc_amount).unwrap();
-                    pool.nav = pool.nav.checked_sub(payout).unwrap();
+                    let remaining_after_payout = claim_remaining_amount.saturating_sub(payout);
+
+                    pool.total_pending_claims = pool.total_pending_claims.saturating_sub(payout);
+                    pool.nav = pool.nav.saturating_sub(payout);
                     claims_settled = claims_settled.checked_add(1).unwrap();
                     total_paid = total_paid.checked_add(payout).unwrap();
 
                     let mut updated_claim = claim;
-                    updated_claim.processed = true;
-                    updated_claim.paid_amount = payout;
+                    updated_claim.processed = remaining_after_payout == 0;
+                    updated_claim.paid_amount = claim_paid_amount.checked_add(payout).unwrap();
                     updated_claim.serialize(&mut &mut claim_data[8..])?;
 
                     emit!(ClaimSettledEvent {
@@ -442,6 +454,21 @@ pub mod bunkercash {
                 }
             }
         }
+
+        // Sync pool.total_pending_claims with actual remaining
+        let mut recalculated_pending = 0u64;
+        for (idx, claim_account_info) in ctx.remaining_accounts.iter().enumerate() {
+            if idx % 2 == 0 {
+                let claim_data = claim_account_info.try_borrow_data()?;
+                let claim = Claim::try_deserialize(&mut &claim_data[..])?;
+                if claim.paid_amount < claim.usdc_amount {
+                    recalculated_pending = recalculated_pending
+                        .checked_add(claim.usdc_amount.saturating_sub(claim.paid_amount))
+                        .unwrap();
+                }
+            }
+        }
+        pool.total_pending_claims = recalculated_pending;
 
         emit!(ClaimsSettledEvent {
             pool: pool.key(),
@@ -738,27 +765,6 @@ pub struct DepositUsdc<'info> {
 
     #[account(
         mut,
-        seeds = [BRENT_MINT_SEED],
-        bump,
-        mint::authority = pool,
-        mint::freeze_authority = pool,
-        mint::decimals = TOKEN_DECIMALS,
-        mint::token_program = token_program
-    )]
-    pub brent_mint: InterfaceAccount<'info, Mint>,
-
-    #[account(
-        mint::decimals = TOKEN_DECIMALS,
-        mint::token_program = token_program,
-        address = pool.usdc_mint @ ErrorCode::InvalidUsdcMint
-    )]
-    pub usdc_mint: InterfaceAccount<'info, Mint>,
-
-    #[account(mut)]
-    pub user: Signer<'info>,
-
-    #[account(
-        mut,
         token::mint = usdc_mint,
         token::authority = user,
         token::token_program = token_program
@@ -781,6 +787,26 @@ pub struct DepositUsdc<'info> {
         address = canonical_pool_usdc_vault(pool.key(), usdc_mint.key(), token_program.key()) @ ErrorCode::InvalidPoolUsdcVault
     )]
     pub pool_usdc: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        seeds = [BRENT_MINT_SEED],
+        bump,
+        mint::authority = pool,
+        mint::freeze_authority = pool,
+        mint::decimals = TOKEN_DECIMALS,
+        mint::token_program = token_program
+    )]
+    pub brent_mint: InterfaceAccount<'info, Mint>,
+
+    #[account(
+        mint::decimals = TOKEN_DECIMALS,
+        mint::token_program = token_program
+    )]
+    pub usdc_mint: InterfaceAccount<'info, Mint>,
+
+    #[account(mut)]
+    pub user: Signer<'info>,
 
     pub token_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
@@ -806,6 +832,14 @@ pub struct FileClaim<'info> {
 
     #[account(
         mut,
+        token::mint = brent_mint,
+        token::authority = user,
+        token::token_program = token_program
+    )]
+    pub user_brent: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
+        mut,
         seeds = [BRENT_MINT_SEED],
         bump,
         mint::authority = pool,
@@ -817,14 +851,6 @@ pub struct FileClaim<'info> {
 
     #[account(mut)]
     pub user: Signer<'info>,
-
-    #[account(
-        mut,
-        token::mint = brent_mint,
-        token::authority = user,
-        token::token_program = token_program
-    )]
-    pub user_brent: InterfaceAccount<'info, TokenAccount>,
 
     pub token_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
@@ -863,13 +889,6 @@ pub struct SettleClaims<'info> {
     pub pool: Account<'info, Pool>,
 
     #[account(
-        mint::decimals = TOKEN_DECIMALS,
-        mint::token_program = token_program,
-        address = pool.usdc_mint @ ErrorCode::InvalidUsdcMint
-    )]
-    pub usdc_mint: InterfaceAccount<'info, Mint>,
-
-    #[account(
         mut,
         token::mint = usdc_mint,
         token::authority = pool,
@@ -877,6 +896,12 @@ pub struct SettleClaims<'info> {
         address = canonical_pool_usdc_vault(pool.key(), usdc_mint.key(), token_program.key()) @ ErrorCode::InvalidPoolUsdcVault
     )]
     pub pool_usdc: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
+        mint::decimals = TOKEN_DECIMALS,
+        mint::token_program = token_program
+    )]
+    pub usdc_mint: InterfaceAccount<'info, Mint>,
 
     pub master_wallet: Signer<'info>,
 
@@ -902,16 +927,6 @@ pub struct MasterWithdraw<'info> {
     pub withdrawal: Account<'info, Withdrawal>,
 
     #[account(
-        mint::decimals = TOKEN_DECIMALS,
-        mint::token_program = token_program,
-        address = pool.usdc_mint @ ErrorCode::InvalidUsdcMint
-    )]
-    pub usdc_mint: InterfaceAccount<'info, Mint>,
-
-    #[account(mut)]
-    pub master_wallet: Signer<'info>,
-
-    #[account(
         mut,
         token::mint = usdc_mint,
         token::authority = pool,
@@ -927,6 +942,15 @@ pub struct MasterWithdraw<'info> {
         token::token_program = token_program
     )]
     pub master_usdc: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
+        mint::decimals = TOKEN_DECIMALS,
+        mint::token_program = token_program
+    )]
+    pub usdc_mint: InterfaceAccount<'info, Mint>,
+
+    #[account(mut)]
+    pub master_wallet: Signer<'info>,
 
     pub token_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
@@ -949,15 +973,6 @@ pub struct MasterRepay<'info> {
     pub withdrawal: Account<'info, Withdrawal>,
 
     #[account(
-        mint::decimals = TOKEN_DECIMALS,
-        mint::token_program = token_program,
-        address = pool.usdc_mint @ ErrorCode::InvalidUsdcMint
-    )]
-    pub usdc_mint: InterfaceAccount<'info, Mint>,
-
-    pub master_wallet: Signer<'info>,
-
-    #[account(
         mut,
         token::mint = usdc_mint,
         token::authority = master_wallet,
@@ -973,6 +988,14 @@ pub struct MasterRepay<'info> {
         address = canonical_pool_usdc_vault(pool.key(), usdc_mint.key(), token_program.key()) @ ErrorCode::InvalidPoolUsdcVault
     )]
     pub pool_usdc: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
+        mint::decimals = TOKEN_DECIMALS,
+        mint::token_program = token_program
+    )]
+    pub usdc_mint: InterfaceAccount<'info, Mint>,
+
+    pub master_wallet: Signer<'info>,
 
     pub token_program: Program<'info, Token2022>,
 }
@@ -1041,7 +1064,6 @@ pub struct UpdateMintMetadata<'info> {
 #[derive(InitSpace)]
 pub struct Pool {
     pub master_wallet: Pubkey,
-    pub usdc_mint: Pubkey,
     pub nav: u64,
     pub total_brent_supply: u64,
     pub total_pending_claims: u64,
@@ -1053,7 +1075,6 @@ pub struct Pool {
 #[account]
 #[derive(InitSpace)]
 pub struct Claim {
-    pub id: u64,
     pub user: Pubkey,
     pub usdc_amount: u64,
     pub timestamp: i64,

@@ -31,14 +31,6 @@ interface Stringable {
   toString(): string;
 }
 
-interface RawPoolAccount {
-  masterWallet: PublicKey;
-  nav: Stringable;
-  totalBrentSupply: Stringable;
-  totalPendingClaims: Stringable;
-  claimCounter: Stringable;
-  withdrawalCounter: Stringable;
-}
 
 interface RawMasterWithdrawalRecord {
   publicKey: PublicKey;
@@ -52,6 +44,30 @@ interface RawMasterWithdrawalRecord {
 }
 
 const CACHE_TTL = 30_000;
+const POOL_ACCOUNT_DISCRIMINATOR = 8;
+
+function readU64Le(data: Uint8Array, offset: number): string {
+  let value = BigInt(0);
+  for (let i = 0; i < 8; i += 1) {
+    value |= BigInt(data[offset + i] ?? 0) << BigInt(8 * i);
+  }
+  return value.toString();
+}
+
+function decodePoolAccount(data: Uint8Array): MasterPoolState {
+  if (data.length < POOL_ACCOUNT_DISCRIMINATOR + 32 + 8 * 5 + 1) {
+    throw new Error(`Unexpected pool account length: ${data.length}`);
+  }
+
+  return {
+    masterWallet: new PublicKey(data.subarray(8, 40)),
+    nav: readU64Le(data, 40),
+    totalBrentSupply: readU64Le(data, 48),
+    totalPendingClaims: readU64Le(data, 56),
+    claimCounter: readU64Le(data, 64),
+    withdrawalCounter: readU64Le(data, 72),
+  };
+}
 
 export function useMasterWithdrawals() {
   const { connection } = useConnection();
@@ -95,23 +111,19 @@ export function useMasterWithdrawals() {
       setError(null);
       try {
         const accountApi = program.account as {
-          pool: { fetch: (pubkey: PublicKey) => Promise<RawPoolAccount> };
           withdrawal: { all: () => Promise<RawMasterWithdrawalRecord[]> };
         };
 
-        const [poolAccount, allWithdrawals] = await Promise.all([
-          accountApi.pool.fetch(poolPda),
+        const [poolInfo, allWithdrawals] = await Promise.all([
+          connection.getAccountInfo(poolPda, 'confirmed'),
           accountApi.withdrawal.all(),
         ]);
 
-        const normalizedPool: MasterPoolState = {
-          masterWallet: poolAccount.masterWallet as PublicKey,
-          nav: poolAccount.nav.toString(),
-          totalBrentSupply: poolAccount.totalBrentSupply.toString(),
-          totalPendingClaims: poolAccount.totalPendingClaims.toString(),
-          claimCounter: poolAccount.claimCounter.toString(),
-          withdrawalCounter: poolAccount.withdrawalCounter.toString(),
-        };
+        if (!poolInfo?.data) {
+          throw new Error('Pool account not found');
+        }
+
+        const normalizedPool = decodePoolAccount(poolInfo.data);
 
         const normalizedWithdrawals: MasterWithdrawal[] = allWithdrawals
           .map((item) => ({
@@ -140,7 +152,7 @@ export function useMasterWithdrawals() {
         setLoading(false);
       }
     },
-    [program, poolPda, rpcEndpoint]
+    [connection, program, poolPda, rpcEndpoint]
   );
 
   useEffect(() => {

@@ -82,7 +82,7 @@ export function ClaimsTable() {
               <tr className="border-b border-neutral-800/60 text-left text-[11px] uppercase tracking-wider text-neutral-500">
                 <th className="px-5 py-3">Claim</th>
                 <th className="px-5 py-3">Wallet</th>
-                <th className="px-5 py-3 text-right">Requested</th>
+                <th className="px-5 py-3 text-right">Outstanding</th>
                 <th className="px-5 py-3 text-right">Paid</th>
                 <th className="px-5 py-3 text-right">Created</th>
                 <th className="px-5 py-3 text-right">Status</th>
@@ -109,7 +109,7 @@ export function ClaimsTable() {
                       {shortPk(claim.user.toBase58())}
                     </td>
                     <td className="px-5 py-4 text-right font-mono text-sm text-white">
-                      ${formatUsdc(claim.requestedUsdc)}
+                      ${formatUsdc(claim.remainingUsdc)}
                     </td>
                     <td className="px-5 py-4 text-right font-mono text-sm text-neutral-300">
                       ${formatUsdc(claim.paidUsdc)}
@@ -117,7 +117,9 @@ export function ClaimsTable() {
                     <td className="px-5 py-4 text-right text-sm text-neutral-300">
                       {formatTimestamp(claim.createdAt)}
                     </td>
-                    <td className="px-5 py-4 text-right text-sm text-amber-400">Open</td>
+                    <td className="px-5 py-4 text-right text-sm text-amber-400">
+                      {BigInt(claim.paidUsdc) > BigInt(0) ? "Partially Paid" : "Open"}
+                    </td>
                   </tr>
                 ))
               )}

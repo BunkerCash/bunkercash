@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { Buffer } from "buffer";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { PublicKey, Transaction, type TransactionInstruction } from "@solana/web3.js";
+import { PublicKey, SendTransactionError, Transaction, type TransactionInstruction } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
@@ -77,6 +77,16 @@ function truncateWallet(wallet: string): string {
   return `${wallet.slice(0, 4)}...${wallet.slice(-4)}`;
 }
 
+function formatTimestamp(raw: string): string {
+  return new Date(Number(raw) * 1000).toLocaleString("en-US", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
@@ -84,7 +94,14 @@ function getErrorMessage(error: unknown, fallback: string): string {
 export function SettlementCard() {
   const { connection } = useConnection();
   const wallet = useWallet();
-  const { claims, totalRequested, loading: claimsLoading, error: claimsError, refresh: refreshClaims } = useAllOpenClaims();
+  const {
+    claims,
+    closedClaims,
+    totalRequested,
+    loading: claimsLoading,
+    error: claimsError,
+    refresh: refreshClaims,
+  } = useAllOpenClaims();
   const { balance: vaultBalance, loading: vaultLoading, error: vaultError, refresh: refreshVault } = usePayoutVault();
 
   const [settling, setSettling] = useState(false);
@@ -122,7 +139,7 @@ export function SettlementCard() {
     const totalClaimable = vaultRaw < totalRequested ? vaultRaw : totalRequested;
     const items = claims.map((claim) => ({
       claim,
-      requested: BigInt(claim.requestedUsdc),
+      requested: BigInt(claim.remainingUsdc),
       payout: BigInt(0),
     }));
 
@@ -212,6 +229,12 @@ export function SettlementCard() {
         setProgress((prev) => ({ current: prev.current + batch.length, total: prev.total }));
       } catch (e: unknown) {
         console.error("Failed to settle claim batch:", e);
+        if (e instanceof SendTransactionError) {
+          const logs = await e.getLogs(connection);
+          if (logs?.length) {
+            console.error("Settle claims transaction logs:", logs);
+          }
+        }
         if (!firstError) {
           firstError = getErrorMessage(e, "Failed to settle claim batch");
         }
@@ -294,6 +317,7 @@ export function SettlementCard() {
         </div>
       )}
 
+
       {results && (
         <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-sm text-emerald-300">
           <div className="flex items-center gap-2">
@@ -369,6 +393,131 @@ export function SettlementCard() {
           </div>
         )}
       </div>
+
+      <section className="overflow-hidden rounded-xl border border-neutral-800/60">
+        <div className="border-b border-neutral-800/60 bg-neutral-900/30 px-5 py-3">
+          <h3 className="text-sm font-medium text-white">Open Claims in Current Run</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px]">
+            <thead>
+              <tr className="border-b border-neutral-800/60 text-left text-[11px] uppercase tracking-wider text-neutral-500">
+                <th className="px-5 py-3">Claim</th>
+                <th className="px-5 py-3">Wallet</th>
+                <th className="px-5 py-3 text-right">Outstanding</th>
+                <th className="px-5 py-3 text-right">Paid</th>
+                <th className="px-5 py-3 text-right">Planned Payout</th>
+                <th className="px-5 py-3 text-right">Created</th>
+                <th className="px-5 py-3 text-right">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="px-5 py-8 text-center text-sm text-neutral-500">
+                    Loading open claims...
+                  </td>
+                </tr>
+              ) : claims.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-5 py-8 text-center text-sm text-neutral-500">
+                    No open claims.
+                  </td>
+                </tr>
+              ) : (
+                claims.map((claim) => {
+                  const plannedItem = settlementPlan.find((item) => item.claim.pubkey.equals(claim.pubkey));
+                  const plannedPayout = plannedItem?.payout ?? BigInt(0);
+
+                  return (
+                    <tr key={claim.pubkey.toBase58()} className="border-b border-neutral-800/40 last:border-b-0">
+                      <td className="px-5 py-4 font-mono text-sm text-white">{claim.id}</td>
+                      <td className="px-5 py-4 font-mono text-sm text-neutral-300">
+                        {truncateWallet(claim.user.toBase58())}
+                      </td>
+                      <td className="px-5 py-4 text-right font-mono text-sm text-white">
+                        ${formatUsdc(BigInt(claim.remainingUsdc))}
+                      </td>
+                      <td className="px-5 py-4 text-right font-mono text-sm text-neutral-300">
+                        ${formatUsdc(BigInt(claim.paidUsdc))}
+                      </td>
+                      <td className="px-5 py-4 text-right font-mono text-sm text-[#00FFB2]">
+                        ${formatUsdc(plannedPayout)}
+                      </td>
+                      <td className="px-5 py-4 text-right text-sm text-neutral-300">
+                        {formatTimestamp(claim.createdAt)}
+                      </td>
+                      <td className="px-5 py-4 text-right text-sm">
+                        {plannedPayout > BigInt(0) ? (
+                          <span className="text-amber-400">Included</span>
+                        ) : BigInt(claim.paidUsdc) > BigInt(0) ? (
+                          <span className="text-sky-400">Partially Paid</span>
+                        ) : (
+                          <span className="text-neutral-500">No payout</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-xl border border-neutral-800/60">
+        <div className="border-b border-neutral-800/60 bg-neutral-900/30 px-5 py-3">
+          <h3 className="text-sm font-medium text-white">Settled Claims</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px]">
+            <thead>
+              <tr className="border-b border-neutral-800/60 text-left text-[11px] uppercase tracking-wider text-neutral-500">
+                <th className="px-5 py-3">Claim</th>
+                <th className="px-5 py-3">Wallet</th>
+                <th className="px-5 py-3 text-right">Requested</th>
+                <th className="px-5 py-3 text-right">Paid</th>
+                <th className="px-5 py-3 text-right">Settled</th>
+                <th className="px-5 py-3 text-right">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={6} className="px-5 py-8 text-center text-sm text-neutral-500">
+                    Loading settled claims...
+                  </td>
+                </tr>
+              ) : closedClaims.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-5 py-8 text-center text-sm text-neutral-500">
+                    No settled claims yet.
+                  </td>
+                </tr>
+              ) : (
+                closedClaims.map((claim) => (
+                  <tr key={claim.pubkey.toBase58()} className="border-b border-neutral-800/40 last:border-b-0">
+                    <td className="px-5 py-4 font-mono text-sm text-white">{claim.id}</td>
+                    <td className="px-5 py-4 font-mono text-sm text-neutral-300">
+                      {truncateWallet(claim.user.toBase58())}
+                    </td>
+                    <td className="px-5 py-4 text-right font-mono text-sm text-neutral-300">
+                      ${formatUsdc(BigInt(claim.requestedUsdc))}
+                    </td>
+                    <td className="px-5 py-4 text-right font-mono text-sm text-white">
+                      ${formatUsdc(BigInt(claim.paidUsdc))}
+                    </td>
+                    <td className="px-5 py-4 text-right text-sm text-neutral-300">
+                      {formatTimestamp(claim.createdAt)}
+                    </td>
+                    <td className="px-5 py-4 text-right text-sm text-[#00FFB2]">Settled</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }

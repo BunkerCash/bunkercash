@@ -4,7 +4,7 @@ import { useMemo, useState, useRef } from "react";
 import type { Idl, Program } from '@coral-xyz/anchor'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { BN } from '@coral-xyz/anchor'
-import { PublicKey, SystemProgram, Transaction, type TransactionInstruction } from '@solana/web3.js'
+import { PublicKey, SendTransactionError, SystemProgram, Transaction, type TransactionInstruction } from '@solana/web3.js'
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
@@ -195,6 +195,13 @@ export function WithdrawInterface() {
       if (isWalletRejection(e)) {
         setError("Transaction was rejected in your wallet.");
         showToast("Transaction rejected by wallet", "warning");
+      } else if (e instanceof SendTransactionError) {
+        const logs = await e.getLogs(connection);
+        if (logs?.length) {
+          console.error('File claim transaction logs:', logs);
+        }
+        setError(e.message || "Transaction failed");
+        showToast(e.message || "Transaction failed", "error");
       } else if (msg.includes("ClaimAmountTooSmall") || msg.includes("non-zero USDC value")) {
         setError("Amount is too small to produce any USDC at the current NAV.");
         showToast("Claim amount too small at current NAV", "warning");
@@ -334,10 +341,7 @@ export function WithdrawInterface() {
             </div>
           ) : (
             claims.map((c) => (
-              <div
-                key={c.pubkey.toBase58()}
-                className="bg-neutral-900 rounded-xl p-5 border border-neutral-800"
-              >
+              <div key={c.pubkey.toBase58()} className="bg-neutral-900 rounded-xl p-5 border border-neutral-800">
                 <div className="flex justify-between items-start mb-3">
                   <div>
                     <div className="text-lg font-semibold">Claim #{c.id}</div>
@@ -349,10 +353,12 @@ export function WithdrawInterface() {
                     className={`px-3 py-1 rounded-full text-xs font-medium ${
                       c.processed
                         ? "bg-[#00FFB2]/20 text-[#00FFB2]"
-                        : "bg-neutral-800 text-neutral-400"
+                        : Number(c.paidUsdc) > 0
+                          ? "bg-sky-500/15 text-sky-300"
+                          : "bg-neutral-800 text-neutral-400"
                     }`}
                   >
-                    {c.processed ? "processed" : "pending"}
+                    {c.processed ? "processed" : Number(c.paidUsdc) > 0 ? "partially paid" : "pending"}
                   </div>
                 </div>
                 <div className="mt-2 flex justify-between text-sm">
@@ -361,6 +367,14 @@ export function WithdrawInterface() {
                     {Number(c.paidUsdc) / 1e6} USDC
                   </span>
                 </div>
+                {!c.processed && (
+                  <div className="mt-1 flex justify-between text-sm">
+                    <span className="text-neutral-500">USDC remaining</span>
+                    <span className="text-neutral-300">
+                      {Number(c.remainingUsdc) / 1e6} USDC
+                    </span>
+                  </div>
+                )}
                 <div className="mt-1 flex justify-between text-sm">
                   <span className="text-neutral-500">Claim account</span>
                   <span className="text-neutral-500 font-mono">

@@ -111,18 +111,6 @@
           }
         },
         {
-          "name": "user_usdc",
-          "writable": true
-        },
-        {
-          "name": "user_brent",
-          "writable": true
-        },
-        {
-          "name": "pool_usdc",
-          "writable": true
-        },
-        {
           "name": "brent_mint",
           "writable": true
         },
@@ -133,6 +121,18 @@
           "name": "user",
           "writable": true,
           "signer": true
+        },
+        {
+          "name": "user_usdc",
+          "writable": true
+        },
+        {
+          "name": "user_brent",
+          "writable": true
+        },
+        {
+          "name": "pool_usdc",
+          "writable": true
         },
         {
           "name": "token_program",
@@ -208,10 +208,6 @@
           }
         },
         {
-          "name": "user_brent",
-          "writable": true
-        },
-        {
           "name": "brent_mint",
           "writable": true
         },
@@ -219,6 +215,10 @@
           "name": "user",
           "writable": true,
           "signer": true
+        },
+        {
+          "name": "user_brent",
+          "writable": true
         },
         {
           "name": "token_program",
@@ -522,19 +522,19 @@
           }
         },
         {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "master_wallet",
+          "signer": true
+        },
+        {
           "name": "master_usdc",
           "writable": true
         },
         {
           "name": "pool_usdc",
           "writable": true
-        },
-        {
-          "name": "usdc_mint"
-        },
-        {
-          "name": "master_wallet",
-          "signer": true
         },
         {
           "name": "token_program",
@@ -607,20 +607,20 @@
           }
         },
         {
-          "name": "pool_usdc",
-          "writable": true
-        },
-        {
-          "name": "master_usdc",
-          "writable": true
-        },
-        {
           "name": "usdc_mint"
         },
         {
           "name": "master_wallet",
           "writable": true,
           "signer": true
+        },
+        {
+          "name": "pool_usdc",
+          "writable": true
+        },
+        {
+          "name": "master_usdc",
+          "writable": true
         },
         {
           "name": "token_program",
