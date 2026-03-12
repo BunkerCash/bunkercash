@@ -112,6 +112,14 @@ export function MasterOperationsCard() {
     () => withdrawals.filter((item) => BigInt(item.remaining) > BigInt(0)),
     [withdrawals]
   );
+  const openWithdrawalUsdc = useMemo(
+    () =>
+      activeWithdrawals.reduce(
+        (total, item) => total + BigInt(item.remaining),
+        BigInt(0)
+      ),
+    [activeWithdrawals]
+  );
 
   const repayTarget = useMemo(
     () => activeWithdrawals.find((item) => item.id === repayWithdrawalId) ?? null,
@@ -247,10 +255,6 @@ export function MasterOperationsCard() {
     const amount = parseUsdcInput(repayAmount);
     if (!amount) {
       setTxError("Enter a valid repay amount.");
-      return;
-    }
-    if (amount > BigInt(repayTarget.remaining)) {
-      setTxError("Repay amount exceeds the selected withdrawal's remaining balance.");
       return;
     }
 
@@ -398,9 +402,12 @@ export function MasterOperationsCard() {
           </p>
         </div>
         <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-5">
-          <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-neutral-500">NAV / Open</div>
+          <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-neutral-500">NAV / Open USDC</div>
           <p className="font-mono text-sm text-white">
-            {pool ? `$${formatUsdc(pool.nav)} / ${activeWithdrawals.length}` : "Unavailable"}
+            {pool ? `$${formatUsdc(pool.nav)} / $${formatUsdc(openWithdrawalUsdc)}` : "Unavailable"}
+          </p>
+          <p className="mt-1 text-xs text-neutral-500">
+            {activeWithdrawals.length} active withdrawal{activeWithdrawals.length === 1 ? "" : "s"}
           </p>
         </div>
       </div>
@@ -463,7 +470,7 @@ export function MasterOperationsCard() {
           <div className="mb-4">
             <h2 className="text-sm font-medium text-white">Master Withdraw</h2>
             <p className="mt-1 text-xs text-neutral-500">
-              Moves USDC from the payout vault to the connected admin wallet and records a withdrawal.
+              Moves USDC from the payout vault to the connected admin wallet and records a withdrawal without changing NAV or token price.
             </p>
           </div>
           <label className="mb-2 block text-xs text-neutral-400">Amount (USDC)</label>
@@ -505,7 +512,7 @@ export function MasterOperationsCard() {
           <div className="mb-4">
             <h2 className="text-sm font-medium text-white">Master Repay</h2>
             <p className="mt-1 text-xs text-neutral-500">
-              Sends USDC from the admin wallet back into the payout vault and reduces the outstanding balance.
+              Sends USDC from the admin wallet back into the payout vault. Any amount above the withdrawal's remaining balance still increases NAV.
             </p>
           </div>
 
@@ -534,7 +541,7 @@ export function MasterOperationsCard() {
           />
           {repayTarget && (
             <p className="mt-2 text-[11px] text-neutral-500">
-              Remaining balance: <span className="font-mono text-neutral-300">${formatUsdc(repayTarget.remaining)}</span>
+              Remaining balance: <span className="font-mono text-neutral-300">${formatUsdc(repayTarget.remaining)}</span>. Extra repayment above this amount is treated as NAV growth.
             </p>
           )}
 
@@ -552,7 +559,7 @@ export function MasterOperationsCard() {
           <div className="mb-4">
             <h2 className="text-sm font-medium text-white">Cancel Withdrawal</h2>
             <p className="mt-1 text-xs text-neutral-500">
-              Returns USDC from the admin wallet to the payout vault and records a cancellation against the same withdrawal.
+              Returns USDC from the admin wallet to the payout vault and records a cancellation against the same withdrawal without changing NAV.
             </p>
           </div>
 
@@ -625,7 +632,6 @@ export function MasterOperationsCard() {
             </thead>
             <tbody>
               {withdrawals.map((item) => {
-                const returned = BigInt(item.amount) - BigInt(item.remaining);
                 return (
                   <tr key={item.pubkey.toBase58()} className="border-b border-neutral-800/30 last:border-b-0">
                     <td className="px-5 py-3 font-mono text-sm text-white">#{item.id}</td>
@@ -635,7 +641,7 @@ export function MasterOperationsCard() {
                         ${formatUsdc(item.remaining)}
                       </span>
                     </td>
-                    <td className="px-5 py-3 text-right font-mono text-sm text-neutral-300">${formatUsdc(returned)}</td>
+                    <td className="px-5 py-3 text-right font-mono text-sm text-neutral-300">${formatUsdc(item.returned)}</td>
                     <td className="px-5 py-3 text-sm text-neutral-400">{formatTimestamp(item.createdAt)}</td>
                     <td className="px-5 py-3 text-xs font-mono text-neutral-500">
                       {metadataBytesToHex(item.metadataHash).slice(0, 24)}...

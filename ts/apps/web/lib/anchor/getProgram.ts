@@ -2,7 +2,7 @@ import * as anchor from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 import idl from "./idl/bunker_cash.json";
 
-export const PROGRAM_ID = new PublicKey("DemMc7to6i31v3mvGF9aieyWixUqhNRLJtfQ9ZouqViR");
+export const PROGRAM_ID = new PublicKey("uimiGs8esYweAGXFCsKZtAtwR8R1oFJE7nqZczTw9Ck");
 
 /**
  * Get Anchor program instance

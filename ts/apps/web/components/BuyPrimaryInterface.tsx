@@ -443,7 +443,7 @@ export function BuyPrimaryInterface() {
               Current price
             </div>
             <div className="text-2xl font-bold text-[#00FFB2]">
-              ${pricePerToken != null ? pricePerToken.toFixed(4) : "—"} per
+              ${pricePerToken != null ? pricePerToken.toFixed(2) : "—"} per
               token
             </div>
           </div>

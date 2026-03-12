@@ -1,5 +1,5 @@
 {
-  "address": "DemMc7to6i31v3mvGF9aieyWixUqhNRLJtfQ9ZouqViR",
+  "address": "uimiGs8esYweAGXFCsKZtAtwR8R1oFJE7nqZczTw9Ck",
   "metadata": {
     "name": "bunkercash",
     "version": "0.1.0",
@@ -111,18 +111,6 @@
           }
         },
         {
-          "name": "brent_mint",
-          "writable": true
-        },
-        {
-          "name": "usdc_mint"
-        },
-        {
-          "name": "user",
-          "writable": true,
-          "signer": true
-        },
-        {
           "name": "user_usdc",
           "writable": true
         },
@@ -133,6 +121,42 @@
         {
           "name": "pool_usdc",
           "writable": true
+        },
+        {
+          "name": "brent_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
         },
         {
           "name": "token_program",
@@ -208,17 +232,41 @@
           }
         },
         {
-          "name": "brent_mint",
+          "name": "user_brent",
           "writable": true
+        },
+        {
+          "name": "brent_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              }
+            ]
+          }
         },
         {
           "name": "user",
           "writable": true,
           "signer": true
-        },
-        {
-          "name": "user_brent",
-          "writable": true
         },
         {
           "name": "token_program",
@@ -362,9 +410,16 @@
           }
         },
         {
+          "name": "usdc_mint"
+        },
+        {
           "name": "payer",
           "writable": true,
           "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
           "name": "system_program",
@@ -522,19 +577,19 @@
           }
         },
         {
-          "name": "usdc_mint"
-        },
-        {
-          "name": "master_wallet",
-          "signer": true
-        },
-        {
           "name": "master_usdc",
           "writable": true
         },
         {
           "name": "pool_usdc",
           "writable": true
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "master_wallet",
+          "signer": true
         },
         {
           "name": "token_program",
@@ -607,20 +662,20 @@
           }
         },
         {
-          "name": "usdc_mint"
-        },
-        {
-          "name": "master_wallet",
-          "writable": true,
-          "signer": true
-        },
-        {
           "name": "pool_usdc",
           "writable": true
         },
         {
           "name": "master_usdc",
           "writable": true
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "master_wallet",
+          "writable": true,
+          "signer": true
         },
         {
           "name": "token_program",
@@ -981,18 +1036,48 @@
     },
     {
       "code": 6001,
+      "name": "InvalidUsdcMint",
+      "msg": "Invalid USDC mint for this pool"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidPoolUsdcVault",
+      "msg": "Invalid pool USDC vault for this pool"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidSettlementAccounts",
+      "msg": "Invalid settlement account pair"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidClaimAccount",
+      "msg": "Invalid claim account provided for settlement"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidClaimDestination",
+      "msg": "Invalid USDC destination account for settlement"
+    },
+    {
+      "code": 6006,
       "name": "Unauthorized",
       "msg": "Unauthorized access"
     },
     {
-      "code": 6002,
+      "code": 6007,
       "name": "RepaymentExceedsWithdrawal",
       "msg": "Repayment amount exceeds withdrawal remaining balance"
     },
     {
-      "code": 6003,
+      "code": 6008,
       "name": "MintAlreadyInitialized",
       "msg": "Bunker Cash mint PDA is already initialized"
+    },
+    {
+      "code": 6009,
+      "name": "ClaimAmountTooSmall",
+      "msg": "Claim amount must burn a non-zero amount of bRENT for a non-zero USDC value"
     }
   ],
   "types": [
@@ -1404,6 +1489,10 @@
           },
           {
             "name": "master_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "usdc_mint",
             "type": "pubkey"
           },
           {

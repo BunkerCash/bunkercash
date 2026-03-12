@@ -13,7 +13,7 @@ use mpl_token_metadata::types::DataV2;
 use mpl_token_metadata::ID as TOKEN_METADATA_PROGRAM_ID;
 use spl_token_2022::state::Mint as Token2022Mint;
 
-declare_id!("DemMc7to6i31v3mvGF9aieyWixUqhNRLJtfQ9ZouqViR");
+declare_id!("uimiGs8esYweAGXFCsKZtAtwR8R1oFJE7nqZczTw9Ck");
 
 const POOL_SEED: &[u8] = b"pool";
 const BRENT_MINT_SEED: &[u8] = b"bunkercash_mint";
@@ -42,6 +42,29 @@ fn calculate_claim_usdc_value(
 
 fn canonical_pool_usdc_vault(pool: Pubkey, usdc_mint: Pubkey, token_program: Pubkey) -> Pubkey {
     get_associated_token_address_with_program_id(&pool, &usdc_mint, &token_program)
+}
+
+fn record_master_withdrawal(
+    pool: &mut Pool,
+    withdrawal: &mut Withdrawal,
+    amount: u64,
+    metadata_hash: [u8; 32],
+    withdrawal_bump: u8,
+    timestamp: i64,
+) {
+    pool.withdrawal_counter = pool.withdrawal_counter.checked_add(1).unwrap();
+
+    withdrawal.id = pool.withdrawal_counter - 1;
+    withdrawal.amount = amount;
+    withdrawal.remaining = amount;
+    withdrawal.metadata_hash = metadata_hash;
+    withdrawal.timestamp = timestamp;
+    withdrawal.bump = withdrawal_bump;
+}
+
+fn apply_master_repayment(pool: &mut Pool, withdrawal: &mut Withdrawal, amount: u64) {
+    pool.nav = pool.nav.checked_add(amount).unwrap();
+    withdrawal.remaining = withdrawal.remaining.saturating_sub(amount);
 }
 
 fn validate_settlement_accounts<'info>(
@@ -519,21 +542,24 @@ pub mod bunkercash {
             ctx.accounts.usdc_mint.decimals,
         )?;
 
-        pool.withdrawal_counter = pool.withdrawal_counter.checked_add(1).unwrap();
-
-        withdrawal.id = pool.withdrawal_counter - 1;
-        withdrawal.amount = amount;
-        withdrawal.remaining = amount;
-        withdrawal.metadata_hash = metadata_hash;
-        withdrawal.timestamp = Clock::get()?.unix_timestamp;
-        withdrawal.bump = ctx.bumps.withdrawal;
+        // Master withdrawals are tracked as outstanding balances without
+        // touching NAV, so price remains NAV-derived instead of vault-balance-derived.
+        let timestamp = Clock::get()?.unix_timestamp;
+        record_master_withdrawal(
+            pool,
+            withdrawal,
+            amount,
+            metadata_hash,
+            ctx.bumps.withdrawal,
+            timestamp,
+        );
 
         emit!(MasterWithdrawalEvent {
             withdrawal_id: withdrawal.id,
             master_wallet: ctx.accounts.master_wallet.key(),
             amount,
             metadata_hash,
-            timestamp: withdrawal.timestamp,
+            timestamp,
         });
 
         msg!("Master withdrew {} USDC. Withdrawal ID: {}", amount, withdrawal.id);
@@ -552,8 +578,6 @@ pub mod bunkercash {
             ErrorCode::Unauthorized
         );
 
-        require!(withdrawal.remaining >= amount, ErrorCode::RepaymentExceedsWithdrawal);
-
         anchor_spl::token_2022::transfer_checked(
             CpiContext::new(
                 ctx.accounts.token_program.to_account_info(),
@@ -568,8 +592,7 @@ pub mod bunkercash {
             ctx.accounts.usdc_mint.decimals,
         )?;
 
-        pool.nav = pool.nav.checked_add(amount).unwrap();
-        withdrawal.remaining = withdrawal.remaining.checked_sub(amount).unwrap();
+        apply_master_repayment(pool, withdrawal, amount);
 
         emit!(MasterRepaymentEvent {
             withdrawal_id: withdrawal.id,
@@ -1238,7 +1261,11 @@ pub enum ErrorCode {
 
 #[cfg(test)]
 mod tests {
-    use super::calculate_claim_usdc_value;
+    use super::{
+        apply_master_repayment, calculate_claim_usdc_value, record_master_withdrawal, Pool,
+        Withdrawal,
+    };
+    use anchor_lang::prelude::Pubkey;
 
     #[test]
     fn claim_value_rejects_zero_burn_amount() {
@@ -1256,5 +1283,64 @@ mod tests {
             calculate_claim_usdc_value(250_000, 1_000_000, 1_000_000),
             Some(250_000)
         );
+    }
+
+    #[test]
+    fn master_withdrawal_records_outstanding_balance_without_touching_nav() {
+        let mut pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 7_500_000,
+            total_brent_supply: 7_500_000,
+            total_pending_claims: 0,
+            claim_counter: 0,
+            withdrawal_counter: 3,
+            bump: 255,
+        };
+        let original_nav = pool.nav;
+        let mut withdrawal = Withdrawal {
+            id: 0,
+            amount: 0,
+            remaining: 0,
+            metadata_hash: [0; 32],
+            timestamp: 0,
+            bump: 0,
+        };
+
+        record_master_withdrawal(&mut pool, &mut withdrawal, 1_250_000, [9; 32], 17, 1234);
+
+        assert_eq!(pool.nav, original_nav);
+        assert_eq!(pool.withdrawal_counter, 4);
+        assert_eq!(withdrawal.id, 3);
+        assert_eq!(withdrawal.amount, 1_250_000);
+        assert_eq!(withdrawal.remaining, 1_250_000);
+        assert_eq!(withdrawal.metadata_hash, [9; 32]);
+        assert_eq!(withdrawal.timestamp, 1234);
+        assert_eq!(withdrawal.bump, 17);
+    }
+
+    #[test]
+    fn master_repayment_can_exceed_outstanding_withdrawal_and_still_raise_nav() {
+        let mut pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 7_500_000,
+            total_brent_supply: 7_500_000,
+            total_pending_claims: 0,
+            claim_counter: 0,
+            withdrawal_counter: 1,
+            bump: 255,
+        };
+        let mut withdrawal = Withdrawal {
+            id: 0,
+            amount: 1_250_000,
+            remaining: 400_000,
+            metadata_hash: [0; 32],
+            timestamp: 0,
+            bump: 0,
+        };
+
+        apply_master_repayment(&mut pool, &mut withdrawal, 900_000);
+
+        assert_eq!(pool.nav, 8_400_000);
+        assert_eq!(withdrawal.remaining, 0);
     }
 }

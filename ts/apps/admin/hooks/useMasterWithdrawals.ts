@@ -8,6 +8,7 @@ import {
   getReadonlyMasterProgram,
   getMasterProgram,
 } from "@/lib/master-program";
+import { withRateLimitRetry } from "@/lib/rpc-throttle";
 
 export interface MasterPoolState {
   masterWallet: PublicKey;
@@ -23,6 +24,7 @@ export interface MasterWithdrawal {
   id: string;
   amount: string;
   remaining: string;
+  returned: string;
   metadataHash: number[];
   createdAt: string;
 }
@@ -45,6 +47,9 @@ interface RawMasterWithdrawalRecord {
 
 const CACHE_TTL = 30_000;
 const POOL_ACCOUNT_DISCRIMINATOR = 8;
+const MASTER_REPAY_DISC = "196,123,175,178,81,52,168,164";
+const MASTER_CANCEL_DISC = "254,236,97,119,73,158,24,170";
+const RETURN_SCAN_SIGNATURE_LIMIT = 250;
 
 function readU64Le(data: Uint8Array, offset: number): string {
   let value = BigInt(0);
@@ -67,6 +72,55 @@ function decodePoolAccount(data: Uint8Array): MasterPoolState {
     claimCounter: readU64Le(data, 64),
     withdrawalCounter: readU64Le(data, 72),
   };
+}
+
+function readU64LeBigInt(data: Uint8Array, offset: number): bigint {
+  let value = BigInt(0);
+  for (let i = 0; i < 8; i += 1) {
+    value |= BigInt(data[offset + i] ?? 0) << BigInt(8 * i);
+  }
+  return value;
+}
+
+async function fetchReturnedAmountsByWithdrawal(
+  connection: ReturnType<typeof useConnection>["connection"],
+  programId: PublicKey
+): Promise<Map<string, bigint>> {
+  const totals = new Map<string, bigint>();
+  const signatures = await withRateLimitRetry(() =>
+    connection.getSignaturesForAddress(programId, { limit: RETURN_SCAN_SIGNATURE_LIMIT })
+  );
+
+  for (const signatureInfo of signatures) {
+    const tx = await withRateLimitRetry(() =>
+      connection.getTransaction(signatureInfo.signature, {
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0,
+      })
+    );
+
+    if (!tx) continue;
+
+    const message = tx.transaction.message;
+    const accountKeys = message.staticAccountKeys;
+
+    for (const ix of message.compiledInstructions) {
+      const ixProgramId = accountKeys[ix.programIdIndex];
+      if (!ixProgramId?.equals(programId)) continue;
+
+      const discKey = Array.from(ix.data.slice(0, 8)).join(",");
+      if (discKey !== MASTER_REPAY_DISC && discKey !== MASTER_CANCEL_DISC) continue;
+      if (ix.accountKeyIndexes.length < 2 || ix.data.length < 16) continue;
+
+      const withdrawalKey = accountKeys[ix.accountKeyIndexes[1]]?.toBase58();
+      if (!withdrawalKey) continue;
+
+      const amount = readU64LeBigInt(ix.data, 8);
+      totals.set(withdrawalKey, (totals.get(withdrawalKey) ?? BigInt(0)) + amount);
+    }
+  }
+
+  return totals;
 }
 
 export function useMasterWithdrawals() {
@@ -114,10 +168,11 @@ export function useMasterWithdrawals() {
           withdrawal: { all: () => Promise<RawMasterWithdrawalRecord[]> };
         };
 
-        const [poolInfo, allWithdrawals] = await Promise.all([
-          connection.getAccountInfo(poolPda, 'confirmed'),
-          accountApi.withdrawal.all(),
-        ]);
+        const poolInfo = await withRateLimitRetry(() =>
+          connection.getAccountInfo(poolPda, "confirmed")
+        );
+        const allWithdrawals = await withRateLimitRetry(() => accountApi.withdrawal.all());
+        const returnedAmounts = await fetchReturnedAmountsByWithdrawal(connection, program.programId);
 
         if (!poolInfo?.data) {
           throw new Error('Pool account not found');
@@ -131,6 +186,7 @@ export function useMasterWithdrawals() {
             id: item.account.id.toString(),
             amount: item.account.amount.toString(),
             remaining: item.account.remaining.toString(),
+            returned: (returnedAmounts.get(item.publicKey.toBase58()) ?? BigInt(0)).toString(),
             metadataHash: Array.from(item.account.metadataHash as number[]),
             createdAt: item.account.timestamp.toString(),
           }))
