@@ -249,7 +249,7 @@ export function SettlementCard() {
     setResults({ settledClaims, failedClaims, signatures: succeeded });
     setSettling(false);
     await Promise.all([refreshClaims(), refreshVault()]);
-  }, [payoutVault, program, refreshClaims, refreshVault, settlementPlan, usdcMint, wallet.publicKey, poolPda]);
+  }, [connection, payoutVault, program, refreshClaims, refreshVault, settlementPlan, usdcMint, wallet.publicKey, poolPda]);
 
   const loading = claimsLoading || vaultLoading;
   const canSettle = !!wallet.publicKey && !!program && !!usdcMint && settlementPlan.length > 0 && !settling;

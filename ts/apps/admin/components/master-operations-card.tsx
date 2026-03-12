@@ -512,7 +512,7 @@ export function MasterOperationsCard() {
           <div className="mb-4">
             <h2 className="text-sm font-medium text-white">Master Repay</h2>
             <p className="mt-1 text-xs text-neutral-500">
-              Sends USDC from the admin wallet back into the payout vault. Any amount above the withdrawal's remaining balance still increases NAV.
+              Sends USDC from the admin wallet back into the payout vault. Any amount above the withdrawal&apos;s remaining balance still increases NAV.
             </p>
           </div>
 
