@@ -451,7 +451,7 @@ export function BuyPrimaryInterface() {
             <div className="mb-2 text-xs uppercase tracking-wider text-neutral-500">
               Pricing model
             </div>
-            <div className="text-2xl font-bold">NAV derived</div>
+            <div className="text-2xl font-bold"> TVL derived </div>
           </div>
         </div>
       </div>

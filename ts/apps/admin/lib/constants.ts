@@ -5,8 +5,8 @@ export type ClusterType = 'mainnet-beta' | 'devnet' | 'testnet' | 'localnet' | '
 
 export const USDC_MINTS: Record<string, string> = {
   'mainnet-beta': 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-  'devnet': 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr',
-  'testnet': 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr',
+  'devnet': 'Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx',
+  'testnet': 'Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx',
 };
 
 export function getClusterFromEndpoint(endpoint: string): ClusterType {

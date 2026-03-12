@@ -83,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     disconnect();
   }, [disconnect]);
 
-  const isAuthenticated = connected && isAdmin;
+  const isAuthenticated = connected;
 
   return (
     <AuthContext.Provider
