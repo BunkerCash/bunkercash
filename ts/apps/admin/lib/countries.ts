@@ -4,6 +4,40 @@ export interface Country {
   flag: string;
 }
 
+/**
+ * All 27 EU member states (ISO 3166-1 Alpha-2 codes).
+ * Updated as of 2025 — does NOT include UK (post-Brexit).
+ */
+export const EU_COUNTRY_CODES: string[] = [
+  "AT", // Austria
+  "BE", // Belgium
+  "BG", // Bulgaria
+  "HR", // Croatia
+  "CY", // Cyprus
+  "CZ", // Czechia
+  "DK", // Denmark
+  "EE", // Estonia
+  "FI", // Finland
+  "FR", // France
+  "DE", // Germany
+  "GR", // Greece
+  "HU", // Hungary
+  "IE", // Ireland
+  "IT", // Italy
+  "LV", // Latvia
+  "LT", // Lithuania
+  "LU", // Luxembourg
+  "MT", // Malta
+  "NL", // Netherlands
+  "PL", // Poland
+  "PT", // Portugal
+  "RO", // Romania
+  "SK", // Slovakia
+  "SI", // Slovenia
+  "ES", // Spain
+  "SE", // Sweden
+];
+
 export const COUNTRIES: Country[] = [
   { code: "AF", name: "Afghanistan", flag: "\ud83c\udde6\ud83c\uddeb" },
   { code: "AL", name: "Albania", flag: "\ud83c\udde6\ud83c\uddf1" },

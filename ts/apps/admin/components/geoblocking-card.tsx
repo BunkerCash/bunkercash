@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Globe,
   RefreshCw,
@@ -9,9 +9,10 @@ import {
   X,
   AlertCircle,
   Search,
+  ShieldAlert,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { COUNTRIES } from "@/lib/countries";
+import { COUNTRIES, EU_COUNTRY_CODES } from "@/lib/countries";
 
 export function GeoblockingCard() {
   const [blocked, setBlocked] = useState<string[]>([]);
@@ -20,6 +21,18 @@ export function GeoblockingCard() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+
+  // Derive EU toggle state from whether ALL EU countries are in the blocked list
+  const isEuBlocked = useMemo(
+    () => EU_COUNTRY_CODES.every((code) => blocked.includes(code)),
+    [blocked]
+  );
+
+  // How many EU countries are currently blocked (for partial indicator)
+  const euBlockedCount = useMemo(
+    () => EU_COUNTRY_CODES.filter((code) => blocked.includes(code)).length,
+    [blocked]
+  );
 
   const fetchBlocked = useCallback(async () => {
     setLoading(true);
@@ -76,6 +89,25 @@ export function GeoblockingCard() {
     save(next);
   };
 
+  const toggleEuBlock = () => {
+    let next: string[];
+    if (isEuBlocked) {
+      // Remove all EU countries
+      next = blocked.filter((c) => !EU_COUNTRY_CODES.includes(c));
+    } else {
+      // Add all EU countries (merge with existing, deduplicate)
+      const merged = new Set([...blocked, ...EU_COUNTRY_CODES]);
+      next = [...merged].sort();
+    }
+    setBlocked(next);
+    save(next);
+  };
+
+  const unblockAll = () => {
+    setBlocked([]);
+    save([]);
+  };
+
   const filteredCountries = COUNTRIES.filter(
     (c) =>
       !blocked.includes(c.code) &&
@@ -109,13 +141,79 @@ export function GeoblockingCard() {
         </div>
       )}
 
+      {/* EU Block Toggle */}
+      <div className="bg-neutral-900/40 border border-neutral-800/60 rounded-xl p-5 mb-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div
+              className={cn(
+                "flex items-center justify-center w-9 h-9 rounded-lg transition-colors",
+                isEuBlocked
+                  ? "bg-red-500/15 text-red-400"
+                  : "bg-neutral-800/60 text-neutral-500"
+              )}
+            >
+              <ShieldAlert className="w-4.5 h-4.5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-white">
+                  Block All EU Countries
+                </span>
+                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-blue-500/15 text-blue-400 border border-blue-500/20">
+                  🇪🇺 {EU_COUNTRY_CODES.length} countries
+                </span>
+              </div>
+              <p className="text-[11px] text-neutral-500 mt-0.5">
+                {isEuBlocked
+                  ? "All EU member states are blocked"
+                  : euBlockedCount > 0
+                  ? `${euBlockedCount} of ${EU_COUNTRY_CODES.length} EU countries blocked`
+                  : "Toggle to block all European Union member states"}
+              </p>
+            </div>
+          </div>
+
+          {/* Toggle switch */}
+          <button
+            onClick={toggleEuBlock}
+            disabled={saving}
+            className={cn(
+              "relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-neutral-950 disabled:opacity-50",
+              isEuBlocked
+                ? "bg-red-500 focus:ring-red-500/50"
+                : "bg-neutral-700 focus:ring-neutral-500/50"
+            )}
+          >
+            <span
+              className={cn(
+                "inline-block h-4 w-4 rounded-full bg-white transition-transform duration-200 shadow-sm",
+                isEuBlocked ? "translate-x-6" : "translate-x-1"
+              )}
+            />
+          </button>
+        </div>
+      </div>
+
       {/* Blocked countries */}
       <div className="bg-neutral-900/40 border border-neutral-800/60 rounded-xl p-6 mb-5">
-        <div className="flex items-center gap-2 mb-4">
-          <Globe className="w-4 h-4 text-neutral-500" />
-          <span className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
-            Blocked Countries ({blocked.length})
-          </span>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Globe className="w-4 h-4 text-neutral-500" />
+            <span className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
+              Blocked Countries ({blocked.length})
+            </span>
+          </div>
+          {blocked.length > 0 && (
+            <button
+              onClick={unblockAll}
+              disabled={saving}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-red-400 bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition-colors disabled:opacity-50"
+            >
+              <X className="w-3 h-3" />
+              Unblock All
+            </button>
+          )}
         </div>
 
         {loading ? (
@@ -131,16 +229,28 @@ export function GeoblockingCard() {
           <div className="flex flex-wrap gap-2">
             {blocked.map((code) => {
               const country = COUNTRIES.find((c) => c.code === code);
+              const isEu = EU_COUNTRY_CODES.includes(code);
               return (
                 <span
                   key={code}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-400 font-medium"
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium",
+                    isEu
+                      ? "bg-blue-500/10 border border-blue-500/20 text-blue-400"
+                      : "bg-red-500/10 border border-red-500/20 text-red-400"
+                  )}
                 >
                   {country?.flag} {code}
+                  {isEu && (
+                    <span className="text-[9px] opacity-60">EU</span>
+                  )}
                   <button
                     onClick={() => removeCountry(code)}
                     disabled={saving}
-                    className="ml-0.5 hover:text-red-300 transition-colors disabled:opacity-50"
+                    className={cn(
+                      "ml-0.5 transition-colors disabled:opacity-50",
+                      isEu ? "hover:text-blue-300" : "hover:text-red-300"
+                    )}
                   >
                     <X className="w-3 h-3" />
                   </button>
@@ -187,6 +297,11 @@ export function GeoblockingCard() {
                 >
                   <span>{c.flag}</span>
                   <span>{c.name}</span>
+                  {EU_COUNTRY_CODES.includes(c.code) && (
+                    <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/20">
+                      EU
+                    </span>
+                  )}
                   <span className="text-neutral-600 text-xs ml-auto font-mono">
                     {c.code}
                   </span>
