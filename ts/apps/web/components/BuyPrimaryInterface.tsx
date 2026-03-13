@@ -9,6 +9,7 @@ import {
   getBunkercashMintPda,
   getPoolPda,
   getProgram,
+  type ProgramWallet,
   PROGRAM_ID,
 } from "@/lib/program";
 import { countFractionalDigits, parseUiAmountToBaseUnits } from "@/lib/amounts";
@@ -71,6 +72,7 @@ interface BuyPrimaryMethods {
 export function BuyPrimaryInterface() {
   const { connection } = useConnection()
   const wallet = useWallet()
+  const { publicKey, signTransaction, signAllTransactions } = wallet
   const { showToast } = useToast();
   const [usdcAmount, setUsdcAmount] = useState("");
   const [loading, setLoading] = useState(false);
@@ -87,8 +89,15 @@ export function BuyPrimaryInterface() {
   const [poolError, setPoolError] = useState<string | null>(null);
 
   const program = useMemo(
-    () => (wallet.publicKey ? getProgram(connection, wallet) : null),
-    [connection, wallet],
+    () =>
+      publicKey && signTransaction && signAllTransactions
+        ? getProgram(connection, {
+            publicKey,
+            signTransaction,
+            signAllTransactions,
+          } satisfies ProgramWallet)
+        : null,
+    [connection, publicKey, signTransaction, signAllTransactions],
   );
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), []);
   const bunkercashMintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), []);
@@ -142,12 +151,12 @@ export function BuyPrimaryInterface() {
   }, [fetchPoolState]);
 
   useEffect(() => {
-    if (!wallet.publicKey || !connection || !usdcMint || !usdcTokenProgram) return;
+    if (!publicKey || !connection || !usdcMint || !usdcTokenProgram) return;
     const fetchBalance = async () => {
       try {
         const userUsdc = getAssociatedTokenAddressSync(
           usdcMint,
-          wallet.publicKey!,
+          publicKey,
           false,
           usdcTokenProgram,
           ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -169,7 +178,7 @@ export function BuyPrimaryInterface() {
     const id = connection.onAccountChange(
       getAssociatedTokenAddressSync(
         usdcMint,
-        wallet.publicKey!,
+        publicKey,
         false,
         usdcTokenProgram,
         ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -182,7 +191,7 @@ export function BuyPrimaryInterface() {
     return () => {
       connection.removeAccountChangeListener(id);
     };
-  }, [wallet.publicKey, connection, usdcMint, usdcTokenProgram]);
+  }, [publicKey, connection, usdcMint, usdcTokenProgram]);
 
   const pricePerToken = poolState
     ? derivePrice(poolState.nav, poolState.totalBrentSupply)
@@ -226,7 +235,7 @@ export function BuyPrimaryInterface() {
   const handleBuy = async () => {
     if (
       !program ||
-      !wallet.publicKey ||
+      !publicKey ||
       !poolState ||
       !usdcAmountRaw ||
       usdcAmountRaw <= BigInt(0) ||
@@ -261,7 +270,7 @@ export function BuyPrimaryInterface() {
 
       const userUsdc = getAssociatedTokenAddressSync(
         usdcMint,
-        wallet.publicKey,
+        publicKey,
         false,
         TOKEN_2022_PROGRAM_ID,
         ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -283,7 +292,7 @@ export function BuyPrimaryInterface() {
       }
       const userBunkercash = getAssociatedTokenAddressSync(
         bunkercashMintPda,
-        wallet.publicKey,
+        publicKey,
         false,
         TOKEN_2022_PROGRAM_ID,
         ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -291,27 +300,18 @@ export function BuyPrimaryInterface() {
 
       const createUserUsdcAtaIx =
         createAssociatedTokenAccountIdempotentInstruction(
-          wallet.publicKey,
+          publicKey,
           userUsdc,
-          wallet.publicKey,
-          usdcMint,
-          TOKEN_2022_PROGRAM_ID,
-          ASSOCIATED_TOKEN_PROGRAM_ID,
-        );
-      const createPoolUsdcAtaIx =
-        createAssociatedTokenAccountIdempotentInstruction(
-          wallet.publicKey,
-          poolUsdcVault,
-          poolPda,
+          publicKey,
           usdcMint,
           TOKEN_2022_PROGRAM_ID,
           ASSOCIATED_TOKEN_PROGRAM_ID,
         );
       const createUserBunkercashAtaIx =
         createAssociatedTokenAccountIdempotentInstruction(
-          wallet.publicKey,
+          publicKey,
           userBunkercash,
-          wallet.publicKey,
+          publicKey,
           bunkercashMintPda,
           TOKEN_2022_PROGRAM_ID,
           ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -327,7 +327,7 @@ export function BuyPrimaryInterface() {
           poolUsdc: poolUsdcVault,
           brentMint: bunkercashMintPda,
           usdcMint,
-          user: wallet.publicKey,
+          user: publicKey,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
@@ -335,7 +335,6 @@ export function BuyPrimaryInterface() {
 
       const tx = new Transaction().add(
         createUserUsdcAtaIx,
-        createPoolUsdcAtaIx,
         createUserBunkercashAtaIx,
         depositUsdcIx,
       );
@@ -376,7 +375,7 @@ export function BuyPrimaryInterface() {
     }
   };
 
-  if (!wallet.publicKey) {
+  if (!publicKey) {
     return (
       <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-8 text-center text-neutral-500">
         Connect your wallet to view the current Bunker Cash price.
@@ -425,9 +424,9 @@ export function BuyPrimaryInterface() {
             Unsupported Network
           </h3>
           <p className="text-neutral-400 max-w-md">
-            Only USDC on the Solana network is supported for payments. Please
-            switch to a supported Solana cluster (Mainnet, Devnet) and try
-            again.
+            This deployment currently supports the Token-2022 USDC mint on
+            devnet/testnet only. Set `NEXT_PUBLIC_USDC_MINT` if you are using a
+            different supported Token-2022 USDC mint.
           </p>
         </div>
       </div>
@@ -515,7 +514,7 @@ export function BuyPrimaryInterface() {
       )}
       {!supportsUsdcDeposits && usdcBalance && (
         <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-400">
-          Detected {usdcBalance} devnet USDC in your wallet, but it is on the legacy SPL token program. This contract currently accepts Token-2022 USDC only.
+          Detected {usdcBalance} USDC in your wallet, but it is on the legacy SPL token program. This contract currently accepts Token-2022 USDC only.
         </div>
       )}
       {txSig && (

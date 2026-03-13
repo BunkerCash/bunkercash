@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
-import { getProgram, PROGRAM_ID } from "@/lib/program";
+import { getReadonlyProgram, PROGRAM_ID } from "@/lib/program";
 import type { Transaction } from "@/types";
 
 const USDC_DECIMALS = 6;
@@ -55,10 +55,7 @@ export function useMyTransactions() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const program = useMemo(
-    () => (wallet.publicKey ? getProgram(connection, wallet) : null),
-    [connection, wallet]
-  );
+  const program = useMemo(() => getReadonlyProgram(connection), [connection]);
 
   const fetchTransactions = useCallback(async () => {
     if (!wallet.publicKey || !connection) {

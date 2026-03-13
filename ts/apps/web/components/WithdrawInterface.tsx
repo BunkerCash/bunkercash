@@ -15,6 +15,7 @@ import {
   getBunkercashMintPda,
   getPoolPda,
   getProgram,
+  type ProgramWallet,
   PROGRAM_ID,
 } from '@/lib/program'
 import { countFractionalDigits, parseUiAmountToBaseUnits } from '@/lib/amounts'
@@ -67,6 +68,7 @@ interface FileClaimMethods {
 export function WithdrawInterface() {
   const { connection } = useConnection()
   const wallet = useWallet()
+  const { publicKey, signTransaction, signAllTransactions } = wallet
   const { showToast } = useToast();
   const [activeView, setActiveView] = useState<'register' | 'history'>('register')
   const [amountUi, setAmountUi] = useState('')
@@ -77,7 +79,17 @@ export function WithdrawInterface() {
   const txInFlight = useRef(false);
 
 
-  const program = useMemo(() => (wallet.publicKey ? getProgram(connection, wallet) : null), [connection, wallet])
+  const program = useMemo(
+    () =>
+      publicKey && signTransaction && signAllTransactions
+        ? getProgram(connection, {
+            publicKey,
+            signTransaction,
+            signAllTransactions,
+          } satisfies ProgramWallet)
+        : null,
+    [connection, publicKey, signTransaction, signAllTransactions]
+  )
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), [])
   const mintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), [])
 
@@ -91,15 +103,15 @@ export function WithdrawInterface() {
   )
 
   const userBunkercashAta = useMemo(() => {
-    if (!wallet.publicKey) return null
+    if (!publicKey) return null
     return getAssociatedTokenAddressSync(
       mintPda,
-      wallet.publicKey,
+      publicKey,
       false,
       TOKEN_2022_PROGRAM_ID,
       ASSOCIATED_TOKEN_PROGRAM_ID
     )
-  }, [wallet.publicKey, mintPda])
+  }, [publicKey, mintPda])
 
   const inputError = useMemo(() => {
     if (!amountUi) return null
@@ -115,7 +127,7 @@ export function WithdrawInterface() {
   const displayError = error ?? inputError
 
   const handleRegisterSell = async () => {
-    if (!program || !wallet.publicKey || !connection || !userBunkercashAta)
+    if (!program || !publicKey || !connection || !userBunkercashAta)
       return;
 
     // Prevent duplicate submissions
@@ -147,15 +159,15 @@ export function WithdrawInterface() {
       const nextId = new BN(poolState.claimCounter.toString());
       const idLe = Uint8Array.from(nextId.toArray("le", 8));
       const [claimPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("claim"), wallet.publicKey.toBuffer(), idLe],
+        [Buffer.from("claim"), publicKey.toBuffer(), idLe],
         PROGRAM_ID,
       );
 
       // Ensure ATAs exist (idempotent).
       const createUserAtaIx = createAssociatedTokenAccountIdempotentInstruction(
-        wallet.publicKey,
+        publicKey,
         userBunkercashAta,
-        wallet.publicKey,
+        publicKey,
         mintPda,
         TOKEN_2022_PROGRAM_ID,
         ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -167,7 +179,7 @@ export function WithdrawInterface() {
         .accounts({
           pool: poolPda,
           claim: claimPda,
-          user: wallet.publicKey,
+          user: publicKey,
           userBrent: userBunkercashAta,
           brentMint: mintPda,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
@@ -331,7 +343,7 @@ export function WithdrawInterface() {
         </div>
       ) : (
         <div className="space-y-3">
-          {!wallet.publicKey ? (
+          {!publicKey ? (
             <div className="text-center py-12 text-neutral-600">
               Connect your wallet to view claims
             </div>

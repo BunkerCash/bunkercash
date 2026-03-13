@@ -4,7 +4,6 @@ import { PublicKey } from "@solana/web3.js";
 export type ClusterType = 'mainnet-beta' | 'devnet' | 'testnet' | 'localnet' | 'unknown';
 
 export const USDC_MINTS: Record<string, string> = {
-  'mainnet-beta': 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
   'devnet': 'Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx',
   'testnet': 'Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx',
 };

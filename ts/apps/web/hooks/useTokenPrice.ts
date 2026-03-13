@@ -1,7 +1,7 @@
 "use client"
 import { useEffect, useState, useMemo } from 'react'
-import { useConnection, useWallet } from '@solana/wallet-adapter-react'
-import { getProgram, getReadonlyProgram, getPoolPda, PROGRAM_ID } from '@/lib/program'
+import { useConnection } from '@solana/wallet-adapter-react'
+import { getReadonlyProgram, getPoolPda, PROGRAM_ID } from '@/lib/program'
 import { PublicKey } from '@solana/web3.js'
 
 interface Stringable {
@@ -21,17 +21,11 @@ function derivePrice(navRaw: bigint, supplyRaw: bigint): number {
 
 export function useTokenPrice() {
   const { connection } = useConnection()
-  const wallet = useWallet()
   const [price, setPrice] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const program = useMemo(() => {
-    if (wallet.publicKey) {
-      return getProgram(connection, wallet)
-    }
-    return getReadonlyProgram(connection)
-  }, [connection, wallet])
+  const program = useMemo(() => getReadonlyProgram(connection), [connection])
 
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), [])
 

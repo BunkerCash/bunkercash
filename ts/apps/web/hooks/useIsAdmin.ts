@@ -2,11 +2,12 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { PublicKey } from '@solana/web3.js'
-import { getProgram, getReadonlyProgram, getPoolPda, PROGRAM_ID } from '@/lib/program'
+import { getReadonlyProgram, getPoolPda, PROGRAM_ID } from '@/lib/program'
 
 export function useIsAdmin() {
   const { connection } = useConnection()
   const wallet = useWallet()
+  const { publicKey } = wallet
   const [isAdmin, setIsAdmin] = useState(false)
   const [isSquadsMember, setIsSquadsMember] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -14,11 +15,8 @@ export function useIsAdmin() {
   const [isGovernedBySquads, setIsGovernedBySquads] = useState(false)
 
   const program = useMemo(() => {
-    if (wallet.publicKey) {
-      return getProgram(connection, wallet)
-    }
     return getReadonlyProgram(connection)
-  }, [connection, wallet.publicKey])
+  }, [connection])
 
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), [])
 
@@ -37,8 +35,8 @@ export function useIsAdmin() {
         setIsGovernedBySquads(false)
         setIsSquadsMember(false)
         setIsAdmin(
-          !!wallet.publicKey &&
-          wallet.publicKey.toBase58() === adminPubkey.toBase58()
+          !!publicKey &&
+          publicKey.toBase58() === adminPubkey.toBase58()
         )
       } catch (e: unknown) {
         console.error('Error fetching pool admin:', e)
@@ -52,7 +50,7 @@ export function useIsAdmin() {
     }
 
     fetchAdmin()
-  }, [program, poolPda, wallet.publicKey, connection])
+  }, [program, poolPda, publicKey, connection])
 
   return { isAdmin, isSquadsMember, loading, poolAdmin, isGovernedBySquads }
 }

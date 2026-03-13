@@ -4,7 +4,10 @@ use anchor_lang::solana_program::{
     program_pack::Pack,
     system_instruction,
 };
-use anchor_spl::associated_token::get_associated_token_address_with_program_id;
+use anchor_spl::associated_token::{
+    get_associated_token_address_with_program_id,
+    AssociatedToken,
+};
 use anchor_spl::token_2022::Token2022;
 use anchor_spl::token::accessor;
 use anchor_spl::token_interface::{Mint, TokenAccount};
@@ -19,12 +22,11 @@ const POOL_SEED: &[u8] = b"pool";
 const BRENT_MINT_SEED: &[u8] = b"bunkercash_mint";
 const CLAIM_SEED: &[u8] = b"claim";
 const TOKEN_DECIMALS: u8 = 6;
-const MAINNET_USDC_MINT: Pubkey = pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
-const DEVNET_USDC_MINT: Pubkey = pubkey!("Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx");
+const TOKEN_2022_USDC_MINT: Pubkey = pubkey!("Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx");
 
 fn validate_supported_usdc_mint(usdc_mint: &Pubkey) -> Result<()> {
     require!(
-        *usdc_mint == MAINNET_USDC_MINT || *usdc_mint == DEVNET_USDC_MINT,
+        *usdc_mint == TOKEN_2022_USDC_MINT,
         ErrorCode::InvalidUsdcMint
     );
     Ok(())
@@ -799,10 +801,20 @@ pub struct Initialize<'info> {
     )]
     pub usdc_mint: InterfaceAccount<'info, Mint>,
 
+    #[account(
+        init,
+        payer = payer,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = pool,
+        associated_token::token_program = token_program
+    )]
+    pub pool_usdc: InterfaceAccount<'info, TokenAccount>,
+
     #[account(mut)]
     pub payer: Signer<'info>,
 
     pub token_program: Program<'info, Token2022>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }
 

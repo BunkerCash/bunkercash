@@ -11,8 +11,12 @@ const PROGRAM_ID = new PublicKey(idlWithAddress.address)
 
 export type BunkercashIDL = Idl
 type BrowserWallet = ConstructorParameters<typeof AnchorProvider>[1]
+export type ProgramWallet = Pick<
+  WalletContextState,
+  'publicKey' | 'signTransaction' | 'signAllTransactions'
+>
 
-export function getProgram(connection: Connection, wallet: WalletContextState): Program<Idl> | null {
+export function getProgram(connection: Connection, wallet: ProgramWallet): Program<Idl> | null {
   if (!wallet.publicKey || !wallet.signTransaction || !wallet.signAllTransactions) return null
   const anchorWallet: BrowserWallet = {
     publicKey: wallet.publicKey,

@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { useConnection } from "@solana/wallet-adapter-react";
 import {
-  getProgram,
   getReadonlyProgram,
   getPoolPda,
   getBunkercashMintPda,
@@ -41,7 +40,6 @@ export interface PoolStats {
 
 export function usePoolStats() {
   const { connection } = useConnection();
-  const wallet = useWallet();
   const [stats, setStats] = useState<PoolStats>({
     totalSupply: null,
     circulatingSupply: null,
@@ -59,10 +57,7 @@ export function usePoolStats() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const program = useMemo(() => {
-    if (wallet.publicKey) return getProgram(connection, wallet);
-    return getReadonlyProgram(connection);
-  }, [connection, wallet]);
+  const program = useMemo(() => getReadonlyProgram(connection), [connection]);
 
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), []);
   const mintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), []);
