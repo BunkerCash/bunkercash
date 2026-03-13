@@ -27,7 +27,7 @@ import {
   getMasterPoolPda,
   getMasterPoolSignerPda,
   getMasterProgram,
-  getMasterWithdrawalPda,
+  getNextMasterWithdrawalPda,
   MASTER_PROGRAM_ID,
 } from "@/lib/master-program";
 import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
@@ -89,6 +89,7 @@ function getErrorMessage(error: unknown, fallback: string): string {
 export function MasterOperationsCard() {
   const { connection } = useConnection();
   const wallet = useWallet();
+  const { publicKey, signTransaction, signAllTransactions } = wallet;
   const { pool, withdrawals, loading, error, refresh } = useMasterWithdrawals();
   const { balance: payoutVaultBalance, refresh: refreshVault } =
     usePayoutVault();
@@ -114,8 +115,15 @@ export function MasterOperationsCard() {
     [],
   );
   const program = useMemo(
-    () => (wallet.publicKey ? getMasterProgram(connection, wallet) : null),
-    [connection, wallet],
+    () =>
+      publicKey && signTransaction && signAllTransactions
+        ? getMasterProgram(connection, {
+            publicKey,
+            signTransaction,
+            signAllTransactions,
+          })
+        : null,
+    [connection, publicKey, signTransaction, signAllTransactions],
   );
   const cluster = useMemo(
     () => getClusterFromEndpoint(connection.rpcEndpoint ?? ""),
@@ -252,8 +260,8 @@ export function MasterOperationsCard() {
 
     try {
       const metadataHash = await parseMetadataHashInput(metadataInput);
-      const nextWithdrawalPda = getMasterWithdrawalPda(
-        BigInt(pool.withdrawalCounter),
+      const nextWithdrawalPda = await getNextMasterWithdrawalPda(
+        connection,
         MASTER_PROGRAM_ID,
       );
 
@@ -312,6 +320,12 @@ export function MasterOperationsCard() {
     const amount = parseUsdcInput(repayAmount);
     if (!amount) {
       setTxError("Enter a valid repay amount.");
+      return;
+    }
+    if (amount > BigInt(repayTarget.remaining)) {
+      setTxError(
+        "Repay amount exceeds the selected withdrawal's remaining balance.",
+      );
       return;
     }
 

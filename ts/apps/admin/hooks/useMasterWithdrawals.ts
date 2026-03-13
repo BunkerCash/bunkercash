@@ -1,12 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import {
   getMasterPoolPda,
   getReadonlyMasterProgram,
-  getMasterProgram,
 } from "@/lib/master-program";
 import { withRateLimitRetry } from "@/lib/rpc-throttle";
 
@@ -207,7 +206,6 @@ export function recordLocalReturnedAmount(
 
 export function useMasterWithdrawals() {
   const { connection } = useConnection();
-  const wallet = useWallet();
   const cacheRef = useRef<{
     pool: MasterPoolState | null;
     withdrawals: MasterWithdrawal[];
@@ -220,12 +218,7 @@ export function useMasterWithdrawals() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const program = useMemo(() => {
-    if (wallet.publicKey) {
-      return getMasterProgram(connection, wallet) ?? getReadonlyMasterProgram(connection);
-    }
-    return getReadonlyMasterProgram(connection);
-  }, [connection, wallet]);
+  const program = useMemo(() => getReadonlyMasterProgram(connection), [connection]);
 
   const poolPda = useMemo(() => getMasterPoolPda(), []);
   const rpcEndpoint = connection.rpcEndpoint ?? "";

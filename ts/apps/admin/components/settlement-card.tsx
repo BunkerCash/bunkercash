@@ -14,9 +14,11 @@ import { AlertCircle, CheckCircle2, Loader2, RefreshCw, Wallet } from "lucide-re
 import { useAllOpenClaims, type OpenClaim } from "@/hooks/useAllOpenClaims";
 import { usePayoutVault } from "@/hooks/usePayoutVault";
 import { getProgram, getPoolPda, getPoolSignerPda, getReadonlyProgram, PROGRAM_ID } from "@/lib/program";
+import type { ProgramWallet } from "@/lib/program";
 import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
 
 const USDC_DECIMALS = 6;
+const CLAIMS_PER_TX = 6;
 
 interface AccountMetaLike {
   pubkey: PublicKey;
@@ -72,6 +74,14 @@ function parseUiUsdc(value: string | null): bigint {
   return BigInt(normalizedWhole) * BigInt(10 ** USDC_DECIMALS) + BigInt(normalizedFraction);
 }
 
+function chunkClaims<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
 function truncateWallet(wallet: string): string {
   return `${wallet.slice(0, 4)}...${wallet.slice(-4)}`;
 }
@@ -93,6 +103,7 @@ function getErrorMessage(error: unknown, fallback: string): string {
 export function SettlementCard() {
   const { connection } = useConnection();
   const wallet = useWallet();
+  const { publicKey, signTransaction, signAllTransactions } = wallet;
   const {
     claims,
     closedClaims,
@@ -113,8 +124,15 @@ export function SettlementCard() {
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), []);
   const poolSignerPda = useMemo(() => getPoolSignerPda(poolPda, PROGRAM_ID), [poolPda]);
   const program = useMemo(
-    () => (wallet.publicKey ? getProgram(connection, wallet) : null),
-    [connection, wallet]
+    () =>
+      publicKey && signTransaction && signAllTransactions
+        ? getProgram(connection, {
+            publicKey,
+            signTransaction,
+            signAllTransactions,
+          } satisfies ProgramWallet)
+        : null,
+    [connection, publicKey, signTransaction, signAllTransactions]
   );
   const readonlyProgram = useMemo(() => getReadonlyProgram(connection), [connection]);
   const cluster = useMemo(
@@ -138,7 +156,9 @@ export function SettlementCard() {
   const underfundedPoolMismatch =
     poolPendingClaims !== null &&
     vaultRaw < poolPendingClaims &&
-    totalRequested < poolPendingClaims;
+    totalRequested !== poolPendingClaims;
+  const canBatchSafely =
+    (poolPendingClaims !== null ? vaultRaw >= poolPendingClaims : vaultRaw >= totalRequested);
 
   useEffect(() => {
     let cancelled = false;
@@ -187,6 +207,9 @@ export function SettlementCard() {
       })
       .filter((item) => item.payout > BigInt(0));
   }, [claims, totalRequested, vaultRaw]);
+  const requiresSingleTransaction = !canBatchSafely;
+  const exceedsSingleTransactionLimit =
+    requiresSingleTransaction && settlementPlan.length > CLAIMS_PER_TX;
 
   const totalPayout = useMemo(
     () => settlementPlan.reduce((sum, item) => sum + item.payout, BigInt(0)),
@@ -197,7 +220,13 @@ export function SettlementCard() {
     : 0;
 
   const handleSettleAll = useCallback(async () => {
-    if (!program || !wallet.publicKey || !usdcMint || !payoutVault || settlementPlan.length === 0) return;
+    if (!program || !publicKey || !usdcMint || !payoutVault || settlementPlan.length === 0) return;
+    if (exceedsSingleTransactionLimit) {
+      setTxError(
+        `This underfunded settlement run must include all open claims in one transaction, and ${settlementPlan.length} claims exceeds the current safe limit of ${CLAIMS_PER_TX}. Add more vault liquidity or settle after a program upgrade.`
+      );
+      return;
+    }
 
     setSettling(true);
     setTxError(null);
@@ -208,74 +237,83 @@ export function SettlementCard() {
     let settledClaims = 0;
     let failedClaims = 0;
 
-    try {
-      const tx = new Transaction();
-      const remainingAccounts: AccountMetaLike[] = [];
+    const batches = canBatchSafely
+      ? chunkClaims(settlementPlan, CLAIMS_PER_TX)
+      : [settlementPlan];
 
-      for (const item of settlementPlan) {
-        const userUsdcAta = getAssociatedTokenAddressSync(
-          usdcMint,
-          item.claim.user,
-          false,
-          TOKEN_2022_PROGRAM_ID,
-          ASSOCIATED_TOKEN_PROGRAM_ID
-        );
+    for (const batch of batches) {
+      try {
+        const tx = new Transaction();
+        const remainingAccounts: AccountMetaLike[] = [];
 
-        tx.add(
-          createAssociatedTokenAccountIdempotentInstruction(
-            wallet.publicKey,
-            userUsdcAta,
-            item.claim.user,
+        for (const item of batch) {
+          const userUsdcAta = getAssociatedTokenAddressSync(
             usdcMint,
+            item.claim.user,
+            false,
             TOKEN_2022_PROGRAM_ID,
             ASSOCIATED_TOKEN_PROGRAM_ID
+          );
+
+          tx.add(
+            createAssociatedTokenAccountIdempotentInstruction(
+              publicKey,
+              userUsdcAta,
+              item.claim.user,
+              usdcMint,
+              TOKEN_2022_PROGRAM_ID,
+              ASSOCIATED_TOKEN_PROGRAM_ID
+            )
+          );
+
+          remainingAccounts.push(
+            { pubkey: item.claim.pubkey, isSigner: false, isWritable: true },
+            { pubkey: userUsdcAta, isSigner: false, isWritable: true }
+          );
+        }
+
+        const settleIx = await ((program.methods as unknown as { settleClaims: (claimIndices: Buffer) => InstructionBuilder })
+          .settleClaims(Buffer.alloc(0))
+          .accounts({
+            pool: poolPda,
+            poolUsdc: payoutVault,
+            usdcMint,
+            masterWallet: publicKey,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
+          })
+          .remainingAccounts(remainingAccounts)
+          .instruction());
+
+        tx.add(settleIx);
+
+        const sig = await (program.provider as ProviderLike).sendAndConfirm(tx);
+        succeeded.push(sig);
+        settledClaims += batch.length;
+        setProgress((prev) => ({ current: prev.current + batch.length, total: prev.total }));
+      } catch (e: unknown) {
+        console.error("Failed to settle claim batch:", e);
+        if (e instanceof SendTransactionError) {
+          const logs = await e.getLogs(connection);
+          if (logs?.length) {
+            console.error("Settle claims transaction logs:", logs);
+          }
+        }
+        failedClaims += batch.length;
+        setTxError(
+          getErrorMessage(
+            e,
+            canBatchSafely
+              ? "Failed to settle one of the settlement batches."
+              : "Failed to settle the underfunded claim set in a single transaction."
           )
         );
-
-        remainingAccounts.push(
-          { pubkey: item.claim.pubkey, isSigner: false, isWritable: true },
-          { pubkey: userUsdcAta, isSigner: false, isWritable: true }
-        );
+        if (!canBatchSafely) break;
       }
-
-      const settleIx = await ((program.methods as unknown as { settleClaims: (claimIndices: Buffer) => InstructionBuilder })
-        .settleClaims(Buffer.alloc(0))
-        .accounts({
-          pool: poolPda,
-          poolUsdc: payoutVault,
-          usdcMint,
-          masterWallet: wallet.publicKey,
-          tokenProgram: TOKEN_2022_PROGRAM_ID,
-        })
-        .remainingAccounts(remainingAccounts)
-        .instruction());
-
-      tx.add(settleIx);
-
-      const sig = await (program.provider as ProviderLike).sendAndConfirm(tx);
-      succeeded.push(sig);
-      settledClaims = settlementPlan.length;
-      setProgress({ current: settlementPlan.length, total: settlementPlan.length });
-    } catch (e: unknown) {
-      console.error("Failed to settle claims:", e);
-      if (e instanceof SendTransactionError) {
-        const logs = await e.getLogs(connection);
-        if (logs?.length) {
-          console.error("Settle claims transaction logs:", logs);
-        }
-      }
-      failedClaims = settlementPlan.length;
-      setTxError(
-        getErrorMessage(
-          e,
-          "Failed to settle claims in a single transaction. Multi-transaction settlement is disabled because it produces unfair payouts."
-        )
-      );
     }
     setResults({ settledClaims, failedClaims, signatures: succeeded });
     setSettling(false);
     await Promise.all([refreshClaims(), refreshVault()]);
-  }, [connection, payoutVault, program, refreshClaims, refreshVault, settlementPlan, usdcMint, wallet.publicKey, poolPda]);
+  }, [canBatchSafely, connection, exceedsSingleTransactionLimit, payoutVault, program, publicKey, refreshClaims, refreshVault, settlementPlan, usdcMint, poolPda]);
 
   const loading = claimsLoading || vaultLoading;
   const canSettle =
@@ -284,7 +322,8 @@ export function SettlementCard() {
     !!usdcMint &&
     settlementPlan.length > 0 &&
     !settling &&
-    !underfundedPoolMismatch;
+    !underfundedPoolMismatch &&
+    !exceedsSingleTransactionLimit;
 
   return (
     <div className="space-y-6">
@@ -380,7 +419,7 @@ export function SettlementCard() {
           <div>
             <h2 className="text-base font-semibold text-white">Settlement Run</h2>
             <p className="mt-1 text-sm text-neutral-500">
-              Each run settles the full open-claim set in one transaction so the payout ratio matches the on-chain settlement math.
+              Fully funded runs are split into small batches. Underfunded runs must still settle the full open-claim set in one transaction so the payout ratio matches on-chain math.
             </p>
           </div>
           <button

@@ -1,7 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import type { Connection } from "@solana/web3.js";
-import type { WalletContextState } from "@solana/wallet-adapter-react";
-import { getPoolPda, getPoolSignerPda, getProgram, getReadonlyProgram, PROGRAM_ID } from "@/lib/program";
+import { getPoolPda, getPoolSignerPda, getProgram, getReadonlyProgram, PROGRAM_ID, type ProgramWallet } from "@/lib/program";
 
 const MASTER_WITHDRAWAL_SEED = Buffer.from("withdrawal");
 
@@ -19,7 +18,11 @@ function encodeU64Le(value: bigint): Uint8Array {
 
 export const MASTER_PROGRAM_ID = PROGRAM_ID;
 
-export function getMasterProgram(connection: Connection, wallet: WalletContextState) {
+interface PoolAccountLike {
+  withdrawalCounter: { toString(): string };
+}
+
+export function getMasterProgram(connection: Connection, wallet: ProgramWallet) {
   return getProgram(connection, wallet);
 }
 
@@ -47,4 +50,20 @@ export function getMasterWithdrawalPda(
     programId
   );
   return pda;
+}
+
+export async function getNextMasterWithdrawalPda(
+  connection: Connection,
+  programId: PublicKey = MASTER_PROGRAM_ID,
+): Promise<PublicKey> {
+  const program = getReadonlyMasterProgram(connection);
+  const poolPda = getMasterPoolPda(programId);
+  const accountApi = program.account as {
+    pool: { fetch: (pubkey: typeof poolPda) => Promise<PoolAccountLike> };
+  };
+  const pool = await accountApi.pool.fetch(poolPda);
+  return getMasterWithdrawalPda(
+    BigInt(pool.withdrawalCounter.toString()),
+    programId,
+  );
 }

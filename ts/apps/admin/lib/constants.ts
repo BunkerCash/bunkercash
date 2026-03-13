@@ -13,6 +13,7 @@ export function getClusterFromEndpoint(endpoint: string): ClusterType {
   if (endpoint.includes('testnet')) return 'testnet';
   if (endpoint.includes('mainnet')) return 'mainnet-beta';
   if (endpoint.includes('localhost') || endpoint.includes('127.0.0.1')) return 'localnet';
+
   return 'unknown';
 }
 
