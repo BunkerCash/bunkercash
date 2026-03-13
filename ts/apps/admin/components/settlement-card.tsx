@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Buffer } from "buffer";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey, SendTransactionError, Transaction, type TransactionInstruction } from "@solana/web3.js";
@@ -13,11 +13,10 @@ import {
 import { AlertCircle, CheckCircle2, Loader2, RefreshCw, Wallet } from "lucide-react";
 import { useAllOpenClaims, type OpenClaim } from "@/hooks/useAllOpenClaims";
 import { usePayoutVault } from "@/hooks/usePayoutVault";
-import { getProgram, getPoolPda, getPoolSignerPda, PROGRAM_ID } from "@/lib/program";
+import { getProgram, getPoolPda, getPoolSignerPda, getReadonlyProgram, PROGRAM_ID } from "@/lib/program";
 import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
 
 const USDC_DECIMALS = 6;
-const CLAIMS_PER_TX = 4;
 
 interface AccountMetaLike {
   pubkey: PublicKey;
@@ -43,6 +42,14 @@ interface ProviderLike {
   sendAndConfirm: (tx: Transaction) => Promise<string>;
 }
 
+interface Stringable {
+  toString(): string;
+}
+
+interface PoolAccountLike {
+  totalPendingClaims: Stringable;
+}
+
 interface SettlementItem {
   claim: OpenClaim;
   requested: bigint;
@@ -63,14 +70,6 @@ function parseUiUsdc(value: string | null): bigint {
   const normalizedWhole = whole.replace(/[^\d]/g, "") || "0";
   const normalizedFraction = fraction.replace(/[^\d]/g, "").slice(0, USDC_DECIMALS).padEnd(USDC_DECIMALS, "0");
   return BigInt(normalizedWhole) * BigInt(10 ** USDC_DECIMALS) + BigInt(normalizedFraction);
-}
-
-function chunkClaims<T>(items: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < items.length; i += size) {
-    chunks.push(items.slice(i, i + size));
-  }
-  return chunks;
 }
 
 function truncateWallet(wallet: string): string {
@@ -108,6 +107,8 @@ export function SettlementCard() {
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [results, setResults] = useState<{ settledClaims: number; failedClaims: number; signatures: string[] } | null>(null);
   const [txError, setTxError] = useState<string | null>(null);
+  const [poolPendingClaims, setPoolPendingClaims] = useState<bigint | null>(null);
+  const [poolStateError, setPoolStateError] = useState<string | null>(null);
 
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), []);
   const poolSignerPda = useMemo(() => getPoolSignerPda(poolPda, PROGRAM_ID), [poolPda]);
@@ -115,6 +116,7 @@ export function SettlementCard() {
     () => (wallet.publicKey ? getProgram(connection, wallet) : null),
     [connection, wallet]
   );
+  const readonlyProgram = useMemo(() => getReadonlyProgram(connection), [connection]);
   const cluster = useMemo(
     () => getClusterFromEndpoint(connection.rpcEndpoint ?? ""),
     [connection]
@@ -132,6 +134,35 @@ export function SettlementCard() {
   }, [poolSignerPda, usdcMint]);
 
   const vaultRaw = useMemo(() => parseUiUsdc(vaultBalance), [vaultBalance]);
+  const pendingClaimsMismatch = poolPendingClaims !== null && poolPendingClaims !== totalRequested;
+  const underfundedPoolMismatch =
+    poolPendingClaims !== null &&
+    vaultRaw < poolPendingClaims &&
+    totalRequested < poolPendingClaims;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        setPoolStateError(null);
+        const accountApi = readonlyProgram.account as {
+          pool: { fetch: (pubkey: typeof poolPda) => Promise<PoolAccountLike> };
+        };
+        const poolState = await accountApi.pool.fetch(poolPda);
+        if (cancelled) return;
+        setPoolPendingClaims(BigInt(poolState.totalPendingClaims.toString()));
+      } catch (e: unknown) {
+        if (cancelled) return;
+        setPoolPendingClaims(null);
+        setPoolStateError(e instanceof Error ? e.message : "Failed to fetch pool state");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [poolPda, readonlyProgram]);
 
   const settlementPlan = useMemo((): SettlementItem[] => {
     if (claims.length === 0 || totalRequested === BigInt(0) || vaultRaw === BigInt(0)) return [];
@@ -176,75 +207,70 @@ export function SettlementCard() {
     const succeeded: string[] = [];
     let settledClaims = 0;
     let failedClaims = 0;
-    let firstError: string | null = null;
 
-    for (const batch of chunkClaims(settlementPlan, CLAIMS_PER_TX)) {
-      try {
-        const tx = new Transaction();
-        const remainingAccounts: AccountMetaLike[] = [];
+    try {
+      const tx = new Transaction();
+      const remainingAccounts: AccountMetaLike[] = [];
 
-        for (const item of batch) {
-          const userUsdcAta = getAssociatedTokenAddressSync(
-            usdcMint,
+      for (const item of settlementPlan) {
+        const userUsdcAta = getAssociatedTokenAddressSync(
+          usdcMint,
+          item.claim.user,
+          false,
+          TOKEN_2022_PROGRAM_ID,
+          ASSOCIATED_TOKEN_PROGRAM_ID
+        );
+
+        tx.add(
+          createAssociatedTokenAccountIdempotentInstruction(
+            wallet.publicKey,
+            userUsdcAta,
             item.claim.user,
-            false,
+            usdcMint,
             TOKEN_2022_PROGRAM_ID,
             ASSOCIATED_TOKEN_PROGRAM_ID
-          );
+          )
+        );
 
-          tx.add(
-            createAssociatedTokenAccountIdempotentInstruction(
-              wallet.publicKey,
-              userUsdcAta,
-              item.claim.user,
-              usdcMint,
-              TOKEN_2022_PROGRAM_ID,
-              ASSOCIATED_TOKEN_PROGRAM_ID
-            )
-          );
-
-          remainingAccounts.push(
-            { pubkey: item.claim.pubkey, isSigner: false, isWritable: true },
-            { pubkey: userUsdcAta, isSigner: false, isWritable: true }
-          );
-        }
-
-        const settleIx = await ((program.methods as unknown as { settleClaims: (claimIndices: Buffer) => InstructionBuilder })
-          .settleClaims(Buffer.alloc(0))
-          .accounts({
-            pool: poolPda,
-            poolUsdc: payoutVault,
-            usdcMint,
-            masterWallet: wallet.publicKey,
-            tokenProgram: TOKEN_2022_PROGRAM_ID,
-          })
-          .remainingAccounts(remainingAccounts)
-          .instruction());
-
-        tx.add(settleIx);
-
-        const sig = await (program.provider as ProviderLike).sendAndConfirm(tx);
-        succeeded.push(sig);
-        settledClaims += batch.length;
-        setProgress((prev) => ({ current: prev.current + batch.length, total: prev.total }));
-      } catch (e: unknown) {
-        console.error("Failed to settle claim batch:", e);
-        if (e instanceof SendTransactionError) {
-          const logs = await e.getLogs(connection);
-          if (logs?.length) {
-            console.error("Settle claims transaction logs:", logs);
-          }
-        }
-        if (!firstError) {
-          firstError = getErrorMessage(e, "Failed to settle claim batch");
-        }
-        failedClaims += batch.length;
-        setProgress((prev) => ({ current: prev.current + batch.length, total: prev.total }));
+        remainingAccounts.push(
+          { pubkey: item.claim.pubkey, isSigner: false, isWritable: true },
+          { pubkey: userUsdcAta, isSigner: false, isWritable: true }
+        );
       }
-    }
 
-    if (firstError) {
-      setTxError(firstError);
+      const settleIx = await ((program.methods as unknown as { settleClaims: (claimIndices: Buffer) => InstructionBuilder })
+        .settleClaims(Buffer.alloc(0))
+        .accounts({
+          pool: poolPda,
+          poolUsdc: payoutVault,
+          usdcMint,
+          masterWallet: wallet.publicKey,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+        })
+        .remainingAccounts(remainingAccounts)
+        .instruction());
+
+      tx.add(settleIx);
+
+      const sig = await (program.provider as ProviderLike).sendAndConfirm(tx);
+      succeeded.push(sig);
+      settledClaims = settlementPlan.length;
+      setProgress({ current: settlementPlan.length, total: settlementPlan.length });
+    } catch (e: unknown) {
+      console.error("Failed to settle claims:", e);
+      if (e instanceof SendTransactionError) {
+        const logs = await e.getLogs(connection);
+        if (logs?.length) {
+          console.error("Settle claims transaction logs:", logs);
+        }
+      }
+      failedClaims = settlementPlan.length;
+      setTxError(
+        getErrorMessage(
+          e,
+          "Failed to settle claims in a single transaction. Multi-transaction settlement is disabled because it produces unfair payouts."
+        )
+      );
     }
     setResults({ settledClaims, failedClaims, signatures: succeeded });
     setSettling(false);
@@ -252,7 +278,13 @@ export function SettlementCard() {
   }, [connection, payoutVault, program, refreshClaims, refreshVault, settlementPlan, usdcMint, wallet.publicKey, poolPda]);
 
   const loading = claimsLoading || vaultLoading;
-  const canSettle = !!wallet.publicKey && !!program && !!usdcMint && settlementPlan.length > 0 && !settling;
+  const canSettle =
+    !!wallet.publicKey &&
+    !!program &&
+    !!usdcMint &&
+    settlementPlan.length > 0 &&
+    !settling &&
+    !underfundedPoolMismatch;
 
   return (
     <div className="space-y-6">
@@ -310,10 +342,20 @@ export function SettlementCard() {
         </div>
       )}
 
-      {(claimsError || vaultError || txError) && (
+      {(claimsError || vaultError || txError || poolStateError) && (
         <div className="flex items-start gap-3 rounded-xl border border-rose-500/20 bg-rose-500/5 px-4 py-3 text-sm text-rose-300">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-          {txError ?? claimsError ?? vaultError}
+          {txError ?? claimsError ?? vaultError ?? poolStateError}
+        </div>
+      )}
+
+      {pendingClaimsMismatch && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          On-chain pending claims (${formatUsdc(poolPendingClaims ?? BigInt(0))}) do not match the decoded open-claim set (${formatUsdc(totalRequested)}).
+          {underfundedPoolMismatch
+            ? " Settlement is blocked because the program now requires the full underfunded claim set to prevent unfair payouts."
+            : " A single full-settlement run may repair stale low pending-claim accounting."}
         </div>
       )}
 
@@ -338,7 +380,7 @@ export function SettlementCard() {
           <div>
             <h2 className="text-base font-semibold text-white">Settlement Run</h2>
             <p className="mt-1 text-sm text-neutral-500">
-              Each run derives the pro-rata payout from the current vault balance and settles open claims in small batches.
+              Each run settles the full open-claim set in one transaction so the payout ratio matches the on-chain settlement math.
             </p>
           </div>
           <button

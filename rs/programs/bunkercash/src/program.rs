@@ -13,12 +13,27 @@ use mpl_token_metadata::types::DataV2;
 use mpl_token_metadata::ID as TOKEN_METADATA_PROGRAM_ID;
 use spl_token_2022::state::Mint as Token2022Mint;
 
-declare_id!("uimiGs8esYweAGXFCsKZtAtwR8R1oFJE7nqZczTw9Ck");
+declare_id!("CGk5t3huzEvgTizUP7iRFnDLZGsZT9EPNm72csfxoM76");
 
 const POOL_SEED: &[u8] = b"pool";
 const BRENT_MINT_SEED: &[u8] = b"bunkercash_mint";
 const CLAIM_SEED: &[u8] = b"claim";
 const TOKEN_DECIMALS: u8 = 6;
+const MAINNET_USDC_MINT: Pubkey = pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+const DEVNET_USDC_MINT: Pubkey = pubkey!("Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx");
+
+fn validate_supported_usdc_mint(usdc_mint: &Pubkey) -> Result<()> {
+    require!(
+        *usdc_mint == MAINNET_USDC_MINT || *usdc_mint == DEVNET_USDC_MINT,
+        ErrorCode::InvalidUsdcMint
+    );
+    Ok(())
+}
+
+fn validate_non_zero_amount(amount: u64) -> Result<()> {
+    require!(amount > 0, ErrorCode::InvalidAmount);
+    Ok(())
+}
 
 fn calculate_claim_usdc_value(
     brent_amount: u64,
@@ -121,6 +136,8 @@ pub mod bunkercash {
         ctx: Context<Initialize>,
         master_wallet: Pubkey,
     ) -> Result<()> {
+        validate_supported_usdc_mint(&ctx.accounts.usdc_mint.key())?;
+
         let pool = &mut ctx.accounts.pool;
         let timestamp = Clock::get()?.unix_timestamp;
         pool.master_wallet = master_wallet;
@@ -152,6 +169,9 @@ pub mod bunkercash {
         ctx: Context<DepositUsdc>,
         usdc_amount: u64,
     ) -> Result<()> {
+        validate_supported_usdc_mint(&ctx.accounts.usdc_mint.key())?;
+        validate_non_zero_amount(usdc_amount)?;
+
         let pool = &mut ctx.accounts.pool;
         let user = ctx.accounts.user.key();
 
@@ -348,6 +368,8 @@ pub mod bunkercash {
         ctx: Context<'a, 'b, 'c, 'info, SettleClaims<'info>>,
         _claim_indices: Vec<u8>,
     ) -> Result<()> {
+        validate_supported_usdc_mint(&ctx.accounts.usdc_mint.key())?;
+
         let pool = &mut ctx.accounts.pool;
         let master_wallet = ctx.accounts.master_wallet.key();
 
@@ -378,7 +400,13 @@ pub mod bunkercash {
             }
         }
 
+        let pool_pending_before = pool.total_pending_claims;
         let usdc_balance = accessor::amount(&ctx.accounts.pool_usdc.to_account_info())?;
+        require!(
+            !(usdc_balance < pool_pending_before && actual_total_remaining < pool_pending_before),
+            ErrorCode::IncompleteSettlementSet
+        );
+
         let total_claimable = usdc_balance.min(actual_total_remaining);
         let payout_ratio = if actual_total_remaining > 0 {
             (total_claimable as u128)
@@ -453,7 +481,6 @@ pub mod bunkercash {
 
                     let remaining_after_payout = claim_remaining_amount.saturating_sub(payout);
 
-                    pool.total_pending_claims = pool.total_pending_claims.saturating_sub(payout);
                     pool.nav = pool.nav.saturating_sub(payout);
                     claims_settled = claims_settled.checked_add(1).unwrap();
                     total_paid = total_paid.checked_add(payout).unwrap();
@@ -478,20 +505,12 @@ pub mod bunkercash {
             }
         }
 
-        // Sync pool.total_pending_claims with actual remaining
-        let mut recalculated_pending = 0u64;
-        for (idx, claim_account_info) in ctx.remaining_accounts.iter().enumerate() {
-            if idx % 2 == 0 {
-                let claim_data = claim_account_info.try_borrow_data()?;
-                let claim = Claim::try_deserialize(&mut &claim_data[..])?;
-                if claim.paid_amount < claim.usdc_amount {
-                    recalculated_pending = recalculated_pending
-                        .checked_add(claim.usdc_amount.saturating_sub(claim.paid_amount))
-                        .unwrap();
-                }
-            }
-        }
-        pool.total_pending_claims = recalculated_pending;
+        let batch_remaining = actual_total_remaining.saturating_sub(total_paid);
+        pool.total_pending_claims = if actual_total_remaining >= pool_pending_before {
+            batch_remaining
+        } else {
+            pool_pending_before.saturating_sub(total_paid)
+        };
 
         emit!(ClaimsSettledEvent {
             pool: pool.key(),
@@ -513,6 +532,9 @@ pub mod bunkercash {
         amount: u64,
         metadata_hash: [u8; 32],
     ) -> Result<()> {
+        validate_supported_usdc_mint(&ctx.accounts.usdc_mint.key())?;
+        validate_non_zero_amount(amount)?;
+
         let pool = &mut ctx.accounts.pool;
         let withdrawal = &mut ctx.accounts.withdrawal;
 
@@ -570,6 +592,9 @@ pub mod bunkercash {
         ctx: Context<MasterRepay>,
         amount: u64,
     ) -> Result<()> {
+        validate_supported_usdc_mint(&ctx.accounts.usdc_mint.key())?;
+        validate_non_zero_amount(amount)?;
+
         let pool = &mut ctx.accounts.pool;
         let withdrawal = &mut ctx.accounts.withdrawal;
 
@@ -612,6 +637,9 @@ pub mod bunkercash {
         ctx: Context<MasterRepay>,
         amount: u64,
     ) -> Result<()> {
+        validate_supported_usdc_mint(&ctx.accounts.usdc_mint.key())?;
+        validate_non_zero_amount(amount)?;
+
         let pool = &mut ctx.accounts.pool;
         let withdrawal = &mut ctx.accounts.withdrawal;
 
@@ -620,6 +648,7 @@ pub mod bunkercash {
             ErrorCode::Unauthorized
         );
 
+        // todo: allow lower and higher 
         require!(withdrawal.remaining >= amount, ErrorCode::RepaymentExceedsWithdrawal);
 
         anchor_spl::token_2022::transfer_checked(
@@ -1253,10 +1282,14 @@ pub enum ErrorCode {
     Unauthorized,
     #[msg("Repayment amount exceeds withdrawal remaining balance")]
     RepaymentExceedsWithdrawal,
+    #[msg("Settlement must include the full open-claim set when the pool vault cannot cover all claims")]
+    IncompleteSettlementSet,
     #[msg("Bunker Cash mint PDA is already initialized")]
     MintAlreadyInitialized,
     #[msg("Claim amount must burn a non-zero amount of bRENT for a non-zero USDC value")]
     ClaimAmountTooSmall,
+    #[msg("Amount must be greater than zero")]
+    InvalidAmount,
 }
 
 #[cfg(test)]
