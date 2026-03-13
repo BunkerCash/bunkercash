@@ -80,8 +80,11 @@ fn record_master_withdrawal(
 }
 
 fn apply_master_repayment(pool: &mut Pool, withdrawal: &mut Withdrawal, amount: u64) {
-    pool.nav = pool.nav.checked_add(amount).unwrap();
-    withdrawal.remaining = withdrawal.remaining.saturating_sub(amount);
+    let principal_returned = amount.min(withdrawal.remaining);
+    let nav_growth = amount.checked_sub(principal_returned).unwrap();
+
+    withdrawal.remaining = withdrawal.remaining.checked_sub(principal_returned).unwrap();
+    pool.nav = pool.nav.checked_add(nav_growth).unwrap();
 }
 
 fn validate_settlement_accounts<'info>(
@@ -650,7 +653,7 @@ pub mod bunkercash {
             ErrorCode::Unauthorized
         );
 
-        // todo: allow lower and higher 
+        // Cancellation returns outstanding principal without affecting NAV.
         require!(withdrawal.remaining >= amount, ErrorCode::RepaymentExceedsWithdrawal);
 
         anchor_spl::token_2022::transfer_checked(
@@ -1364,7 +1367,7 @@ mod tests {
     }
 
     #[test]
-    fn master_repayment_can_exceed_outstanding_withdrawal_and_still_raise_nav() {
+    fn master_repayment_only_adds_excess_to_nav() {
         let mut pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 7_500_000,
@@ -1385,7 +1388,34 @@ mod tests {
 
         apply_master_repayment(&mut pool, &mut withdrawal, 900_000);
 
-        assert_eq!(pool.nav, 8_400_000);
+        assert_eq!(pool.nav, 8_000_000);
+        assert_eq!(withdrawal.remaining, 0);
+    }
+
+    #[test]
+    fn master_repayment_of_outstanding_principal_does_not_change_nav() {
+        let mut pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 7_500_000,
+            total_brent_supply: 7_500_000,
+            total_pending_claims: 0,
+            claim_counter: 0,
+            withdrawal_counter: 1,
+            bump: 255,
+        };
+        let original_nav = pool.nav;
+        let mut withdrawal = Withdrawal {
+            id: 0,
+            amount: 1_250_000,
+            remaining: 400_000,
+            metadata_hash: [0; 32],
+            timestamp: 0,
+            bump: 0,
+        };
+
+        apply_master_repayment(&mut pool, &mut withdrawal, 400_000);
+
+        assert_eq!(pool.nav, original_nav);
         assert_eq!(withdrawal.remaining, 0);
     }
 }

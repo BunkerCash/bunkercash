@@ -322,12 +322,6 @@ export function MasterOperationsCard() {
       setTxError("Enter a valid repay amount.");
       return;
     }
-    if (amount > BigInt(repayTarget.remaining)) {
-      setTxError(
-        "Repay amount exceeds the selected withdrawal's remaining balance.",
-      );
-      return;
-    }
 
     const ataState = buildAtaInstructions();
     if (!ataState) return;
