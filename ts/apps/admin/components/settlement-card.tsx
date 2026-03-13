@@ -153,6 +153,8 @@ export function SettlementCard() {
 
   const vaultRaw = useMemo(() => parseUiUsdc(vaultBalance), [vaultBalance]);
   const pendingClaimsMismatch = poolPendingClaims !== null && poolPendingClaims !== totalRequested;
+  const pendingClaimsSyncRequired =
+    poolPendingClaims !== null && totalRequested > poolPendingClaims;
   const underfundedPoolMismatch =
     poolPendingClaims !== null &&
     vaultRaw < poolPendingClaims &&
@@ -322,6 +324,7 @@ export function SettlementCard() {
     !!usdcMint &&
     settlementPlan.length > 0 &&
     !settling &&
+    !pendingClaimsSyncRequired &&
     !underfundedPoolMismatch &&
     !exceedsSingleTransactionLimit;
 
@@ -392,9 +395,11 @@ export function SettlementCard() {
         <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           On-chain pending claims (${formatUsdc(poolPendingClaims ?? BigInt(0))}) do not match the decoded open-claim set (${formatUsdc(totalRequested)}).
-          {underfundedPoolMismatch
-            ? " Settlement is blocked because the program now requires the full underfunded claim set to prevent unfair payouts."
-            : " A single full-settlement run may repair stale low pending-claim accounting."}
+          {pendingClaimsSyncRequired
+            ? " Settlement is blocked because the on-chain tracker is stale low and must be synced before any settlement run."
+            : underfundedPoolMismatch
+              ? " Settlement is blocked because the program now requires the full underfunded claim set to prevent unfair payouts."
+              : " Settlement can continue because the on-chain tracker is higher than the decoded open-claim set."}
         </div>
       )}
 

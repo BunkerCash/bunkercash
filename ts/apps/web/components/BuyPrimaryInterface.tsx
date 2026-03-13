@@ -101,13 +101,15 @@ export function BuyPrimaryInterface() {
   );
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), []);
   const bunkercashMintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), []);
+  const currentCluster = useMemo(
+    () => getClusterFromEndpoint(connection.rpcEndpoint ?? ""),
+    [connection],
+  );
 
   const usdcMint = useMemo(() => {
     if (!connection) return null;
-    const endpoint = connection.rpcEndpoint ?? "";
-    const cluster = getClusterFromEndpoint(endpoint);
-    return getUsdcMintForCluster(cluster);
-  }, [connection]);
+    return getUsdcMintForCluster(currentCluster);
+  }, [connection, currentCluster]);
 
   useEffect(() => {
     if (!connection || !usdcMint) {
@@ -233,16 +235,22 @@ export function BuyPrimaryInterface() {
   }, [usdcAmount, usdcAmountRaw, usdcBalanceRaw]);
 
   const handleBuy = async () => {
+    if (!usdcMint) {
+      const msg = `Unsupported network: no configured Token-2022 USDC mint for ${currentCluster}.`;
+      setError(msg);
+      showToast(msg, "error");
+      return;
+    }
     if (
       !program ||
       !publicKey ||
       !poolState ||
       !usdcAmountRaw ||
       usdcAmountRaw <= BigInt(0) ||
-      !usdcMint ||
       !usdcTokenProgram
-    )
+    ) {
       return;
+    }
 
     // Prevent duplicate submissions
     if (txInFlight.current) return;
@@ -536,6 +544,7 @@ export function BuyPrimaryInterface() {
           !usdcAmountRaw ||
           usdcAmountRaw <= BigInt(0) ||
           !!inputError ||
+          !usdcMint ||
           !supportsUsdcDeposits
         }
         className="w-full rounded-xl bg-[#00FFB2] py-5 text-lg font-semibold text-black transition-all hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600"
@@ -549,7 +558,7 @@ export function BuyPrimaryInterface() {
         </div>
         <div className="opacity-50">
           Network:{" "}
-          {getClusterFromEndpoint(connection.rpcEndpoint ?? "")} |
+          {currentCluster} |
           Mint: {usdcMint?.toBase58().slice(0, 4)}...
           {usdcMint?.toBase58().slice(-4)}
         </div>

@@ -87,6 +87,17 @@ fn apply_master_repayment(pool: &mut Pool, withdrawal: &mut Withdrawal, amount: 
     pool.nav = pool.nav.checked_add(nav_growth).unwrap();
 }
 
+fn validate_settlement_pending_claims(
+    pool_pending_before: u64,
+    actual_total_remaining: u64,
+) -> Result<()> {
+    require!(
+        actual_total_remaining <= pool_pending_before,
+        ErrorCode::PendingClaimsOutOfSync
+    );
+    Ok(())
+}
+
 fn validate_settlement_accounts<'info>(
     program_id: &Pubkey,
     token_program: &Pubkey,
@@ -390,8 +401,7 @@ pub mod bunkercash {
             ctx.remaining_accounts,
         )?;
 
-        // Compute actual total remaining from the claims being settled
-        // (pool.total_pending_claims may be stale from the old program)
+        // Compute the remaining amount across the claims included in this run.
         let mut actual_total_remaining = 0u64;
         for (idx, claim_account_info) in ctx.remaining_accounts.iter().enumerate() {
             if idx % 2 == 0 {
@@ -406,6 +416,7 @@ pub mod bunkercash {
         }
 
         let pool_pending_before = pool.total_pending_claims;
+        validate_settlement_pending_claims(pool_pending_before, actual_total_remaining)?;
         let usdc_balance = accessor::amount(&ctx.accounts.pool_usdc.to_account_info())?;
         require!(
             !(usdc_balance < pool_pending_before && actual_total_remaining < pool_pending_before),
@@ -510,12 +521,7 @@ pub mod bunkercash {
             }
         }
 
-        let batch_remaining = actual_total_remaining.saturating_sub(total_paid);
-        pool.total_pending_claims = if actual_total_remaining >= pool_pending_before {
-            batch_remaining
-        } else {
-            pool_pending_before.saturating_sub(total_paid)
-        };
+        pool.total_pending_claims = pool_pending_before.saturating_sub(total_paid);
 
         emit!(ClaimsSettledEvent {
             pool: pool.key(),
@@ -1299,6 +1305,8 @@ pub enum ErrorCode {
     RepaymentExceedsWithdrawal,
     #[msg("Settlement must include the full open-claim set when the pool vault cannot cover all claims")]
     IncompleteSettlementSet,
+    #[msg("On-chain pending claims are lower than the submitted claim set; sync pending claims before settling")]
+    PendingClaimsOutOfSync,
     #[msg("Bunker Cash mint PDA is already initialized")]
     MintAlreadyInitialized,
     #[msg("Claim amount must burn a non-zero amount of bRENT for a non-zero USDC value")]
@@ -1310,8 +1318,8 @@ pub enum ErrorCode {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_master_repayment, calculate_claim_usdc_value, record_master_withdrawal, Pool,
-        Withdrawal,
+        apply_master_repayment, calculate_claim_usdc_value, record_master_withdrawal,
+        validate_settlement_pending_claims, ErrorCode, Pool, Withdrawal,
     };
     use anchor_lang::prelude::Pubkey;
 
@@ -1417,5 +1425,11 @@ mod tests {
 
         assert_eq!(pool.nav, original_nav);
         assert_eq!(withdrawal.remaining, 0);
+    }
+
+    #[test]
+    fn settlement_rejects_claim_sets_larger_than_tracked_pending_total() {
+        let err = validate_settlement_pending_claims(500_000, 700_000).unwrap_err();
+        assert_eq!(err, ErrorCode::PendingClaimsOutOfSync.into());
     }
 }
