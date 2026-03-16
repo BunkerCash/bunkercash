@@ -10,10 +10,11 @@ export default function SellRegistration() {
         <div className="max-w-2xl mx-auto">
           <div className="text-center mb-10">
             <h1 className="text-3xl font-bold text-foreground mb-4">
-              Sell Registration
+              File Claim
             </h1>
             <p className="text-muted-foreground mb-4">
-              Register tokens for sell (escrow lock) or view pool transactions.
+              Burn bRENT to create a pending USDC redemption claim, or review
+              your recent pool transactions.
             </p>
           </div>
 

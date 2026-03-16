@@ -1,5 +1,5 @@
 {
-  "address": "DemMc7to6i31v3mvGF9aieyWixUqhNRLJtfQ9ZouqViR",
+  "address": "CGk5t3huzEvgTizUP7iRFnDLZGsZT9EPNm72csfxoM76",
   "metadata": {
     "name": "bunkercash",
     "version": "0.1.0",
@@ -7,6 +7,79 @@
     "description": "Created with Anchor"
   },
   "instructions": [
+    {
+      "name": "create_brent_mint",
+      "discriminator": [
+        213,
+        166,
+        71,
+        31,
+        110,
+        208,
+        112,
+        58
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "brent_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
     {
       "name": "deposit_usdc",
       "discriminator": [
@@ -51,7 +124,31 @@
         },
         {
           "name": "brent_mint",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              }
+            ]
+          }
         },
         {
           "name": "usdc_mint"
@@ -140,7 +237,31 @@
         },
         {
           "name": "brent_mint",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              }
+            ]
+          }
         },
         {
           "name": "user",
@@ -289,9 +410,16 @@
           }
         },
         {
+          "name": "usdc_mint"
+        },
+        {
           "name": "payer",
           "writable": true,
           "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
           "name": "system_program",
@@ -757,6 +885,19 @@
   ],
   "events": [
     {
+      "name": "BrentMintCreatedEvent",
+      "discriminator": [
+        241,
+        135,
+        76,
+        199,
+        247,
+        215,
+        140,
+        190
+      ]
+    },
+    {
       "name": "ClaimFiledEvent",
       "discriminator": [
         122,
@@ -895,16 +1036,79 @@
     },
     {
       "code": 6001,
+      "name": "InvalidUsdcMint",
+      "msg": "Invalid USDC mint for this pool"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidPoolUsdcVault",
+      "msg": "Invalid pool USDC vault for this pool"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidSettlementAccounts",
+      "msg": "Invalid settlement account pair"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidClaimAccount",
+      "msg": "Invalid claim account provided for settlement"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidClaimDestination",
+      "msg": "Invalid USDC destination account for settlement"
+    },
+    {
+      "code": 6006,
       "name": "Unauthorized",
       "msg": "Unauthorized access"
     },
     {
-      "code": 6002,
+      "code": 6007,
       "name": "RepaymentExceedsWithdrawal",
       "msg": "Repayment amount exceeds withdrawal remaining balance"
+    },
+    {
+      "code": 6008,
+      "name": "MintAlreadyInitialized",
+      "msg": "Bunker Cash mint PDA is already initialized"
+    },
+    {
+      "code": 6009,
+      "name": "ClaimAmountTooSmall",
+      "msg": "Claim amount must burn a non-zero amount of bRENT for a non-zero USDC value"
     }
   ],
   "types": [
+    {
+      "name": "BrentMintCreatedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "decimals",
+            "type": "u8"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
     {
       "name": "Claim",
       "type": {
@@ -1285,6 +1489,10 @@
           },
           {
             "name": "master_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "usdc_mint",
             "type": "pubkey"
           },
           {

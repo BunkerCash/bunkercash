@@ -1,5 +1,5 @@
-import { SettlementCard } from "@/components/settlement-card";
+import { redirect } from "next/navigation";
 
 export default function SettlementPage() {
-  return <SettlementCard />;
+  redirect("/dashboard/claims");
 }

@@ -32,12 +32,6 @@ const navItems = [
     iconColor: "text-neutral-400",
   },
   {
-    href: "/dashboard/settlement",
-    label: "Settlement",
-    icon: CalendarCheck,
-    iconColor: "text-blue-400",
-  },
-  {
     href: "/dashboard/master-ops",
     label: "Master Ops",
     icon: Wallet,
@@ -56,7 +50,6 @@ export function Sidebar() {
 
   return (
     <aside className="w-[220px] min-h-screen bg-[#0d0d0d] border-r border-neutral-800/60 flex flex-col shrink-0">
-      {/* Brand */}
       <div className="px-5 pt-6 pb-5">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-[#00FFB2] flex items-center justify-center text-black font-bold text-xs">
@@ -73,7 +66,6 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* Navigation */}
       <nav className="flex-1 px-3 space-y-0.5">
         {navItems.map((item) => {
           const isActive = pathname === item.href;
@@ -98,7 +90,6 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Bottom actions */}
       <div className="px-4 pb-5">
         <WalletMultiButton
           style={{

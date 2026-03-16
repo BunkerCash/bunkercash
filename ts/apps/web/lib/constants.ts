@@ -59,9 +59,8 @@ export function getSquadsDashboardUrl(
 }
 
 export const USDC_MINTS: Record<string, string> = {
-  'mainnet-beta': 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-  'devnet': 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr',
-  'testnet': 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr',
+  'devnet': 'Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx',
+  'testnet': 'Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx',
 };
 
 export function getClusterFromEndpoint(endpoint: string): ClusterType {
@@ -73,10 +72,7 @@ export function getClusterFromEndpoint(endpoint: string): ClusterType {
   if (endpoint.includes('mainnet')) return 'mainnet-beta';
   if (endpoint.includes('localhost') || endpoint.includes('127.0.0.1')) return 'localnet';
 
-  // private RPCs (Helius, QuickNode, etc.) often omit the cluster name —
-  // default to mainnet-beta since production deployments use private RPCs.
-  // override with NEXT_PUBLIC_CLUSTER if this assumption is wrong.
-  return 'mainnet-beta';
+  return 'unknown';
 }
 
 export function getUsdcMintForCluster(cluster: ClusterType): PublicKey | null {

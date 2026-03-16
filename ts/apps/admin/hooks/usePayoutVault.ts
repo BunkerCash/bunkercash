@@ -1,9 +1,10 @@
 "use client"
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useConnection } from '@solana/wallet-adapter-react'
-import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
+import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import { getPoolPda, getPoolSignerPda, PROGRAM_ID } from '@/lib/program'
 import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
+import { withRateLimitRetry } from "@/lib/rpc-throttle";
 
 const CACHE_TTL = 30_000 // 30 seconds
 
@@ -31,7 +32,7 @@ export function usePayoutVault() {
       usdcMint,
       poolSignerPda,
       true,
-      TOKEN_PROGRAM_ID,
+      TOKEN_2022_PROGRAM_ID,
       ASSOCIATED_TOKEN_PROGRAM_ID
     )
   }, [usdcMint, poolSignerPda])
@@ -48,7 +49,9 @@ export function usePayoutVault() {
     setLoading(true)
     setError(null)
     try {
-      const bal = await connection.getTokenAccountBalance(payoutUsdcVault)
+      const bal = await withRateLimitRetry(() =>
+        connection.getTokenAccountBalance(payoutUsdcVault)
+      )
       const value = bal.value.uiAmountString ?? '0'
       cacheRef.current = { data: value, timestamp: Date.now(), endpoint: rpcEndpoint }
       setBalance(value)

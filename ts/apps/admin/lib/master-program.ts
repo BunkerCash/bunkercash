@@ -1,10 +1,8 @@
 import { PublicKey } from "@solana/web3.js";
 import type { Connection } from "@solana/web3.js";
-import type { WalletContextState } from "@solana/wallet-adapter-react";
-import { getPoolPda, getPoolSignerPda, getProgram, getReadonlyProgram, PROGRAM_ID } from "@/lib/program";
+import { getPoolPda, getPoolSignerPda, getProgram, getReadonlyProgram, PROGRAM_ID, type ProgramWallet } from "@/lib/program";
 
-const MASTER_OPS_SEED = Buffer.from("bunkercash_master_ops");
-const MASTER_WITHDRAWAL_SEED = Buffer.from("bunkercash_master_withdrawal");
+const MASTER_WITHDRAWAL_SEED = Buffer.from("withdrawal");
 
 function encodeU64Le(value: bigint): Uint8Array {
   const bytes = new Uint8Array(8);
@@ -20,7 +18,11 @@ function encodeU64Le(value: bigint): Uint8Array {
 
 export const MASTER_PROGRAM_ID = PROGRAM_ID;
 
-export function getMasterProgram(connection: Connection, wallet: WalletContextState) {
+interface PoolAccountLike {
+  withdrawalCounter: { toString(): string };
+}
+
+export function getMasterProgram(connection: Connection, wallet: ProgramWallet) {
   return getProgram(connection, wallet);
 }
 
@@ -36,14 +38,6 @@ export function getMasterPoolSignerPda(programId: PublicKey = MASTER_PROGRAM_ID)
   return getPoolSignerPda(getMasterPoolPda(programId), programId);
 }
 
-export function getMasterOpsPda(programId: PublicKey = MASTER_PROGRAM_ID): PublicKey {
-  const [pda] = PublicKey.findProgramAddressSync(
-    [MASTER_OPS_SEED, getMasterPoolPda(programId).toBuffer()],
-    programId
-  );
-  return pda;
-}
-
 export function getMasterWithdrawalPda(
   withdrawalId: bigint,
   programId: PublicKey = MASTER_PROGRAM_ID
@@ -51,10 +45,25 @@ export function getMasterWithdrawalPda(
   const [pda] = PublicKey.findProgramAddressSync(
     [
       MASTER_WITHDRAWAL_SEED,
-      getMasterPoolPda(programId).toBuffer(),
       encodeU64Le(withdrawalId),
     ],
     programId
   );
   return pda;
+}
+
+export async function getNextMasterWithdrawalPda(
+  connection: Connection,
+  programId: PublicKey = MASTER_PROGRAM_ID,
+): Promise<PublicKey> {
+  const program = getReadonlyMasterProgram(connection);
+  const poolPda = getMasterPoolPda(programId);
+  const accountApi = program.account as {
+    pool: { fetch: (pubkey: typeof poolPda) => Promise<PoolAccountLike> };
+  };
+  const pool = await accountApi.pool.fetch(poolPda);
+  return getMasterWithdrawalPda(
+    BigInt(pool.withdrawalCounter.toString()),
+    programId,
+  );
 }
