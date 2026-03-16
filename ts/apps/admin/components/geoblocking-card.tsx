@@ -17,6 +17,14 @@ import { COUNTRIES, EU_COUNTRY_CODES } from "@/lib/countries";
 import { ConfirmationDialog } from "./ui/confirmation-dialog";
 import { buildAdminAccessMessage } from "@/lib/admin-auth-message";
 
+function asCountryList(value: unknown): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw new Error("Blocked countries response is malformed");
+  }
+
+  return value;
+}
+
 export function GeoblockingCard() {
   const { publicKey, signMessage } = useWallet();
   const [blocked, setBlocked] = useState<string[]>([]);
@@ -68,7 +76,7 @@ export function GeoblockingCard() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      setBlocked(data.countries);
+      setBlocked(asCountryList(data.countries));
     } catch (e: any) {
       setError(e.message || "Failed to load blocked countries");
     } finally {
@@ -123,8 +131,9 @@ export function GeoblockingCard() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      setBlocked(data.countries);
-      setSuccess(`Updated — ${data.countries.length} countries blocked`);
+      const nextCountries = asCountryList(data.countries);
+      setBlocked(nextCountries);
+      setSuccess(`Updated — ${nextCountries.length} countries blocked`);
       setTimeout(() => setSuccess(null), 3000);
     } catch (e: any) {
       setBlocked(previousCountries);

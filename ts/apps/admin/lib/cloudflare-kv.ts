@@ -6,6 +6,14 @@ const KV_BASE = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/sto
 
 const KEY = encodeURIComponent("geoblocking:blocked_countries");
 
+export function parseBlockedCountries(value: unknown): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw new Error("Blocked countries payload is malformed");
+  }
+
+  return value;
+}
+
 export async function getBlockedCountries(): Promise<string[]> {
   const res = await fetch(`${KV_BASE}/values/${KEY}`, {
     headers: { Authorization: `Bearer ${API_TOKEN}` },
@@ -16,7 +24,7 @@ export async function getBlockedCountries(): Promise<string[]> {
     throw new Error(`KV read failed: ${res.status}`);
   }
   const text = await res.text();
-  return JSON.parse(text);
+  return parseBlockedCountries(JSON.parse(text));
 }
 
 function normalizeCountries(countries: string[]): string[] {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   getBlockedCountries,
+  parseBlockedCountries,
   setBlockedCountries,
 } from "@/lib/cloudflare-kv";
 import {
@@ -52,19 +53,28 @@ export async function PUT(request: Request) {
       );
     }
 
-    const body = JSON.parse(bodyText);
-    const countries: string[] = body.countries;
-
-    if (!Array.isArray(countries)) {
+    let body: { countries?: unknown };
+    try {
+      body = JSON.parse(bodyText);
+    } catch {
       return NextResponse.json(
-        { error: "countries must be an array" },
+        { error: "Request body must be valid JSON" },
         { status: 400 }
       );
     }
 
+    const countries = parseBlockedCountries(body.countries);
+
     const updated = await setBlockedCountries(countries);
     return NextResponse.json({ countries: updated });
   } catch (e: any) {
+    if (e instanceof Error && e.message === "Blocked countries payload is malformed") {
+      return NextResponse.json(
+        { error: "countries must be an array of strings" },
+        { status: 400 }
+      );
+    }
+
     return NextResponse.json(
       { error: e.message || "Failed to update blocked countries" },
       { status: 500 }

@@ -5,6 +5,7 @@ import { getPoolPda, getReadonlyProgram } from "./program";
 
 const SIGNATURE_TTL_MS = 5 * 60 * 1000;
 const ADMIN_WALLETS_TTL_MS = 60 * 1000;
+const ADMIN_WALLETS_FAILURE_BACKOFF_MS = 15 * 1000;
 
 interface PoolAccountLike {
   masterWallet: { toBase58: () => string };
@@ -12,6 +13,7 @@ interface PoolAccountLike {
 
 let adminWalletsCache: { wallets: Set<string>; ts: number } | null = null;
 let adminWalletsPromise: Promise<Set<string>> | null = null;
+let adminWalletsFailureTs = 0;
 
 function getRpcEndpoint() {
   return process.env.NEXT_PUBLIC_RPC_ENDPOINT || clusterApiUrl("devnet");
@@ -23,6 +25,13 @@ export async function getAuthorizedAdminWallets(): Promise<Set<string>> {
     Date.now() - adminWalletsCache.ts < ADMIN_WALLETS_TTL_MS
   ) {
     return new Set(adminWalletsCache.wallets);
+  }
+
+  if (
+    adminWalletsFailureTs &&
+    Date.now() - adminWalletsFailureTs < ADMIN_WALLETS_FAILURE_BACKOFF_MS
+  ) {
+    throw new Error("Admin wallet lookup temporarily unavailable");
   }
 
   if (adminWalletsPromise) {
@@ -43,12 +52,16 @@ export async function getAuthorizedAdminWallets(): Promise<Set<string>> {
       wallets.add(override);
     }
 
+    adminWalletsFailureTs = 0;
     adminWalletsCache = { wallets, ts: Date.now() };
     return wallets;
   })();
 
   try {
     return new Set(await adminWalletsPromise);
+  } catch (error) {
+    adminWalletsFailureTs = Date.now();
+    throw error;
   } finally {
     adminWalletsPromise = null;
   }
