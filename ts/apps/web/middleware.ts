@@ -23,11 +23,15 @@ export async function middleware(request: NextRequest) {
   const country = getRequestCountry(request);
   if (!country) return NextResponse.next();
 
-  const blocked = await getBlockedCountries();
-  if (blocked.includes(country.toUpperCase())) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/blocked";
-    return NextResponse.rewrite(url);
+  try {
+    const blocked = await getBlockedCountries();
+    if (blocked.includes(country.toUpperCase())) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/blocked";
+      return NextResponse.rewrite(url);
+    }
+  } catch {
+    return NextResponse.next();
   }
 
   return NextResponse.next();

@@ -20,12 +20,17 @@ export async function getBlockedCountries(): Promise<string[]> {
       headers: { Authorization: `Bearer ${API_TOKEN}` },
       cache: "no-store",
     });
-    if (!res.ok) return cache?.countries ?? [];
+    if (!res.ok) {
+      if (cache) return cache.countries;
+      throw new Error(`KV read failed: ${res.status}`);
+    }
+
     const text = await res.text();
     const countries: string[] = JSON.parse(text);
     cache = { countries, ts: Date.now() };
     return countries;
   } catch {
-    return cache?.countries ?? [];
+    if (cache) return cache.countries;
+    throw new Error("Failed to load blocked countries from KV");
   }
 }

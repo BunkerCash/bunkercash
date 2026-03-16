@@ -169,6 +169,9 @@ export function GeoblockingCard() {
       (c.name.toLowerCase().includes(search.toLowerCase()) ||
         c.code.toLowerCase().includes(search.toLowerCase()))
   );
+  const visibleFilteredCountries = filteredCountries.slice(0, 20);
+  const hasMoreFilteredCountries =
+    filteredCountries.length > visibleFilteredCountries.length;
 
   return (
     <div>
@@ -343,25 +346,32 @@ export function GeoblockingCard() {
                 No matching countries
               </p>
             ) : (
-              filteredCountries.slice(0, 20).map((c) => (
-                <button
-                  key={c.code}
-                  onClick={() => addCountry(c.code)}
-                  disabled={saving}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-neutral-300 hover:bg-neutral-800/60 transition-colors disabled:opacity-50"
-                >
-                  <span>{c.flag}</span>
-                  <span>{c.name}</span>
-                  {EU_COUNTRY_CODES.includes(c.code) && (
-                    <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/20">
-                      EU
+              <>
+                {visibleFilteredCountries.map((c) => (
+                  <button
+                    key={c.code}
+                    onClick={() => addCountry(c.code)}
+                    disabled={saving}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-neutral-300 hover:bg-neutral-800/60 transition-colors disabled:opacity-50"
+                  >
+                    <span>{c.flag}</span>
+                    <span>{c.name}</span>
+                    {EU_COUNTRY_CODES.includes(c.code) && (
+                      <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/20">
+                        EU
+                      </span>
+                    )}
+                    <span className="text-neutral-600 text-xs ml-auto font-mono">
+                      {c.code}
                     </span>
-                  )}
-                  <span className="text-neutral-600 text-xs ml-auto font-mono">
-                    {c.code}
-                  </span>
-                </button>
-              ))
+                  </button>
+                ))}
+                {hasMoreFilteredCountries && (
+                  <p className="px-3 py-2 text-[11px] text-neutral-500 border-t border-neutral-800/60">
+                    Showing {visibleFilteredCountries.length} of {filteredCountries.length} matches
+                  </p>
+                )}
+              </>
             )}
           </div>
         )}
