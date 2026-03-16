@@ -3,6 +3,9 @@ import {
   getBlockedCountries,
   setBlockedCountries,
 } from "@/lib/cloudflare-kv";
+import { authorizeGeoblockingUpdate } from "@/lib/geoblocking-auth";
+
+export const runtime = "nodejs";
 
 export async function GET() {
   try {
@@ -18,7 +21,22 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
-    const body = await request.json();
+    const bodyText = await request.text();
+    const authorization = await authorizeGeoblockingUpdate({
+      wallet: request.headers.get("x-admin-wallet"),
+      signature: request.headers.get("x-admin-signature"),
+      issuedAt: request.headers.get("x-admin-issued-at"),
+      bodyText,
+    });
+
+    if (!authorization.ok) {
+      return NextResponse.json(
+        { error: authorization.error },
+        { status: 401 }
+      );
+    }
+
+    const body = JSON.parse(bodyText);
     const countries: string[] = body.countries;
 
     if (!Array.isArray(countries)) {

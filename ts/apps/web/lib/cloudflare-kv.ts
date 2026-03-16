@@ -18,7 +18,7 @@ export async function getBlockedCountries(): Promise<string[]> {
   try {
     const res = await fetch(`${KV_BASE}/values/${KEY}`, {
       headers: { Authorization: `Bearer ${API_TOKEN}` },
-      next: { revalidate: 60 },
+      cache: "no-store",
     });
     if (!res.ok) return cache?.countries ?? [];
     const text = await res.text();

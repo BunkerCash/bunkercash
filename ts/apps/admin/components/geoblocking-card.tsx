@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useWallet } from "@solana/wallet-adapter-react";
 import {
   Globe,
   RefreshCw,
@@ -15,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { COUNTRIES, EU_COUNTRY_CODES } from "@/lib/countries";
 
 export function GeoblockingCard() {
+  const { publicKey, signMessage } = useWallet();
   const [blocked, setBlocked] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -58,10 +60,34 @@ export function GeoblockingCard() {
     setError(null);
     setSuccess(null);
     try {
+      if (!publicKey || !signMessage) {
+        throw new Error("Connect an admin wallet that supports message signing");
+      }
+
+      const body = JSON.stringify({ countries });
+      const issuedAt = new Date().toISOString();
+      const bodyHashBuffer = await crypto.subtle.digest(
+        "SHA-256",
+        await new Blob([body]).arrayBuffer()
+      );
+      const bodyHash = Array.from(new Uint8Array(bodyHashBuffer))
+        .map((byte) => byte.toString(16).padStart(2, "0"))
+        .join("");
+      const message = `bunkercash-admin:geoblocking:update\n${issuedAt}\n${bodyHash}`;
+      const signatureBytes = await signMessage(new TextEncoder().encode(message));
+      const signature = btoa(
+        String.fromCharCode(...signatureBytes)
+      );
+
       const res = await fetch("/api/geoblocking", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ countries }),
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-wallet": publicKey.toBase58(),
+          "x-admin-issued-at": issuedAt,
+          "x-admin-signature": signature,
+        },
+        body,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);

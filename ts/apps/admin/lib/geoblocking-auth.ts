@@ -1,0 +1,106 @@
+import { createHash } from "crypto";
+import { clusterApiUrl, Connection, PublicKey } from "@solana/web3.js";
+import { getPoolPda, getReadonlyProgram } from "./program";
+
+const SIGNATURE_TTL_MS = 5 * 60 * 1000;
+
+interface PoolAccountLike {
+  masterWallet: { toBase58: () => string };
+}
+
+function getRpcEndpoint() {
+  return process.env.NEXT_PUBLIC_RPC_ENDPOINT || clusterApiUrl("devnet");
+}
+
+export async function getAuthorizedAdminWallets(): Promise<Set<string>> {
+  const connection = new Connection(getRpcEndpoint(), "confirmed");
+  const program = getReadonlyProgram(connection);
+  const accountApi = program.account as {
+    pool: { fetch: (pubkey: ReturnType<typeof getPoolPda>) => Promise<PoolAccountLike> };
+  };
+  const poolState = await accountApi.pool.fetch(getPoolPda());
+  const wallets = new Set([poolState.masterWallet.toBase58()]);
+
+  if (process.env.NEXT_PUBLIC_ADMIN_OVERRIDE) {
+    wallets.add(process.env.NEXT_PUBLIC_ADMIN_OVERRIDE);
+  }
+
+  return wallets;
+}
+
+function decodeBase64(value: string) {
+  return new Uint8Array(Buffer.from(value, "base64"));
+}
+
+function toArrayBuffer(bytes: Uint8Array) {
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength
+  ) as ArrayBuffer;
+}
+
+async function verifySignature(
+  wallet: string,
+  message: string,
+  signature: string
+) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    toArrayBuffer(new PublicKey(wallet).toBytes()),
+    { name: "Ed25519" },
+    false,
+    ["verify"]
+  );
+
+  return crypto.subtle.verify(
+    "Ed25519",
+    key,
+    toArrayBuffer(decodeBase64(signature)),
+    toArrayBuffer(new TextEncoder().encode(message))
+  );
+}
+
+export function buildGeoblockingMessage(bodyText: string, issuedAt: string) {
+  const bodyHash = createHash("sha256").update(bodyText).digest("hex");
+  return `bunkercash-admin:geoblocking:update\n${issuedAt}\n${bodyHash}`;
+}
+
+export async function authorizeGeoblockingUpdate(args: {
+  wallet: string | null;
+  signature: string | null;
+  issuedAt: string | null;
+  bodyText: string;
+}) {
+  const { wallet, signature, issuedAt, bodyText } = args;
+
+  if (!wallet || !signature || !issuedAt) {
+    return { ok: false as const, error: "Missing admin authorization headers" };
+  }
+
+  const issuedAtMs = Date.parse(issuedAt);
+  if (!Number.isFinite(issuedAtMs)) {
+    return { ok: false as const, error: "Invalid authorization timestamp" };
+  }
+
+  if (Math.abs(Date.now() - issuedAtMs) > SIGNATURE_TTL_MS) {
+    return { ok: false as const, error: "Authorization timestamp expired" };
+  }
+
+  const message = buildGeoblockingMessage(bodyText, issuedAt);
+
+  try {
+    const isValidSignature = await verifySignature(wallet, message, signature);
+    if (!isValidSignature) {
+      return { ok: false as const, error: "Invalid admin signature" };
+    }
+
+    const authorizedWallets = await getAuthorizedAdminWallets();
+    if (!authorizedWallets.has(wallet)) {
+      return { ok: false as const, error: "Connected wallet is not authorized" };
+    }
+  } catch {
+    return { ok: false as const, error: "Failed to verify admin authorization" };
+  }
+
+  return { ok: true as const };
+}
