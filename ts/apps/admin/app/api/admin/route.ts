@@ -1,17 +1,26 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getAuthorizedAdminWallets } from "@/lib/geoblocking-auth";
+import { NextResponse } from "next/server";
+import { authorizeAdminAccess } from "@/lib/geoblocking-auth";
 
 export const runtime = "nodejs";
 
-export async function GET(request: NextRequest) {
+export async function POST(request: Request) {
   try {
-    const wallet = request.nextUrl.searchParams.get("wallet");
-    const authorizedWallets = await getAuthorizedAdminWallets();
-    const [adminAddress] = authorizedWallets.values();
+    const body = await request.json();
+    const authorization = await authorizeAdminAccess({
+      wallet: body.wallet ?? null,
+      signature: body.signature ?? null,
+      issuedAt: body.issuedAt ?? null,
+    });
+
+    if (!authorization.ok) {
+      return NextResponse.json(
+        { error: authorization.error },
+        { status: 401 }
+      );
+    }
 
     return NextResponse.json({
-      adminAddress: adminAddress ?? null,
-      isAdmin: wallet ? authorizedWallets.has(wallet) : false,
+      isAdmin: authorization.isAdmin,
     });
   } catch (e: any) {
     return NextResponse.json(

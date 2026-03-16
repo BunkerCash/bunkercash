@@ -9,6 +9,9 @@ import {
   type ReactNode,
 } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { useConnection } from "@solana/wallet-adapter-react";
+import { buildAdminAccessMessage } from "./admin-auth-message";
+import { getPoolPda, getReadonlyProgram } from "./program";
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -18,10 +21,15 @@ interface AuthContextType {
   logout: () => void;
 }
 
+interface PoolAccountLike {
+  masterWallet: { toBase58: () => string };
+}
+
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { publicKey, connected, disconnect } = useWallet();
+  const { publicKey, connected, disconnect, signMessage } = useWallet();
+  const { connection } = useConnection();
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [adminAddress, setAdminAddress] = useState<string | null>(null);
@@ -40,10 +48,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (async () => {
       try {
         const walletAddr = publicKey.toBase58();
-        const res = await fetch(
-          `/api/admin?wallet=${encodeURIComponent(walletAddr)}`,
-          { cache: "no-store" }
+        const program = getReadonlyProgram(connection);
+        const poolPda = getPoolPda();
+        const accountApi = program.account as {
+          pool: { fetch: (pubkey: ReturnType<typeof getPoolPda>) => Promise<PoolAccountLike> };
+        };
+        const poolState = await accountApi.pool.fetch(poolPda);
+        const onChainAdmin = poolState.masterWallet.toBase58();
+
+        if (cancelled) return;
+
+        setAdminAddress(onChainAdmin);
+
+        if (walletAddr === onChainAdmin) {
+          setIsAdmin(true);
+          return;
+        }
+
+        if (!signMessage) {
+          setIsAdmin(false);
+          return;
+        }
+
+        const issuedAt = new Date().toISOString();
+        const signatureBytes = await signMessage(
+          new TextEncoder().encode(buildAdminAccessMessage(issuedAt))
         );
+        const signature = btoa(String.fromCharCode(...signatureBytes));
+        const res = await fetch("/api/admin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          body: JSON.stringify({
+            wallet: walletAddr,
+            signature,
+            issuedAt,
+          }),
+        });
         const data = await res.json();
 
         if (!res.ok) {
@@ -52,7 +93,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (cancelled) return;
 
-        setAdminAddress(data.adminAddress ?? null);
         setIsAdmin(Boolean(data.isAdmin));
       } catch {
         if (!cancelled) {
@@ -67,7 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [connected, publicKey]);
+  }, [connected, publicKey, signMessage, connection]);
 
   const logout = useCallback(() => {
     disconnect();

@@ -1,32 +1,57 @@
 import { createHash } from "crypto";
 import { clusterApiUrl, Connection, PublicKey } from "@solana/web3.js";
+import { buildAdminAccessMessage } from "./admin-auth-message";
 import { getPoolPda, getReadonlyProgram } from "./program";
 
 const SIGNATURE_TTL_MS = 5 * 60 * 1000;
+const ADMIN_WALLETS_TTL_MS = 60 * 1000;
 
 interface PoolAccountLike {
   masterWallet: { toBase58: () => string };
 }
+
+let adminWalletsCache: { wallets: Set<string>; ts: number } | null = null;
+let adminWalletsPromise: Promise<Set<string>> | null = null;
 
 function getRpcEndpoint() {
   return process.env.NEXT_PUBLIC_RPC_ENDPOINT || clusterApiUrl("devnet");
 }
 
 export async function getAuthorizedAdminWallets(): Promise<Set<string>> {
-  const connection = new Connection(getRpcEndpoint(), "confirmed");
-  const program = getReadonlyProgram(connection);
-  const accountApi = program.account as {
-    pool: { fetch: (pubkey: ReturnType<typeof getPoolPda>) => Promise<PoolAccountLike> };
-  };
-  const poolState = await accountApi.pool.fetch(getPoolPda());
-  const wallets = new Set([poolState.masterWallet.toBase58()]);
-  const override = process.env.ADMIN_OVERRIDE;
-
-  if (override) {
-    wallets.add(override);
+  if (
+    adminWalletsCache &&
+    Date.now() - adminWalletsCache.ts < ADMIN_WALLETS_TTL_MS
+  ) {
+    return new Set(adminWalletsCache.wallets);
   }
 
-  return wallets;
+  if (adminWalletsPromise) {
+    return new Set(await adminWalletsPromise);
+  }
+
+  adminWalletsPromise = (async () => {
+    const connection = new Connection(getRpcEndpoint(), "confirmed");
+    const program = getReadonlyProgram(connection);
+    const accountApi = program.account as {
+      pool: { fetch: (pubkey: ReturnType<typeof getPoolPda>) => Promise<PoolAccountLike> };
+    };
+    const poolState = await accountApi.pool.fetch(getPoolPda());
+    const wallets = new Set([poolState.masterWallet.toBase58()]);
+    const override = process.env.ADMIN_OVERRIDE;
+
+    if (override) {
+      wallets.add(override);
+    }
+
+    adminWalletsCache = { wallets, ts: Date.now() };
+    return wallets;
+  })();
+
+  try {
+    return new Set(await adminWalletsPromise);
+  } finally {
+    adminWalletsPromise = null;
+  }
 }
 
 function decodeBase64(value: string) {
@@ -104,4 +129,41 @@ export async function authorizeGeoblockingUpdate(args: {
   }
 
   return { ok: true as const };
+}
+
+export async function authorizeAdminAccess(args: {
+  wallet: string | null;
+  signature: string | null;
+  issuedAt: string | null;
+}) {
+  const { wallet, signature, issuedAt } = args;
+
+  if (!wallet || !signature || !issuedAt) {
+    return { ok: false as const, error: "Missing admin authorization headers" };
+  }
+
+  const issuedAtMs = Date.parse(issuedAt);
+  if (!Number.isFinite(issuedAtMs)) {
+    return { ok: false as const, error: "Invalid authorization timestamp" };
+  }
+
+  if (Math.abs(Date.now() - issuedAtMs) > SIGNATURE_TTL_MS) {
+    return { ok: false as const, error: "Authorization timestamp expired" };
+  }
+
+  try {
+    const isValidSignature = await verifySignature(
+      wallet,
+      buildAdminAccessMessage(issuedAt),
+      signature
+    );
+    if (!isValidSignature) {
+      return { ok: false as const, error: "Invalid admin signature" };
+    }
+
+    const authorizedWallets = await getAuthorizedAdminWallets();
+    return { ok: true as const, isAdmin: authorizedWallets.has(wallet) };
+  } catch {
+    return { ok: false as const, error: "Failed to verify admin authorization" };
+  }
 }
