@@ -19,12 +19,16 @@ export async function getBlockedCountries(): Promise<string[]> {
   return JSON.parse(text);
 }
 
-export async function setBlockedCountries(countries: string[]): Promise<void> {
-  const unique = [...new Set(countries.map((c) => c.toUpperCase().trim()))].sort();
+function normalizeCountries(countries: string[]): string[] {
+  return [...new Set(countries.map((c) => c.toUpperCase().trim()))].sort();
+}
+
+export async function setBlockedCountries(countries: string[]): Promise<string[]> {
+  const normalized = normalizeCountries(countries);
 
   // Cloudflare KV write API requires multipart/form-data with a "value" field
   const form = new FormData();
-  form.append("value", JSON.stringify(unique));
+  form.append("value", JSON.stringify(normalized));
   form.append("metadata", JSON.stringify({}));
 
   const res = await fetch(`${KV_BASE}/values/${KEY}`, {
@@ -36,4 +40,6 @@ export async function setBlockedCountries(countries: string[]): Promise<void> {
     const body = await res.text();
     throw new Error(`KV write failed: ${res.status} - ${body}`);
   }
+
+  return normalized;
 }

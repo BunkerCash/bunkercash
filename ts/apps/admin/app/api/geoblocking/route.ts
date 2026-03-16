@@ -46,8 +46,7 @@ export async function PUT(request: Request) {
       );
     }
 
-    await setBlockedCountries(countries);
-    const updated = await getBlockedCountries();
+    const updated = await setBlockedCountries(countries);
     return NextResponse.json({ countries: updated });
   } catch (e: any) {
     return NextResponse.json(
