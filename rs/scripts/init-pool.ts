@@ -12,6 +12,7 @@ const idlJson = require("../target/idl/bunkercash.json") as { address: string } 
 const PROGRAM_ID = new PublicKey(idlJson.address);
 const MASTER_WALLET = new PublicKey(
   process.env.MASTER_WALLET_PUBKEY ??
+    process.env.ADMIN_PUBKEY ??
     "Hmod5q5Egi1yqiRCAAgZBh1iD8o8kALVQV8WKBM84JhK"
 );
 const USDC_MINT = new PublicKey(

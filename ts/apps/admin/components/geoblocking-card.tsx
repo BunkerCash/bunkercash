@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { COUNTRIES, EU_COUNTRY_CODES } from "@/lib/countries";
+import { ConfirmationDialog } from "./ui/confirmation-dialog";
 
 export function GeoblockingCard() {
   const { publicKey, signMessage } = useWallet();
@@ -23,6 +24,7 @@ export function GeoblockingCard() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const blockedRef = useRef<string[]>([]);
   const saveInFlightRef = useRef(false);
 
@@ -152,8 +154,10 @@ export function GeoblockingCard() {
 
   const unblockAll = async () => {
     if (saveInFlightRef.current || blockedRef.current.length === 0) return;
-    if (!window.confirm("Unblock all countries?")) return;
+    setIsConfirmOpen(true);
+  };
 
+  const handleConfirmUnblockAll = async () => {
     const previous = blockedRef.current;
     setBlocked([]);
     await save([], previous);
@@ -367,6 +371,17 @@ export function GeoblockingCard() {
           Blocked users see a restriction notice.
         </p>
       </div>
+
+      <ConfirmationDialog
+        isOpen={isConfirmOpen}
+        onClose={() => setIsConfirmOpen(false)}
+        onConfirm={handleConfirmUnblockAll}
+        title="Unblock All Countries"
+        description="Are you sure you want to remove all geoblocking restrictions? This will allow access from all countries globally."
+        confirmLabel="Unblock All"
+        cancelLabel="Keep Blocked"
+        variant="danger"
+      />
     </div>
   );
 }
