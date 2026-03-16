@@ -19,10 +19,10 @@ export default function LoginPage() {
   const router = useRouter();
 
   useEffect(() => {
-    if (!isLoading && isAuthenticated) {
+    if (!isLoading && isAuthenticated && isAdmin) {
       router.replace("/dashboard");
     }
-  }, [isAuthenticated, isLoading, router]);
+  }, [isAdmin, isAuthenticated, isLoading, router]);
 
   if (isLoading && connected) {
     return (
@@ -32,7 +32,7 @@ export default function LoginPage() {
     );
   }
 
-  if (isAuthenticated) {
+  if (isAuthenticated && isAdmin) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-neutral-700 border-t-[#00FFB2]" />

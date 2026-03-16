@@ -59,11 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAdminAddress(onChainAdmin);
 
         const walletAddr = publicKey.toBase58();
-        const override = process.env.NEXT_PUBLIC_ADMIN_OVERRIDE;
-        setIsAdmin(
-          walletAddr === onChainAdmin ||
-            (!!override && walletAddr === override)
-        );
+        setIsAdmin(walletAddr === onChainAdmin);
       } catch {
         if (!cancelled) {
           setIsAdmin(false);
