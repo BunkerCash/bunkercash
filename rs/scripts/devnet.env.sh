@@ -13,8 +13,8 @@ export RPC="https://api.devnet.solana.com"
 export ANCHOR_PROVIDER_URL="$RPC"
 export ANCHOR_WALLET="${ANCHOR_WALLET:-$HOME/.config/solana/id.json}"
 
-# USDC mint (devnet USDC-Dev)
-export USDC_MINT="${USDC_MINT:-Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr}"
+# USDC mint (devnet Token-2022 test mint used by the apps)
+export USDC_MINT="${USDC_MINT:-2CUsszyJwcFaFzQZppuaG51DAHduLqnDRpdbFAmCrYnL}"
 
 # Optional: pool admin pubkey (e.g. your Phantom address). If unset, ANCHOR_WALLET becomes admin at bootstrap.
 export ADMIN_PUBKEY="Hmod5q5Egi1yqiRCAAgZBh1iD8o8kALVQV8WKBM84JhK"

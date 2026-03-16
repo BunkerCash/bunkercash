@@ -1,12 +1,32 @@
 "use client";
 
+import { useMemo } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Layout } from "@/components/layout/Layout";
 import { StatCard } from "@/components/ui/StatCard";
 import { Wallet, Clock, CheckCircle, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useTokenBalance } from "@/hooks/useTokenBalance";
-import { useMyClaims } from "@/hooks/useMyClaims";
+import { type Claim, useMyClaims } from "@/hooks/useMyClaims";
+
+const USDC_DECIMALS = 6;
+
+function formatUsdcAmount(raw: bigint) {
+  return Number(raw) / 10 ** USDC_DECIMALS;
+}
+
+function getClaimProgress(claim: Claim) {
+  const requestedRaw = BigInt(claim.requestedUsdc);
+  const paidRaw = BigInt(claim.paidUsdc);
+  const cappedPaidRaw = paidRaw > requestedRaw ? requestedRaw : paidRaw;
+
+  if (requestedRaw <= BigInt(0)) {
+    return { requestedRaw, paidRaw: cappedPaidRaw, progressPct: paidRaw > BigInt(0) ? 100 : 0 };
+  }
+
+  const progressPct = Number((cappedPaidRaw * BigInt(10000)) / requestedRaw) / 100;
+  return { requestedRaw, paidRaw: cappedPaidRaw, progressPct };
+}
 
 const MyPosition = () => {
   const { connected } = useWallet();
@@ -15,16 +35,24 @@ const MyPosition = () => {
     loading: isLoadingBalance,
     error: fetchError,
   } = useTokenBalance();
-  const { claims, loading: isLoadingClaims } = useMyClaims();
+  const { claims, loading: isLoadingClaims, error: claimsError } = useMyClaims();
 
-  // Calculate derived stats
-  const lockedTokens = claims
-    .filter((c) => !c.isClosed)
-    .reduce((acc, c) => acc + Number(c.tokenAmountLocked) / 1e9, 0);
+  const pendingClaims = useMemo(
+    () =>
+      claims
+        .filter((c) => !c.processed)
+        .length,
+    [claims]
+  );
 
-  const totalUsdcPaid = claims.reduce(
-    (acc, c) => acc + Number(c.usdcPaid) / 1e6,
-    0,
+  const totalRequestedUsdc = useMemo(
+    () => claims.reduce((acc, c) => acc + Number(c.requestedUsdc) / 10 ** USDC_DECIMALS, 0),
+    [claims]
+  );
+
+  const totalUsdcPaid = useMemo(
+    () => claims.reduce((acc, c) => acc + Number(c.paidUsdc) / 10 ** USDC_DECIMALS, 0),
+    [claims]
   );
 
   const totalClaims = claims.length;
@@ -78,33 +106,40 @@ const MyPosition = () => {
             </div>
             <div>
               <StatCard
-                label="Locked Tokens"
+                label="Pending Claims"
                 value={
-                  !connected ? "-" : `${lockedTokens.toLocaleString()} BNKR`
+                  !connected ? "-" : pendingClaims.toString()
                 }
-                note="In open claims"
+                note="Awaiting settlement"
               />
             </div>
             <div>
               <StatCard
-                label="Total USDC Paid"
+                label="Requested USDC"
                 value={
                   !connected ? (
                     "-"
                   ) : (
                     <span className="text-primary">
-                      ${totalUsdcPaid.toLocaleString()}
+                      ${totalRequestedUsdc.toLocaleString()}
                     </span>
                   )
                 }
-                note="Lifetime earnings"
+                note="Total sell requests"
+              />
+            </div>
+            <div>
+              <StatCard
+                label="Total USDC Paid"
+                value={!connected ? "-" : `$${totalUsdcPaid.toLocaleString()}`}
+                note="Settlements received"
               />
             </div>
             <div>
               <StatCard
                 label="Total Claims"
                 value={!connected ? "-" : totalClaims.toString()}
-                note="Registered sells"
+                note="Filed redemptions"
               />
             </div>
           </div>
@@ -116,7 +151,15 @@ const MyPosition = () => {
               <h2 className="text-lg font-semibold">Registered Sells</h2>
             </div>
 
-            {claims.length > 0 ? (
+            {claimsError ? (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+                {claimsError}
+              </div>
+            ) : isLoadingClaims ? (
+              <div className="py-12 text-center text-sm text-muted-foreground">
+                Loading claims...
+              </div>
+            ) : claims.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
@@ -125,10 +168,13 @@ const MyPosition = () => {
                         ID
                       </th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                        Locked Amount
+                        Requested
                       </th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                        USDC Paid
+                        Paid
+                      </th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
+                        Progress
                       </th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
                         Status
@@ -136,42 +182,73 @@ const MyPosition = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {claims.map((claim) => (
-                      <tr
-                        key={claim.id}
-                        className="border-b border-border/30 last:border-0"
-                      >
-                        <td className="py-4 px-4 text-sm text-muted-foreground">
-                          #{claim.id}
-                        </td>
-                        <td className="py-4 px-4 text-sm font-medium text-foreground">
-                          {(
-                            Number(claim.tokenAmountLocked) / 1e9
-                          ).toLocaleString()}{" "}
-                          BNKR
-                        </td>
-                        <td className="py-4 px-4 text-sm font-medium text-foreground">
-                          ${(Number(claim.usdcPaid) / 1e6).toLocaleString()}
-                        </td>
-                        <td className="py-4 px-4">
-                          <Badge
-                            variant={claim.isClosed ? "secondary" : "default"}
-                            className={
-                              claim.isClosed
-                                ? "bg-secondary/20 text-secondary hover:bg-secondary/30"
-                                : "bg-primary/20 text-primary hover:bg-primary/30"
-                            }
-                          >
-                            {claim.isClosed ? (
-                              <CheckCircle className="h-3 w-3 mr-1" />
-                            ) : (
-                              <AlertCircle className="h-3 w-3 mr-1" />
-                            )}
-                            {claim.isClosed ? "Closed" : "Open"}
-                          </Badge>
-                        </td>
-                      </tr>
-                    ))}
+                    {claims.map((claim) => {
+                      const { requestedRaw, paidRaw, progressPct } = getClaimProgress(claim);
+                      const isPartiallyPaid = !claim.processed && paidRaw > BigInt(0);
+
+                      return (
+                        <tr
+                          key={claim.id}
+                          className="border-b border-border/30 last:border-0"
+                        >
+                          <td className="py-4 px-4 text-sm text-muted-foreground">
+                            #{claim.id}
+                          </td>
+                          <td className="py-4 px-4 text-sm font-medium text-foreground">
+                            ${formatUsdcAmount(BigInt(claim.requestedUsdc)).toLocaleString()}
+                          </td>
+                          <td className="py-4 px-4 text-sm font-medium text-foreground">
+                            ${formatUsdcAmount(BigInt(claim.paidUsdc)).toLocaleString()}
+                          </td>
+                          <td className="py-4 px-4 min-w-[220px]">
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                <span>
+                                  {requestedRaw > BigInt(0) ? (
+                                    <>
+                                      ${formatUsdcAmount(paidRaw).toLocaleString()} / $
+                                      {formatUsdcAmount(requestedRaw).toLocaleString()}
+                                    </>
+                                  ) : (
+                                    "Settlement amount pending"
+                                  )}
+                                </span>
+                                <span>{progressPct.toFixed(2)}%</span>
+                              </div>
+                              <div className="h-2 overflow-hidden rounded-full bg-border/60">
+                                <div
+                                  className="h-full rounded-full bg-primary transition-all duration-500"
+                                  style={{ width: `${Math.max(0, Math.min(progressPct, 100))}%` }}
+                                />
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-4 px-4">
+                            <Badge
+                              variant={claim.processed ? "secondary" : "default"}
+                              className={
+                                claim.processed
+                                  ? "bg-secondary/20 text-secondary hover:bg-secondary/30"
+                                  : isPartiallyPaid
+                                    ? "bg-primary/20 text-primary hover:bg-primary/30"
+                                    : "bg-muted text-muted-foreground hover:bg-muted"
+                              }
+                            >
+                              {claim.processed ? (
+                                <CheckCircle className="mr-1 h-3 w-3" />
+                              ) : (
+                                <AlertCircle className="mr-1 h-3 w-3" />
+                              )}
+                              {claim.processed
+                                ? "Processed"
+                                : isPartiallyPaid
+                                  ? "Partially Paid"
+                                  : "Pending"}
+                            </Badge>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -190,6 +267,6 @@ const MyPosition = () => {
       </div>
     </Layout>
   );
-};;
+};
 
 export default MyPosition;

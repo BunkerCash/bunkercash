@@ -1,19 +1,18 @@
 "use client"
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useConnection } from '@solana/wallet-adapter-react'
-import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
+import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import { getPoolPda, getPoolSignerPda, PROGRAM_ID } from '@/lib/program'
 import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
-
-const USDC_DECIMALS = 6;
+import { withRateLimitRetry } from "@/lib/rpc-throttle";
 
 const CACHE_TTL = 30_000 // 30 seconds
-let vaultCache: { data: string; timestamp: number; endpoint: string } | null = null
 
 export function usePayoutVault() {
   const { connection } = useConnection()
-  const [balance, setBalance] = useState<string | null>(vaultCache?.data ?? null)
-  const [loading, setLoading] = useState(!vaultCache)
+  const cacheRef = useRef<{ data: string; timestamp: number; endpoint: string } | null>(null)
+  const [balance, setBalance] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), [])
@@ -21,18 +20,28 @@ export function usePayoutVault() {
 
   const usdcMint = useMemo(() => {
     if (!connection) return null;
-    const endpoint = (connection as any).rpcEndpoint ?? "";
+    const endpoint = connection.rpcEndpoint ?? "";
     const cluster = getClusterFromEndpoint(endpoint);
     return getUsdcMintForCluster(cluster);
   }, [connection]);
 
-  const rpcEndpoint = (connection as any).rpcEndpoint ?? ""
+  const rpcEndpoint = connection.rpcEndpoint ?? ""
+  const payoutUsdcVault = useMemo(() => {
+    if (!usdcMint) return null
+    return getAssociatedTokenAddressSync(
+      usdcMint,
+      poolSignerPda,
+      true,
+      TOKEN_2022_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID
+    )
+  }, [usdcMint, poolSignerPda])
 
   const fetchBalance = useCallback(async (bypassCache = false) => {
-    if (!connection || !usdcMint) return
+    if (!connection || !payoutUsdcVault) return
 
-    if (!bypassCache && vaultCache && vaultCache.endpoint === rpcEndpoint && Date.now() - vaultCache.timestamp < CACHE_TTL) {
-      setBalance(vaultCache.data)
+    if (!bypassCache && cacheRef.current && cacheRef.current.endpoint === rpcEndpoint && Date.now() - cacheRef.current.timestamp < CACHE_TTL) {
+      setBalance(cacheRef.current.data)
       setLoading(false)
       return
     }
@@ -40,35 +49,63 @@ export function usePayoutVault() {
     setLoading(true)
     setError(null)
     try {
-      const payoutUsdcVault = getAssociatedTokenAddressSync(
-        usdcMint,
-        poolSignerPda,
-        true,
-        TOKEN_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
+      const bal = await withRateLimitRetry(() =>
+        connection.getTokenAccountBalance(payoutUsdcVault)
       )
-
-      const bal = await connection.getTokenAccountBalance(payoutUsdcVault)
       const value = bal.value.uiAmountString ?? '0'
-      vaultCache = { data: value, timestamp: Date.now(), endpoint: rpcEndpoint }
+      cacheRef.current = { data: value, timestamp: Date.now(), endpoint: rpcEndpoint }
       setBalance(value)
-    } catch (e: any) {
-      if (e.message?.includes('could not find account')) {
-        vaultCache = { data: '0', timestamp: Date.now(), endpoint: rpcEndpoint }
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Failed to fetch balance'
+      if (message.includes('could not find account')) {
+        cacheRef.current = { data: '0', timestamp: Date.now(), endpoint: rpcEndpoint }
         setBalance('0')
       } else {
         console.error('Error fetching payout vault balance:', e)
-        setError(e.message || 'Failed to fetch balance')
+        setError(message)
         setBalance(null)
       }
     } finally {
       setLoading(false)
     }
-  }, [connection, usdcMint, poolSignerPda, rpcEndpoint])
+  }, [connection, payoutUsdcVault, rpcEndpoint])
 
   useEffect(() => {
     fetchBalance()
   }, [fetchBalance])
+
+  useEffect(() => {
+    if (!connection || !payoutUsdcVault) return
+
+    const subscriptionId = connection.onAccountChange(
+      payoutUsdcVault,
+      () => {
+        cacheRef.current = null
+        void fetchBalance(true)
+      },
+      "confirmed"
+    )
+
+    const handleFocus = () => {
+      cacheRef.current = null
+      void fetchBalance(true)
+    }
+
+    window.addEventListener("focus", handleFocus)
+    document.addEventListener("visibilitychange", handleFocus)
+
+    return () => {
+      connection.removeAccountChangeListener(subscriptionId).catch(() => {})
+      window.removeEventListener("focus", handleFocus)
+      document.removeEventListener("visibilitychange", handleFocus)
+    }
+  }, [connection, payoutUsdcVault, fetchBalance])
+
+  useEffect(() => {
+    return () => {
+      cacheRef.current = null
+    }
+  }, [])
 
   const refresh = useCallback(() => fetchBalance(true), [fetchBalance])
 

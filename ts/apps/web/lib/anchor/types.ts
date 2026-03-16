@@ -3,6 +3,7 @@
  * TODO: Generate proper types from IDL using anchor CLI
  */
 
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface BunkerCashProgram {
   // Add program account types here
 }

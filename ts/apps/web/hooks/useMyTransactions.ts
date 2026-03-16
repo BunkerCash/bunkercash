@@ -4,15 +4,30 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
-import { getProgram, PROGRAM_ID } from "@/lib/program";
+import { getReadonlyProgram, PROGRAM_ID } from "@/lib/program";
 import type { Transaction } from "@/types";
 
 const USDC_DECIMALS = 6;
-const BUNKERCASH_DECIMALS = 9;
+const BUNKERCASH_DECIMALS = 6;
 
 // IDL discriminators (first 8 bytes of the instruction data)
-const BUY_PRIMARY_DISC = [89, 86, 227, 49, 41, 118, 66, 248];
-const REGISTER_SELL_DISC = [220, 250, 100, 136, 104, 188, 72, 230];
+const DEPOSIT_USDC_DISC = [184, 148, 250, 169, 224, 213, 34, 126];
+const FILE_CLAIM_DISC = [187, 254, 40, 13, 146, 223, 230, 97];
+
+interface Stringable {
+  toString(): string;
+}
+
+interface RawClaimRecord {
+  publicKey: PublicKey;
+  account: {
+    user: PublicKey;
+    usdcAmount: Stringable;
+    timestamp: Stringable;
+    processed: boolean;
+    paidAmount: Stringable;
+  };
+}
 
 function bytesEqual(a: number[], b: number[]): boolean {
   if (a.length !== b.length) return false;
@@ -40,10 +55,7 @@ export function useMyTransactions() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const program = useMemo(
-    () => (wallet.publicKey ? getProgram(connection, wallet) : null),
-    [connection, wallet]
-  );
+  const program = useMemo(() => getReadonlyProgram(connection), [connection]);
 
   const fetchTransactions = useCallback(async () => {
     if (!wallet.publicKey || !connection) {
@@ -57,7 +69,7 @@ export function useMyTransactions() {
     try {
       const results: Transaction[] = [];
 
-      // ── 1. Fetch Investments (buy_primary txs) ─────────────────────
+      // ── 1. Fetch recent deposit/file-claim transactions ────────────
       // Get recent transaction signatures involving this wallet + our program
       // Keep limit small to reduce the number of subsequent parsing calls
       const signatures = await connection.getSignaturesForAddress(
@@ -98,7 +110,7 @@ export function useMyTransactions() {
 
                   const disc = dataBytes.slice(0, 8);
 
-                  if (bytesEqual(disc, BUY_PRIMARY_DISC)) {
+                  if (bytesEqual(disc, DEPOSIT_USDC_DISC)) {
                     const amountBytes = dataBytes.slice(8, 16);
                     const amountBN = new BN(Buffer.from(amountBytes), "le");
                     const usdcAmount =
@@ -113,7 +125,7 @@ export function useMyTransactions() {
                         : new Date(),
                       txSignature: sig.signature,
                     });
-                  } else if (bytesEqual(disc, REGISTER_SELL_DISC)) {
+                  } else if (bytesEqual(disc, FILE_CLAIM_DISC)) {
                     const amountBytes = dataBytes.slice(8, 16);
                     const amountBN = new BN(Buffer.from(amountBytes), "le");
                     const tokenAmount =
@@ -135,9 +147,9 @@ export function useMyTransactions() {
                 }
               }
             }
-          } catch (e: any) {
+          } catch (e: unknown) {
             // If a single tx parse fails (rate limit), skip it and continue
-            const msg = e?.message ?? "";
+            const msg = e instanceof Error ? e.message : String(e ?? "");
             if (msg.includes("429") || msg.includes("Too many requests")) {
               console.warn("[Transactions] Skipping tx due to rate limit:", sig.signature.slice(0, 8));
               continue;
@@ -148,44 +160,41 @@ export function useMyTransactions() {
         }
       }
 
-      // ── 2. Enrich withdrawals with ClaimState data (usdc_paid) ──────
+      // ── 2. Enrich file-claim history with current claim data ───────
       if (program) {
         try {
-          const allClaims = await (program.account as any).claimState.all();
+          const allClaims = await (program.account as { claim: { all: () => Promise<RawClaimRecord[]> } }).claim.all();
           const myClaims = allClaims.filter(
-            (x: any) =>
-              (x.account.user as PublicKey)?.toBase58?.() ===
-              wallet.publicKey!.toBase58()
+            (x) => x.account.user.toBase58() === wallet.publicKey!.toBase58()
           );
 
           for (const claim of myClaims) {
-            const tokenAmountLocked =
-              Number(claim.account.tokenAmountLocked?.toString?.() ?? "0") /
-              10 ** BUNKERCASH_DECIMALS;
-            const usdcPaid =
-              Number(claim.account.usdcPaid?.toString?.() ?? "0") /
+            const requestedUsdc =
+              Number(claim.account.usdcAmount?.toString?.() ?? "0") /
+              10 ** USDC_DECIMALS;
+            const paidUsdc =
+              Number(claim.account.paidAmount?.toString?.() ?? "0") /
               10 ** USDC_DECIMALS;
             const createdAt = Number(
-              claim.account.createdAt?.toString?.() ?? "0"
+              claim.account.timestamp?.toString?.() ?? "0"
             );
-            const claimId = claim.account.id?.toString?.() ?? "0";
+            const claimId = claim.publicKey.toBase58().slice(0, 8);
 
             // Check if we already captured this from raw tx parsing
             const existingIdx = results.findIndex(
               (r) =>
                 r.type === "withdrawal" &&
-                r.tokenAmount &&
-                Math.abs(r.tokenAmount - tokenAmountLocked) < 0.000001
+                r.timestamp.getTime() ===
+                  (createdAt ? new Date(createdAt * 1000).getTime() : r.timestamp.getTime())
             );
 
             if (existingIdx >= 0) {
-              results[existingIdx].amount = usdcPaid;
+              results[existingIdx].amount = paidUsdc;
             } else {
               results.push({
                 id: `claim-${claimId}`,
                 type: "withdrawal",
-                amount: usdcPaid,
-                tokenAmount: tokenAmountLocked,
+                amount: paidUsdc > 0 ? paidUsdc : requestedUsdc,
                 timestamp: createdAt
                   ? new Date(createdAt * 1000)
                   : new Date(),
@@ -204,11 +213,11 @@ export function useMyTransactions() {
 
       txCache = { key: wallet.publicKey!.toBase58(), data: results };
       setTransactions(results);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error("Error fetching transactions:", e);
 
       // Show user-friendly message instead of raw JSON
-      const msg = e?.message ?? "";
+      const msg = e instanceof Error ? e.message : String(e ?? "");
       if (msg.includes("429") || msg.includes("Too many requests")) {
         setError(
           "Rate limited by Solana RPC. Please wait a moment and click Refresh."

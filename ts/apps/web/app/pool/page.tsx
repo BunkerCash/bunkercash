@@ -19,10 +19,9 @@ import {
 } from "recharts";
 
 const CHART_COLORS = {
-  circulating: "hsl(166, 100%, 50%)", // primary / teal
-  locked: "hsl(220, 15%, 35%)", // muted gray
-  treasury: "hsl(45, 100%, 55%)", // gold accent
-  price: "hsl(166, 100%, 50%)",
+  treasury: "hsl(166, 100%, 50%)",
+  pending: "hsl(220, 15%, 35%)",
+  nav: "hsl(45, 100%, 55%)",
 };
 
 const PoolStatus = () => {
@@ -34,27 +33,27 @@ const PoolStatus = () => {
   };
 
   const supplyPieData = useMemo(() => {
-    if (stats.circulatingSupplyRaw == null || stats.lockedSupplyRaw == null)
+    if (stats.treasuryUsdcRaw == null || stats.pendingClaimsUsdcRaw == null)
       return null;
     return [
-      { name: "Circulating", value: stats.circulatingSupplyRaw },
-      { name: "Locked", value: stats.lockedSupplyRaw },
+      { name: "Treasury USDC", value: stats.treasuryUsdcRaw },
+      { name: "Pending Claims", value: stats.pendingClaimsUsdcRaw },
     ];
-  }, [stats.circulatingSupplyRaw, stats.lockedSupplyRaw]);
+  }, [stats.treasuryUsdcRaw, stats.pendingClaimsUsdcRaw]);
 
   const barData = useMemo(() => {
     if (
-      stats.totalSupplyRaw == null ||
-      stats.circulatingSupplyRaw == null ||
-      stats.lockedSupplyRaw == null
+      stats.navUsdcRaw == null ||
+      stats.treasuryUsdcRaw == null ||
+      stats.pendingClaimsUsdcRaw == null
     )
       return null;
     return [
-      { name: "Total", value: stats.totalSupplyRaw },
-      { name: "Circulating", value: stats.circulatingSupplyRaw },
-      { name: "Locked", value: stats.lockedSupplyRaw },
+      { name: "NAV", value: stats.navUsdcRaw },
+      { name: "Treasury", value: stats.treasuryUsdcRaw },
+      { name: "Pending", value: stats.pendingClaimsUsdcRaw },
     ];
-  }, [stats.totalSupplyRaw, stats.circulatingSupplyRaw, stats.lockedSupplyRaw]);
+  }, [stats.navUsdcRaw, stats.treasuryUsdcRaw, stats.pendingClaimsUsdcRaw]);
 
   const formatNum = (v: number) =>
     v.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -69,12 +68,12 @@ const PoolStatus = () => {
     if (!active || !payload?.length) return null;
     const d = payload[0];
     return (
-      <div className="rounded-lg border border-border bg-background/95 px-3 py-2 text-xs shadow-lg backdrop-blur">
-        <p className="text-foreground font-medium">{d.payload.name}</p>
-        <p className="text-muted-foreground">{formatNum(d.value)} BNKR</p>
-      </div>
-    );
-  };
+        <div className="rounded-lg border border-border bg-background/95 px-3 py-2 text-xs shadow-lg backdrop-blur">
+          <p className="text-foreground font-medium">{d.payload.name}</p>
+          <p className="text-muted-foreground">{formatNum(d.value)} USDC</p>
+        </div>
+      );
+    };
 
   const renderLoading = (
     <span className="text-muted-foreground text-2xl animate-pulse">
@@ -117,7 +116,7 @@ const PoolStatus = () => {
                     </span>
                   )
               }
-              note="Fixed primary sale price"
+              note="Derived from pool NAV and current supply"
               className="glow-primary h-full"
             />
             <StatCard
@@ -149,21 +148,21 @@ const PoolStatus = () => {
                     </span>
                   )
               }
-              note="All minted tokens"
+              note="Current bRENT supply"
               className="glass-card h-full"
             />
             <StatCard
-              label="Locked Supply"
+              label="Pending Claims"
               value={
                 loading
                   ? renderLoading
                   : (
                     <span className="text-foreground">
-                      {stats.lockedSupply ?? "—"} BNKR
+                      ${stats.pendingClaimsUsdc ?? "—"} USDC
                     </span>
                   )
               }
-              note="In open sell registrations"
+              note="Outstanding claimant obligations"
               className="glass-card h-full"
             />
             <StatCard
@@ -173,11 +172,11 @@ const PoolStatus = () => {
                   ? renderLoading
                   : (
                     <span className="text-primary">
-                      {stats.circulatingSupply ?? "—"} BNKR
+                      {stats.circulatingSupply ?? "—"} bRENT
                     </span>
                   )
               }
-              note="Total − Locked"
+              note="Claims burn tokens instead of locking them"
               className="glow-primary h-full"
             />
           </div>
@@ -185,9 +184,9 @@ const PoolStatus = () => {
           {/* Charts row */}
           {!loading && supplyPieData && barData && (
             <div className="grid md:grid-cols-2 gap-6 mb-8">
-              {/* Donut: Circulating vs Locked */}
+              {/* Donut: Treasury vs Pending claims */}
               <div className="glass-card p-6">
-                <p className="stat-label mb-4">Supply Breakdown</p>
+                <p className="stat-label mb-4">USDC Breakdown</p>
                 <ResponsiveContainer width="100%" height={240}>
                   <PieChart>
                     <Pie
@@ -200,8 +199,8 @@ const PoolStatus = () => {
                       dataKey="value"
                       stroke="none"
                     >
-                      <Cell fill={CHART_COLORS.circulating} />
-                      <Cell fill={CHART_COLORS.locked} />
+                      <Cell fill={CHART_COLORS.treasury} />
+                      <Cell fill={CHART_COLORS.pending} />
                     </Pie>
                     <Tooltip content={<CustomTooltipContent />} />
                     <Legend
@@ -218,9 +217,9 @@ const PoolStatus = () => {
                 </ResponsiveContainer>
               </div>
 
-              {/* Bar: Supply comparison */}
+              {/* Bar: NAV vs treasury vs pending claims */}
               <div className="glass-card p-6">
-                <p className="stat-label mb-4">Supply Comparison</p>
+                <p className="stat-label mb-4">Pool USDC Metrics</p>
                 <ResponsiveContainer width="100%" height={240}>
                   <BarChart
                     data={barData}
@@ -252,10 +251,10 @@ const PoolStatus = () => {
                           key={entry.name}
                           fill={
                             idx === 0
-                              ? CHART_COLORS.price
+                              ? CHART_COLORS.nav
                               : idx === 1
-                                ? CHART_COLORS.circulating
-                                : CHART_COLORS.locked
+                                ? CHART_COLORS.treasury
+                                : CHART_COLORS.pending
                           }
                           fillOpacity={idx === 0 ? 0.3 : 1}
                         />
@@ -274,9 +273,9 @@ const PoolStatus = () => {
                 <Info className="h-4 w-4 text-muted-foreground flex-shrink-0 mt-0.5" />
                 <p className="text-xs text-muted-foreground">
                   All values are read directly from the Solana blockchain.
-                  &quot;Treasury USDC&quot; is the payout vault balance. Supply
-                  metrics are derived from the Token-2022 mint and open claim
-                  accounts.
+                  &quot;Treasury USDC&quot; is the payout vault balance. Token
+                  price is NAV-derived, and claim filings reduce supply by
+                  burning bRENT rather than locking it in escrow.
                 </p>
               </div>
             </div>

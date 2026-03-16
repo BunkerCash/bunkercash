@@ -1,9 +1,16 @@
 "use client"
+
 import { useCallback, useEffect, useState } from 'react'
 import { useConnection } from '@solana/wallet-adapter-react'
 import { PROGRAM_ID } from '@/lib/program'
 
-export type EventType = "Buy" | "Claim" | "Register Sell" | "Liquidity" | "Update Price"
+export type EventType =
+  | "Buy"
+  | "File Claim"
+  | "Settlement"
+  | "Master Withdraw"
+  | "Master Repay"
+  | "Master Cancel"
 
 export interface ProgramEvent {
   id: string
@@ -15,68 +22,81 @@ export interface ProgramEvent {
   txHash: string
 }
 
-// Maps instruction discriminator key (comma-joined bytes) to event metadata
-const DISC_MAP: Record<string, { type: EventType; currency: "BNKR" | "USDC" | null; hasAmount: boolean }> = {
-  // buy_primary(usdc_amount: u64) — user pays USDC
-  "89,86,227,49,41,118,66,248": { type: "Buy", currency: "USDC", hasAmount: true },
-  // register_sell(token_amount: u64) — user locks BNKR
-  "220,250,100,136,104,188,72,230": { type: "Register Sell", currency: "BNKR", hasAmount: true },
-  // process_claim() — admin pays USDC to user (amount resolved from emitted event log)
-  "220,115,149,228,217,142,240,115": { type: "Claim", currency: "USDC", hasAmount: false },
-  // add_liquidity(usdc_amount: u64) — admin deposits USDC
-  "181,157,89,67,143,182,52,72": { type: "Liquidity", currency: "USDC", hasAmount: true },
-  // update_price(new_price: u64)
-  "61,34,117,155,75,34,123,208": { type: "Update Price", currency: "USDC", hasAmount: true },
+interface EventMeta {
+  type: EventType
+  currency: "BNKR" | "USDC" | null
+  amountSource: "ix_arg" | "claims_settled_event"
 }
 
-// Anchor event discriminator for ClaimProcessed: sha256("event:ClaimProcessed")[:8]
-// Fields (borsh, after 8-byte disc): admin(32) | claim_id(8) | user(32) | usdc_paid(8) | token_amount_locked(8)
-// NOTE: usdc_paid in the event is the *incremental* amount transferred in this
-// single process_claim call, NOT the cumulative total (which is stored in the
-// on-chain claim.usdc_paid state field).
-const CLAIM_PROCESSED_DISC = [214, 130, 82, 189, 1, 255, 166, 249]
-const CLAIM_PROCESSED_USDC_PAID_OFFSET = 8 + 32 + 8 + 32 // = 80
-
-function parseClaimAmountFromLogs(logMessages: string[]): number | null {
-  for (const log of logMessages) {
-    if (!log.startsWith("Program data: ")) continue
-    try {
-      const b64 = log.slice("Program data: ".length)
-      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
-      if (bytes.length < CLAIM_PROCESSED_USDC_PAID_OFFSET + 8) continue
-      const discMatch = CLAIM_PROCESSED_DISC.every((b, i) => bytes[i] === b)
-      if (!discMatch) continue
-      const raw = decodeU64LE(bytes, CLAIM_PROCESSED_USDC_PAID_OFFSET)
-      return Number(raw) / 10 ** USDC_DECIMALS
-    } catch (_) {}
-  }
-  return null
+const DISC_MAP: Record<string, EventMeta> = {
+  "184,148,250,169,224,213,34,126": { type: "Buy", currency: "USDC", amountSource: "ix_arg" },
+  "187,254,40,13,146,223,230,97": { type: "File Claim", currency: "BNKR", amountSource: "ix_arg" },
+  "58,91,9,15,201,59,179,94": { type: "Settlement", currency: "USDC", amountSource: "claims_settled_event" },
+  "251,226,132,202,30,7,50,85": { type: "Master Withdraw", currency: "USDC", amountSource: "ix_arg" },
+  "196,123,175,178,81,52,168,164": { type: "Master Repay", currency: "USDC", amountSource: "ix_arg" },
+  "254,236,97,119,73,158,24,170": { type: "Master Cancel", currency: "USDC", amountSource: "ix_arg" },
 }
+
+const CLAIMS_SETTLED_EVENT_DISC = [88, 125, 52, 74, 137, 168, 85, 245]
+const CLAIMS_SETTLED_TOTAL_PAID_OFFSET = 8 + 32 + 32 + 8 + 8 + 8 // 96
 
 const USDC_DECIMALS = 6
-const BNKR_DECIMALS = 9
+const BNKR_DECIMALS = 6
 
 function decodeU64LE(bytes: Uint8Array, offset: number): bigint {
   let value = BigInt(0)
-  for (let i = 0; i < 8 && (offset + i) < bytes.length; i++) {
+  for (let i = 0; i < 8 && offset + i < bytes.length; i++) {
     value += BigInt(bytes[offset + i]!) << BigInt(8 * i)
   }
   return value
 }
 
-const CACHE_TTL = 30_000 // 30 seconds
+function parseBase64Log(log: string): Uint8Array | null {
+  if (!log.startsWith("Program data: ")) return null
+
+  try {
+    const b64 = log.slice("Program data: ".length)
+    return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+  } catch {
+    return null
+  }
+}
+
+function parseClaimsSettledAmount(logMessages: string[] | null | undefined): number | null {
+  if (!logMessages) return null
+
+  for (const log of logMessages) {
+    const bytes = parseBase64Log(log)
+    if (!bytes || bytes.length < CLAIMS_SETTLED_TOTAL_PAID_OFFSET + 8) continue
+
+    const discMatch = CLAIMS_SETTLED_EVENT_DISC.every((b, i) => bytes[i] === b)
+    if (!discMatch) continue
+
+    const raw = decodeU64LE(bytes, CLAIMS_SETTLED_TOTAL_PAID_OFFSET)
+    return Number(raw) / 10 ** USDC_DECIMALS
+  }
+
+  return null
+}
+
+const CACHE_TTL = 30_000
 let eventsCache: { data: ProgramEvent[]; timestamp: number; endpoint: string } | null = null
 
-export function useRecentProgramEvents(limit = 10) {
+export function useRecentProgramEvents(limit = 20) {
   const { connection } = useConnection()
   const [events, setEvents] = useState<ProgramEvent[]>(eventsCache?.data ?? [])
   const [loading, setLoading] = useState(!eventsCache)
   const [error, setError] = useState<string | null>(null)
 
-  const rpcEndpoint = (connection as any).rpcEndpoint ?? ""
+  const rpcEndpoint = connection.rpcEndpoint ?? ""
 
   const fetchEvents = useCallback(async (bypassCache = false) => {
-    if (!bypassCache && eventsCache && eventsCache.endpoint === rpcEndpoint && Date.now() - eventsCache.timestamp < CACHE_TTL) {
+    if (
+      !bypassCache &&
+      eventsCache &&
+      eventsCache.endpoint === rpcEndpoint &&
+      Date.now() - eventsCache.timestamp < CACHE_TTL
+    ) {
       setEvents(eventsCache.data)
       setLoading(false)
       return
@@ -93,8 +113,6 @@ export function useRecentProgramEvents(limit = 10) {
         return
       }
 
-      // Fetch all transactions in parallel — the rate-limiter middleware
-      // in lib/rpc-throttle.ts already spaces requests at 400ms.
       const txs = await Promise.all(
         sigs.map(async (sig) => {
           try {
@@ -120,8 +138,8 @@ export function useRecentProgramEvents(limit = 10) {
         const timestamp = sig.blockTime ? new Date(sig.blockTime * 1000) : new Date()
         const msg = tx.transaction.message
         const accountKeys = msg.staticAccountKeys
-        const wallet = accountKeys[0]?.toBase58() ?? 'unknown'
         const instructions = msg.compiledInstructions
+        const defaultWallet = accountKeys[0]?.toBase58() ?? 'unknown'
 
         for (const ix of instructions) {
           const ixProgramId = accountKeys[ix.programIdIndex]?.toBase58()
@@ -135,22 +153,19 @@ export function useRecentProgramEvents(limit = 10) {
           if (!info) continue
 
           let amount: number | null = null
-          if (info.hasAmount && data.length >= 16) {
-            try {
-              const raw = decodeU64LE(data, 8)
-              const decimals = info.currency === "BNKR" ? BNKR_DECIMALS : USDC_DECIMALS
-              amount = Number(raw) / 10 ** decimals
-            } catch (_) {}
-          } else if (info.type === "Claim") {
-            // process_claim has no instruction args; parse usdc_paid from the emitted ClaimProcessed event log
-            amount = parseClaimAmountFromLogs(tx.meta?.logMessages ?? [])
+          if (info.amountSource === "ix_arg" && data.length >= 16) {
+            const raw = decodeU64LE(data, 8)
+            const decimals = info.currency === "BNKR" ? BNKR_DECIMALS : USDC_DECIMALS
+            amount = Number(raw) / 10 ** decimals
+          } else if (info.amountSource === "claims_settled_event") {
+            amount = parseClaimsSettledAmount(tx.meta?.logMessages)
           }
 
           parsed.push({
             id: `${sig.signature}-${parsed.length}`,
             type: info.type,
             time: timestamp,
-            wallet,
+            wallet: defaultWallet,
             amount,
             currency: info.currency,
             txHash: sig.signature,
@@ -160,16 +175,16 @@ export function useRecentProgramEvents(limit = 10) {
 
       eventsCache = { data: parsed, timestamp: Date.now(), endpoint: rpcEndpoint }
       setEvents(parsed)
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Error fetching program events:', e)
-      setError(e.message || 'Failed to fetch events')
+      setError(e instanceof Error ? e.message : 'Failed to fetch events')
     } finally {
       setLoading(false)
     }
   }, [connection, limit, rpcEndpoint])
 
   useEffect(() => {
-    fetchEvents()
+    void fetchEvents()
   }, [fetchEvents])
 
   const refresh = useCallback(() => fetchEvents(true), [fetchEvents])

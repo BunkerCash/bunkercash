@@ -1,85 +1,94 @@
 "use client"
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useConnection, useWallet } from '@solana/wallet-adapter-react'
-import { PublicKey } from '@solana/web3.js'
-import { getProgram, getReadonlyProgram } from '@/lib/program'
 
-export interface OpenClaim {
-  pubkey: PublicKey
-  id: string
-  user: PublicKey
-  tokenAmountLocked: string
-  usdcPaid: string
-  isClosed: boolean
-  createdAt: string
+import { useCallback, useEffect, useRef, useState } from "react"
+import { useConnection } from "@solana/wallet-adapter-react"
+import { fetchDecodedClaimAccounts, type DecodedClaimAccount } from "@/lib/claim-accounts"
+
+export interface OpenClaim extends DecodedClaimAccount {}
+
+interface ClaimsCache {
+  claims: OpenClaim[]
+  closedClaims: OpenClaim[]
+  totalRequested: bigint
+  timestamp: number
+  endpoint: string
 }
+
+const CACHE_TTL = 30_000
 
 export function useAllOpenClaims() {
   const { connection } = useConnection()
-  const wallet = useWallet()
+  const cacheRef = useRef<ClaimsCache | null>(null)
   const [claims, setClaims] = useState<OpenClaim[]>([])
   const [closedClaims, setClosedClaims] = useState<OpenClaim[]>([])
-  const [totalLocked, setTotalLocked] = useState<bigint>(BigInt(0))
+  const [totalRequested, setTotalRequested] = useState<bigint>(BigInt(0))
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const program = useMemo(() => {
-    if (wallet.publicKey) {
-      return getProgram(connection, wallet)
-    }
-    return getReadonlyProgram(connection)
-  }, [connection, wallet.publicKey])
+  const rpcEndpoint = connection.rpcEndpoint ?? ""
 
-  const fetchClaims = useCallback(async () => {
-    if (!program) return
+  const fetchClaims = useCallback(async (bypassCache = false) => {
+    if (
+      !bypassCache &&
+      cacheRef.current &&
+      cacheRef.current.endpoint === rpcEndpoint &&
+      Date.now() - cacheRef.current.timestamp < CACHE_TTL
+    ) {
+      setClaims(cacheRef.current.claims)
+      setClosedClaims(cacheRef.current.closedClaims)
+      setTotalRequested(cacheRef.current.totalRequested)
+      setLoading(false)
+      return
+    }
 
     setLoading(true)
     setError(null)
     try {
-      const all = await (program.account as any).claimState.all()
+      const normalizedAll = await fetchDecodedClaimAccounts(connection)
+      const open = normalizedAll.filter((item) => !item.processed)
+      const closed = normalizedAll.filter((item) => item.processed)
 
-      const normalize = (x: any): OpenClaim => {
-        const amount = x.account.tokenAmountLocked?.toString?.() ?? String(x.account.tokenAmountLocked)
-        return {
-          pubkey: x.publicKey as PublicKey,
-          id: x.account.id?.toString?.() ?? String(x.account.id),
-          user: x.account.user as PublicKey,
-          tokenAmountLocked: amount,
-          usdcPaid: x.account.usdcPaid?.toString?.() ?? String(x.account.usdcPaid),
-          isClosed: Boolean(x.account.isClosed),
-          createdAt: x.account.createdAt?.toString?.() ?? String(x.account.createdAt),
-        }
-      }
-
-      const open = all.filter((c: any) => !c.account.isClosed)
-      const closed = all.filter((c: any) => c.account.isClosed)
-
-      let locked = BigInt(0)
+      let requested = BigInt(0)
       const normalizedOpen = open
-        .map((x: any) => {
-          locked += BigInt(x.account.tokenAmountLocked?.toString?.() ?? String(x.account.tokenAmountLocked))
-          return normalize(x)
+        .map((item) => {
+          requested += BigInt(item.remainingUsdc)
+          return item
         })
-        .sort((a: OpenClaim, b: OpenClaim) => Number(b.id) - Number(a.id))
+        .sort((a, b) => Number(b.createdAt) - Number(a.createdAt))
 
       const normalizedClosed = closed
-        .map(normalize)
-        .sort((a: OpenClaim, b: OpenClaim) => Number(b.id) - Number(a.id))
+        .sort((a, b) => Number(b.createdAt) - Number(a.createdAt))
+
+      cacheRef.current = {
+        claims: normalizedOpen,
+        closedClaims: normalizedClosed,
+        totalRequested: requested,
+        timestamp: Date.now(),
+        endpoint: rpcEndpoint,
+      }
 
       setClaims(normalizedOpen)
       setClosedClaims(normalizedClosed)
-      setTotalLocked(locked)
-    } catch (e: any) {
-      console.error('Error fetching all open claims:', e)
-      setError(e.message || 'Failed to fetch open claims')
+      setTotalRequested(requested)
+    } catch (e: unknown) {
+      console.error("Error fetching all open claims:", e)
+      setError(e instanceof Error ? e.message : "Failed to fetch open claims")
     } finally {
       setLoading(false)
     }
-  }, [program])
+  }, [connection, rpcEndpoint])
 
   useEffect(() => {
-    fetchClaims()
+    void fetchClaims()
   }, [fetchClaims])
 
-  return { claims, closedClaims, totalLocked, loading, error, refresh: fetchClaims }
+  useEffect(() => {
+    return () => {
+      cacheRef.current = null
+    }
+  }, [])
+
+  const refresh = useCallback(() => fetchClaims(true), [fetchClaims])
+
+  return { claims, closedClaims, totalRequested, loading, error, refresh }
 }

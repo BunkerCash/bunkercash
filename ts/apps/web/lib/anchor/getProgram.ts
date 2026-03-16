@@ -2,8 +2,7 @@ import * as anchor from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 import idl from "./idl/bunker_cash.json";
 
-// TODO: Replace with actual Devnet program ID
-export const PROGRAM_ID = new PublicKey("11111111111111111111111111111111");
+export const PROGRAM_ID = new PublicKey("CGk5t3huzEvgTizUP7iRFnDLZGsZT9EPNm72csfxoM76");
 
 /**
  * Get Anchor program instance
