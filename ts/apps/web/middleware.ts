@@ -1,17 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBlockedCountries } from "@/lib/cloudflare-kv";
 
+function getRequestCountry(request: NextRequest) {
+  if (process.env.GEOBLOCKING_TEST_COUNTRY) {
+    return process.env.GEOBLOCKING_TEST_COUNTRY;
+  }
+
+  if (process.env.TRUST_CLOUDFLARE_HEADERS !== "true") {
+    return null;
+  }
+
+  return request.headers.get("cf-ipcountry");
+}
+
 export async function middleware(request: NextRequest) {
   // Skip the blocked page itself to avoid redirect loops
   if (request.nextUrl.pathname === "/blocked") {
     return NextResponse.next();
   }
 
-  // Cloudflare sets this header automatically; fall back to env override for local testing
-  const country =
-    request.headers.get("cf-ipcountry") ||
-    process.env.GEOBLOCKING_TEST_COUNTRY ||
-    null;
+  // Only trust Cloudflare-provided geolocation when explicitly enabled.
+  const country = getRequestCountry(request);
   if (!country) return NextResponse.next();
 
   const blocked = await getBlockedCountries();

@@ -6,7 +6,7 @@ const KV_BASE = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/sto
 
 const KEY = encodeURIComponent("geoblocking:blocked_countries");
 
-// In-memory cache for middleware performance
+// Best-effort isolate-local cache. Edge cold starts reset this state.
 let cache: { countries: string[]; ts: number } | null = null;
 const CACHE_TTL = 60_000; // 1 minute
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import {
   Globe,
@@ -23,6 +23,8 @@ export function GeoblockingCard() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const blockedRef = useRef<string[]>([]);
+  const saveInFlightRef = useRef(false);
 
   // Derive EU toggle state from whether ALL EU countries are in the blocked list
   const isEuBlocked = useMemo(
@@ -52,10 +54,17 @@ export function GeoblockingCard() {
   }, []);
 
   useEffect(() => {
+    blockedRef.current = blocked;
+  }, [blocked]);
+
+  useEffect(() => {
     fetchBlocked();
   }, [fetchBlocked]);
 
-  const save = async (countries: string[]) => {
+  const save = async (countries: string[], previousCountries: string[]) => {
+    if (saveInFlightRef.current) return;
+
+    saveInFlightRef.current = true;
     setSaving(true);
     setError(null);
     setSuccess(null);
@@ -95,43 +104,59 @@ export function GeoblockingCard() {
       setSuccess(`Updated — ${data.countries.length} countries blocked`);
       setTimeout(() => setSuccess(null), 3000);
     } catch (e: any) {
+      setBlocked(previousCountries);
       setError(e.message || "Failed to save");
     } finally {
+      saveInFlightRef.current = false;
       setSaving(false);
     }
   };
 
-  const addCountry = (code: string) => {
-    if (blocked.includes(code)) return;
-    const next = [...blocked, code].sort();
+  const addCountry = async (code: string) => {
+    if (saveInFlightRef.current) return;
+
+    const previous = blockedRef.current;
+    if (previous.includes(code)) return;
+
+    const next = [...previous, code].sort();
     setBlocked(next);
-    save(next);
+    await save(next, previous);
     setSearch("");
   };
 
-  const removeCountry = (code: string) => {
-    const next = blocked.filter((c) => c !== code);
+  const removeCountry = async (code: string) => {
+    if (saveInFlightRef.current) return;
+
+    const previous = blockedRef.current;
+    const next = previous.filter((c) => c !== code);
     setBlocked(next);
-    save(next);
+    await save(next, previous);
   };
 
-  const toggleEuBlock = () => {
+  const toggleEuBlock = async () => {
+    if (saveInFlightRef.current) return;
+
+    const previous = blockedRef.current;
     let next: string[];
     if (isEuBlocked) {
       // Remove all EU countries
-      next = blocked.filter((c) => !EU_COUNTRY_CODES.includes(c));
+      next = previous.filter((c) => !EU_COUNTRY_CODES.includes(c));
     } else {
       // Add all EU countries (merge with existing, deduplicate)
-      const merged = new Set([...blocked, ...EU_COUNTRY_CODES]);
+      const merged = new Set([...previous, ...EU_COUNTRY_CODES]);
       next = [...merged].sort();
     }
     setBlocked(next);
-    save(next);
+    await save(next, previous);
   };
 
-  const unblockAll = () => {
+  const unblockAll = async () => {
+    if (saveInFlightRef.current || blockedRef.current.length === 0) return;
+    if (!window.confirm("Unblock all countries?")) return;
+
+    const previous = blockedRef.current;
     setBlocked([]);
-    save([]);
+    await save([], previous);
   };
 
   const filteredCountries = COUNTRIES.filter(
