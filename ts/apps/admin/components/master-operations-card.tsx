@@ -159,10 +159,7 @@ export function MasterOperationsCard() {
   const adminWalletBase58 = adminWallet?.toBase58() ?? null;
   const connectedWalletBase58 = wallet.publicKey?.toBase58() ?? null;
   const isAuthorizedWallet =
-    !!connectedWalletBase58 &&
-    (connectedWalletBase58 === adminWalletBase58 ||
-      (process.env.NEXT_PUBLIC_ADMIN_OVERRIDE &&
-        connectedWalletBase58 === process.env.NEXT_PUBLIC_ADMIN_OVERRIDE));
+    !!connectedWalletBase58 && connectedWalletBase58 === adminWalletBase58;
 
   const explorerTxUrl = (signature: string) => {
     const base = `https://explorer.solana.com/tx/${signature}`;

@@ -180,6 +180,7 @@ export function GeoblockingCard() {
         <h1 className="text-xl font-semibold text-white">Geoblocking</h1>
         <button
           onClick={fetchBlocked}
+          disabled={saving}
           className="p-1.5 rounded-lg text-neutral-500 hover:text-white hover:bg-neutral-800/40 transition-colors"
         >
           <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
