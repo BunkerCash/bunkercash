@@ -15,6 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 import { COUNTRIES, EU_COUNTRY_CODES } from "@/lib/countries";
 import { ConfirmationDialog } from "./ui/confirmation-dialog";
+import { buildAdminAccessMessage } from "@/lib/admin-auth-message";
 
 export function GeoblockingCard() {
   const { publicKey, signMessage } = useWallet();
@@ -40,11 +41,31 @@ export function GeoblockingCard() {
     [blocked]
   );
 
+  const buildAccessHeaders = useCallback(async () => {
+    if (!publicKey || !signMessage) {
+      throw new Error("Connect an admin wallet that supports message signing");
+    }
+
+    const issuedAt = new Date().toISOString();
+    const signatureBytes = await signMessage(
+      new TextEncoder().encode(buildAdminAccessMessage(issuedAt))
+    );
+    const signature = btoa(String.fromCharCode(...signatureBytes));
+
+    return {
+      "x-admin-wallet": publicKey.toBase58(),
+      "x-admin-issued-at": issuedAt,
+      "x-admin-signature": signature,
+    };
+  }, [publicKey, signMessage]);
+
   const fetchBlocked = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/geoblocking");
+      const res = await fetch("/api/geoblocking", {
+        headers: await buildAccessHeaders(),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setBlocked(data.countries);
@@ -53,7 +74,7 @@ export function GeoblockingCard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [buildAccessHeaders]);
 
   useEffect(() => {
     blockedRef.current = blocked;

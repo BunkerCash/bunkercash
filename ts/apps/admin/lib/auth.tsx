@@ -10,7 +10,6 @@ import {
 } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useConnection } from "@solana/wallet-adapter-react";
-import { buildAdminAccessMessage } from "./admin-auth-message";
 import { getPoolPda, getReadonlyProgram } from "./program";
 
 interface AuthContextType {
@@ -28,7 +27,7 @@ interface PoolAccountLike {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { publicKey, connected, disconnect, signMessage } = useWallet();
+  const { publicKey, connected, disconnect } = useWallet();
   const { connection } = useConnection();
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -65,35 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        if (!signMessage) {
-          setIsAdmin(false);
-          return;
-        }
-
-        const issuedAt = new Date().toISOString();
-        const signatureBytes = await signMessage(
-          new TextEncoder().encode(buildAdminAccessMessage(issuedAt))
-        );
-        const signature = btoa(String.fromCharCode(...signatureBytes));
-        const res = await fetch("/api/admin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          cache: "no-store",
-          body: JSON.stringify({
-            wallet: walletAddr,
-            signature,
-            issuedAt,
-          }),
-        });
-        const data = await res.json();
-
-        if (!res.ok) {
-          throw new Error(data.error || "Failed to resolve admin access");
-        }
-
-        if (cancelled) return;
-
-        setIsAdmin(Boolean(data.isAdmin));
+        setIsAdmin(false);
       } catch {
         if (!cancelled) {
           setIsAdmin(false);
@@ -107,7 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [connected, publicKey, signMessage, connection]);
+  }, [connected, publicKey, connection]);
 
   const logout = useCallback(() => {
     disconnect();
