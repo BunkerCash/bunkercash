@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Zap, Lock, Square, Wallet, CalendarCheck, Globe } from "lucide-react";
+import { Zap, Lock, Square, Wallet, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
 

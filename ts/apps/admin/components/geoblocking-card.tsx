@@ -151,6 +151,7 @@ export function GeoblockingCard() {
     if (previous.includes(code)) return;
 
     const next = [...previous, code].sort();
+    blockedRef.current = next;
     setBlocked(next);
     await save(next, previous);
     setSearch("");
@@ -161,6 +162,7 @@ export function GeoblockingCard() {
 
     const previous = blockedRef.current;
     const next = previous.filter((c) => c !== code);
+    blockedRef.current = next;
     setBlocked(next);
     await save(next, previous);
   };
@@ -178,6 +180,7 @@ export function GeoblockingCard() {
       const merged = new Set([...previous, ...EU_COUNTRY_CODES]);
       next = [...merged].sort();
     }
+    blockedRef.current = next;
     setBlocked(next);
     await save(next, previous);
   };
