@@ -1,0 +1,13 @@
+{
+  "name": "@bunkercash/cloudflare-kv",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "dependencies": {
+    "@opennextjs/cloudflare": "*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "*"
+  }
+}

@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { fetchDecodedClaimAccounts, type DecodedClaimAccount } from "@/lib/claim-accounts";
+"use client";
 
-export interface Claim extends DecodedClaimAccount {}
+import { useCallback, useEffect, useState } from "react";
+import { useWallet } from "@solana/wallet-adapter-react";
+import type { ClaimsResponse, SerializedClaim } from "@/lib/solana-server";
+
+export type Claim = SerializedClaim;
 
 export function useMyClaims() {
-  const { connection } = useConnection();
   const wallet = useWallet();
   const [claims, setClaims] = useState<Claim[]>([]);
   const [loading, setLoading] = useState(false);
@@ -17,14 +18,18 @@ export function useMyClaims() {
       return;
     }
 
-    const userPublicKey = wallet.publicKey.toBase58();
+    const userKey = wallet.publicKey.toBase58();
 
     setLoading(true);
     setError(null);
     try {
-      const all = await fetchDecodedClaimAccounts(connection);
-      const mine = all
-        .filter((item) => item.user.toBase58() === userPublicKey)
+      const res = await fetch("/api/claims");
+      if (!res.ok) throw new Error(`claims: ${res.status}`);
+      const data: ClaimsResponse = await res.json();
+
+      const allClaims = [...data.open, ...data.closed];
+      const mine = allClaims
+        .filter((c) => c.user === userKey)
         .sort((a, b) => Number(b.createdAt) - Number(a.createdAt));
 
       setClaims(mine);
@@ -33,7 +38,7 @@ export function useMyClaims() {
     } finally {
       setLoading(false);
     }
-  }, [connection, wallet.publicKey]);
+  }, [wallet.publicKey]);
 
   useEffect(() => {
     void fetchClaims();

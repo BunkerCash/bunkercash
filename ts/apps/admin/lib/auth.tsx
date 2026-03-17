@@ -9,8 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { useConnection } from "@solana/wallet-adapter-react";
-import { getPoolPda, getReadonlyProgram } from "./program";
+import type { PoolDataResponse } from "@/lib/solana-server";
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -20,15 +19,10 @@ interface AuthContextType {
   logout: () => void;
 }
 
-interface PoolAccountLike {
-  masterWallet: { toBase58: () => string };
-}
-
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { publicKey, connected, disconnect } = useWallet();
-  const { connection } = useConnection();
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [adminAddress, setAdminAddress] = useState<string | null>(null);
@@ -47,24 +41,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (async () => {
       try {
         const walletAddr = publicKey.toBase58();
-        const program = getReadonlyProgram(connection);
-        const poolPda = getPoolPda();
-        const accountApi = program.account as {
-          pool: { fetch: (pubkey: ReturnType<typeof getPoolPda>) => Promise<PoolAccountLike> };
-        };
-        const poolState = await accountApi.pool.fetch(poolPda);
-        const onChainAdmin = poolState.masterWallet.toBase58();
+        const res = await fetch("/api/pool-data");
+        if (!res.ok) throw new Error(`pool-data: ${res.status}`);
+        const data: PoolDataResponse = await res.json();
+        const onChainAdmin = data.adminWallet;
 
         if (cancelled) return;
 
         setAdminAddress(onChainAdmin);
 
-        if (walletAddr === onChainAdmin) {
-          setIsAdmin(true);
-          return;
-        }
-
-        setIsAdmin(false);
+        const adminOverride = process.env.NEXT_PUBLIC_ADMIN_OVERRIDE;
+        const isAuthorized = walletAddr === onChainAdmin || (adminOverride && walletAddr === adminOverride);
+        setIsAdmin(!!isAuthorized);
       } catch {
         if (!cancelled) {
           setIsAdmin(false);
@@ -78,7 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [connected, publicKey, connection]);
+  }, [connected, publicKey]);
 
   const logout = useCallback(() => {
     disconnect();

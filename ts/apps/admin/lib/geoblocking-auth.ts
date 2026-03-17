@@ -46,7 +46,7 @@ export async function getAuthorizedAdminWallets(): Promise<Set<string>> {
     };
     const poolState = await accountApi.pool.fetch(getPoolPda());
     const wallets = new Set([poolState.masterWallet.toBase58()]);
-    const override = process.env.ADMIN_OVERRIDE;
+    const override = process.env.ADMIN_OVERRIDE || process.env.NEXT_PUBLIC_ADMIN_OVERRIDE;
 
     if (override) {
       wallets.add(override);

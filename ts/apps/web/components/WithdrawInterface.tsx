@@ -353,7 +353,7 @@ export function WithdrawInterface() {
             </div>
           ) : (
             claims.map((c) => (
-              <div key={c.pubkey.toBase58()} className="bg-neutral-900 rounded-xl p-5 border border-neutral-800">
+              <div key={c.pubkey} className="bg-neutral-900 rounded-xl p-5 border border-neutral-800">
                 <div className="flex justify-between items-start mb-3">
                   <div>
                     <div className="text-lg font-semibold">Claim #{c.id}</div>
@@ -390,8 +390,8 @@ export function WithdrawInterface() {
                 <div className="mt-1 flex justify-between text-sm">
                   <span className="text-neutral-500">Claim account</span>
                   <span className="text-neutral-500 font-mono">
-                    {c.pubkey.toBase58().slice(0, 4)}…
-                    {c.pubkey.toBase58().slice(-4)}
+                    {c.pubkey.slice(0, 4)}…
+                    {c.pubkey.slice(-4)}
                   </span>
                 </div>
               </div>

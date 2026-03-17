@@ -1,0 +1,13 @@
+{
+  "name": "bunkercash-admin",
+  "compatibility_date": "2024-09-23",
+  "compatibility_flags": ["nodejs_compat"],
+  "pages_build_output_dir": ".open-next/assets",
+  "kv_namespaces": [
+    {
+      "binding": "GEOBLOCKING_KV",
+      "id": "579890808b4445c4858964bc9f8d740c",
+      "preview_id": "579890808b4445c4858964bc9f8d740c"
+    }
+  ]
+}

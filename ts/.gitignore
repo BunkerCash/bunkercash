@@ -21,9 +21,13 @@ coverage
 
 # Build Outputs
 .next/
+.open-next/
 out/
 build
 dist
+
+# Wrangler
+.wrangler/
 
 # Debug
 npm-debug.log*

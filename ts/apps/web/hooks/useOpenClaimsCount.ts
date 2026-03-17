@@ -1,33 +1,37 @@
 "use client"
 
 import { useEffect, useState } from 'react'
-import { useConnection } from '@solana/wallet-adapter-react'
-import { fetchDecodedClaimAccounts } from '@/lib/claim-accounts'
+import type { ClaimsResponse } from '@/lib/solana-server'
 
 export function useOpenClaimsCount() {
-  const { connection } = useConnection()
   const [count, setCount] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const fetchOpenClaims = async () => {
+    let cancelled = false
+
+    async function fetchCount() {
       setLoading(true)
       setError(null)
       try {
-        const allClaims = await fetchDecodedClaimAccounts(connection)
-        const openClaims = allClaims.filter((claim) => BigInt(claim.remainingUsdc) > BigInt(0))
-        setCount(openClaims.length)
+        const res = await fetch('/api/claims')
+        if (!res.ok) throw new Error(`claims: ${res.status}`)
+        const data: ClaimsResponse = await res.json()
+        if (!cancelled) setCount(data.openCount)
       } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Failed to fetch open claims')
-        setCount(null)
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : 'Failed to fetch open claims')
+          setCount(null)
+        }
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
 
-    void fetchOpenClaims()
-  }, [connection])
+    void fetchCount()
+    return () => { cancelled = true }
+  }, [])
 
   return { count, loading, error }
 }

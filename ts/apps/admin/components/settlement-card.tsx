@@ -516,10 +516,10 @@ export function SettlementCard() {
                   const plannedPayout = plannedItem?.payout ?? BigInt(0);
 
                   return (
-                    <tr key={claim.pubkey.toBase58()} className="border-b border-neutral-800/40 last:border-b-0">
+                    <tr key={claim.pubkey} className="border-b border-neutral-800/40 last:border-b-0">
                       <td className="px-5 py-4 font-mono text-sm text-white">{claim.id}</td>
                       <td className="px-5 py-4 font-mono text-sm text-neutral-300">
-                        {truncateWallet(claim.user.toBase58())}
+                        {truncateWallet(claim.user)}
                       </td>
                       <td className="px-5 py-4 text-right font-mono text-sm text-white">
                         ${formatUsdc(BigInt(claim.remainingUsdc))}
@@ -582,10 +582,10 @@ export function SettlementCard() {
                 </tr>
               ) : (
                 closedClaims.map((claim) => (
-                  <tr key={claim.pubkey.toBase58()} className="border-b border-neutral-800/40 last:border-b-0">
+                  <tr key={claim.pubkey} className="border-b border-neutral-800/40 last:border-b-0">
                     <td className="px-5 py-4 font-mono text-sm text-white">{claim.id}</td>
                     <td className="px-5 py-4 font-mono text-sm text-neutral-300">
-                      {truncateWallet(claim.user.toBase58())}
+                      {truncateWallet(claim.user)}
                     </td>
                     <td className="px-5 py-4 text-right font-mono text-sm text-neutral-300">
                       ${formatUsdc(BigInt(claim.requestedUsdc))}
