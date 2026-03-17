@@ -4,6 +4,7 @@ import { buildAdminAccessMessage } from "./admin-auth-message";
 import { getPoolPda, getReadonlyProgram } from "./program";
 
 const SIGNATURE_TTL_MS = 5 * 60 * 1000;
+const CLOCK_SKEW_TOLERANCE_MS = 30 * 1000; // allow 30 s of clock skew for future timestamps
 const ADMIN_WALLETS_TTL_MS = 60 * 1000;
 const ADMIN_WALLETS_FAILURE_BACKOFF_MS = 15 * 1000;
 
@@ -121,7 +122,11 @@ export async function authorizeGeoblockingUpdate(args: {
     return { ok: false as const, error: "Invalid authorization timestamp" };
   }
 
-  if (Math.abs(Date.now() - issuedAtMs) > SIGNATURE_TTL_MS) {
+  const now = Date.now();
+  if (issuedAtMs > now + CLOCK_SKEW_TOLERANCE_MS) {
+    return { ok: false as const, error: "Authorization timestamp is in the future" };
+  }
+  if (now - issuedAtMs > SIGNATURE_TTL_MS) {
     return { ok: false as const, error: "Authorization timestamp expired" };
   }
 
@@ -160,7 +165,11 @@ export async function authorizeAdminAccess(args: {
     return { ok: false as const, error: "Invalid authorization timestamp" };
   }
 
-  if (Math.abs(Date.now() - issuedAtMs) > SIGNATURE_TTL_MS) {
+  const now = Date.now();
+  if (issuedAtMs > now + CLOCK_SKEW_TOLERANCE_MS) {
+    return { ok: false as const, error: "Authorization timestamp is in the future" };
+  }
+  if (now - issuedAtMs > SIGNATURE_TTL_MS) {
     return { ok: false as const, error: "Authorization timestamp expired" };
   }
 

@@ -23,5 +23,12 @@ export async function getBlockedCountries(): Promise<string[]> {
   }
 
   const text = await res.text();
-  return JSON.parse(text);
+  const parsed: unknown = JSON.parse(text);
+  if (
+    !Array.isArray(parsed) ||
+    parsed.some((item) => typeof item !== "string")
+  ) {
+    throw new Error("Blocked countries KV data is corrupted (expected string[])");
+  }
+  return parsed as string[];
 }
