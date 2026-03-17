@@ -50,9 +50,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         setAdminAddress(onChainAdmin);
 
-        const adminOverride = process.env.NEXT_PUBLIC_ADMIN_OVERRIDE;
-        const isAuthorized = walletAddr === onChainAdmin || (adminOverride && walletAddr === adminOverride);
-        setIsAdmin(!!isAuthorized);
+        const overrideWallet = process.env.NEXT_PUBLIC_ADMIN_OVERRIDE;
+        if (walletAddr === onChainAdmin || (overrideWallet && walletAddr === overrideWallet)) {
+          setIsAdmin(true);
+          return;
+        }
+
+        setIsAdmin(false);
       } catch {
         if (!cancelled) {
           setIsAdmin(false);
