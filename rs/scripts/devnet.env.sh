@@ -17,7 +17,7 @@ export ANCHOR_WALLET="${ANCHOR_WALLET:-$HOME/.config/solana/id.json}"
 export USDC_MINT="${USDC_MINT:-2CUsszyJwcFaFzQZppuaG51DAHduLqnDRpdbFAmCrYnL}"
 
 # Optional: pool admin pubkey (e.g. your Phantom address). If unset, ANCHOR_WALLET becomes admin at bootstrap.
-export ADMIN_PUBKEY="Hmod5q5Egi1yqiRCAAgZBh1iD8o8kALVQV8WKBM84JhK"
+export ADMIN_PUBKEY="2epuXd6vjC4nYUEGZw8gSFhX3J73NDP5tpDtSf1XyqnQ"
 
 # Program ID (devnet) – for reference; scripts read from IDL.
 # bRENT mint is derived from PDA seeds in the scripts; no env var needed.

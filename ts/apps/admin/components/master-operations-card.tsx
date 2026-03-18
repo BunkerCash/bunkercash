@@ -38,6 +38,7 @@ import {
   parseUsdcInput,
   shortPk,
 } from "@/lib/master-operations";
+import { useAuth } from "@/lib/auth";
 
 interface InstructionBuilder {
   instruction: () => Promise<Transaction["instructions"][number]>;
@@ -89,6 +90,7 @@ function getErrorMessage(error: unknown, fallback: string): string {
 export function MasterOperationsCard() {
   const { connection } = useConnection();
   const wallet = useWallet();
+  const { isAdmin } = useAuth();
   const { publicKey, signTransaction, signAllTransactions } = wallet;
   const { pool, withdrawals, loading, error, refresh } = useMasterWithdrawals();
   const { balance: payoutVaultBalance, refresh: refreshVault } =
@@ -157,11 +159,7 @@ export function MasterOperationsCard() {
 
   const adminWallet = pool?.masterWallet ?? null;
   const adminWalletBase58 = adminWallet?.toBase58() ?? null;
-  const connectedWalletBase58 = wallet.publicKey?.toBase58() ?? null;
-  const isAuthorizedWallet =
-    !!connectedWalletBase58 &&
-    !!adminWalletBase58 &&
-    connectedWalletBase58 === adminWalletBase58;
+  const isAuthorizedWallet = isAdmin;
 
   const explorerTxUrl = (signature: string) => {
     const base = `https://explorer.solana.com/tx/${signature}`;

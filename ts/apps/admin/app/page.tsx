@@ -5,14 +5,14 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 
 export default function RootPage() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAdmin, isLoading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
     if (!isLoading) {
-      router.replace(isAuthenticated ? "/dashboard" : "/login");
+      router.replace(isAdmin ? "/dashboard" : "/login");
     }
-  }, [isAuthenticated, isLoading, router]);
+  }, [isAdmin, isLoading, router]);
 
   return (
     <div className="min-h-screen flex items-center justify-center">
