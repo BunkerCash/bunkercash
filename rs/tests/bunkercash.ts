@@ -14,9 +14,12 @@
  */
 import * as anchor from "@coral-xyz/anchor";
 import type { Idl } from "@coral-xyz/anchor";
-import BN from "bn.js";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
-import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
+import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
+  getAssociatedTokenAddressSync,
+} from "@solana/spl-token";
 import { createRequire } from "node:module";
 
 // Use the web app's fixed IDL so tests match the current program (bunkercash_pool, initialize, buy_primary, etc.)
@@ -26,8 +29,11 @@ const idlJson = require("../../ts/apps/web/lib/bunkercash.fixed.idl.json") as {
 } & Idl;
 
 const PROGRAM_ID = new PublicKey(idlJson.address);
-const POOL_SEED = "bunkercash_pool";
-const MINT_SEED = "bunkercash_mint";
+const POOL_SEED = "pool";
+const SUPPORTED_USDC_CONFIG_SEED = "supported_usdc_config";
+const USDC_MINT = new PublicKey(
+  process.env.USDC_MINT ?? "Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx"
+);
 
 describe("bunkercash", () => {
   const provider = anchor.AnchorProvider.env();
@@ -36,26 +42,35 @@ describe("bunkercash", () => {
   const program = new anchor.Program(idlJson as unknown as Idl, provider);
   const wallet = provider.wallet.publicKey;
 
-  it("initializes the pool and Bunker Cash mint (or skips if already initialized)", async () => {
+  it("initializes the pool (or skips if already initialized)", async () => {
     const [poolPda] = PublicKey.findProgramAddressSync(
       [Buffer.from(POOL_SEED)],
       program.programId
     );
-    const [bunkercashMintPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from(MINT_SEED)],
+    const [supportedUsdcConfigPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from(SUPPORTED_USDC_CONFIG_SEED)],
       program.programId
+    );
+    const poolUsdc = getAssociatedTokenAddressSync(
+      USDC_MINT,
+      poolPda,
+      true,
+      TOKEN_2022_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID
     );
 
     const poolInfo = await provider.connection.getAccountInfo(poolPda, "confirmed");
     if (!poolInfo) {
-      const priceUsdcPerToken = new BN(1_000_000); // 1 USDC per 1 token (6 decimals)
       const tx = await (program.methods as any)
-        .initialize(wallet, priceUsdcPerToken)
+        .initialize(wallet)
         .accounts({
           pool: poolPda,
-          bunkercashMint: bunkercashMintPda,
+          usdcMint: USDC_MINT,
+          poolUsdc,
+          supportedUsdcConfig: supportedUsdcConfigPda,
           payer: wallet,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .rpc();

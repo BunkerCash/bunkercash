@@ -35,7 +35,7 @@ const MINT_SEED = "bunkercash_mint";
 const POOL_SIGNER_SEED = "bunkercash_pool_signer";
 
 const DEVNET_USDC_MINT = new PublicKey(
-  process.env.USDC_MINT ?? "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+  process.env.USDC_MINT ?? "Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx"
 );
 
 async function ensureAta(params: {

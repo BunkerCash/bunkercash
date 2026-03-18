@@ -37,7 +37,7 @@ const POOL_SEED = "bunkercash_pool";
 const MINT_SEED = "bunkercash_mint";
 const POOL_SIGNER_SEED = "bunkercash_pool_signer";
 const DEFAULT_DEVNET_USDC_MINT = new PublicKey(
-  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+  "Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx"
 );
 
 async function balanceOrMissing(
