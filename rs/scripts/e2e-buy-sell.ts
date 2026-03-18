@@ -243,7 +243,7 @@ async function main() {
 
   // Default to USDC-Dev (SPL legacy) on devnet if not provided.
   const usdcMint = new PublicKey(
-    process.env.USDC_MINT ?? "Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr"
+    process.env.USDC_MINT ?? "Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx"
   );
 
   // Initialize pool + mint if missing.
