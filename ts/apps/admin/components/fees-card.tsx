@@ -6,24 +6,11 @@ import { Percent, Info } from "lucide-react";
 export function FeesCard() {
   const [depositFee, setDepositFee] = useState("");
   const [withdrawalFee, setWithdrawalFee] = useState("");
-  const [saved, setSaved] = useState(false);
-
-  const handleSave = () => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
-
   const isValid = (value: string) => {
     if (value === "") return true;
-    const num = parseFloat(value);
-    return !isNaN(num) && num >= 0 && num <= 100;
+    const num = Number(value);
+    return !isNaN(num) && isFinite(num) && num >= 0 && num <= 100;
   };
-
-  const canSave =
-    depositFee !== "" &&
-    withdrawalFee !== "" &&
-    isValid(depositFee) &&
-    isValid(withdrawalFee);
 
   return (
     <div>
@@ -44,11 +31,12 @@ export function FeesCard() {
 
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
           <div>
-            <label className="mb-2 block text-xs font-medium text-neutral-400">
+            <label htmlFor="depositFee" className="mb-2 block text-xs font-medium text-neutral-400">
               Deposit Fee %
             </label>
             <div className="relative">
               <input
+                id="depositFee"
                 type="number"
                 min="0"
                 max="100"
@@ -74,11 +62,12 @@ export function FeesCard() {
           </div>
 
           <div>
-            <label className="mb-2 block text-xs font-medium text-neutral-400">
+            <label htmlFor="withdrawalFee" className="mb-2 block text-xs font-medium text-neutral-400">
               Withdrawal Fee %
             </label>
             <div className="relative">
               <input
+                id="withdrawalFee"
                 type="number"
                 min="0"
                 max="100"
@@ -106,11 +95,10 @@ export function FeesCard() {
 
         <div className="mt-6">
           <button
-            onClick={handleSave}
-            disabled={!canSave}
-            className="rounded-lg bg-[#00FFB2] px-5 py-2.5 text-sm font-semibold text-black transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            disabled
+            className="rounded-lg bg-[#00FFB2] px-5 py-2.5 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {saved ? "Saved ✓" : "Save Fees"}
+            Save Fees (Coming Soon)
           </button>
         </div>
       </div>
@@ -120,10 +108,11 @@ export function FeesCard() {
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#00FFB2]" />
           <div className="space-y-2 text-sm text-neutral-300">
             <p>
-              These fee values are stored locally and are{" "}
+              These fee fields are for preview only and are{" "}
               <span className="text-white font-medium">
                 not yet linked to the smart contract or backend.
-              </span>
+              </span>{" "}
+              Values are not persisted.
             </p>
             <p className="text-neutral-500">
               Once the on-chain fee parameters are implemented, this page will
