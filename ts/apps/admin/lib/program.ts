@@ -43,6 +43,22 @@ export function getBunkercashMintPda(programId: PublicKey = PROGRAM_ID): PublicK
   return pda
 }
 
+export function getPurchaseLimitConfigPda(programId: PublicKey = PROGRAM_ID): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [Buffer.from('purchase_limit')],
+    programId
+  )
+  return pda
+}
+
+export function getSupportedUsdcConfigPda(programId: PublicKey = PROGRAM_ID): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [Buffer.from('supported_usdc_config')],
+    programId
+  )
+  return pda
+}
+
 export function getPoolSignerPda(poolPda: PublicKey, programId: PublicKey = PROGRAM_ID): PublicKey {
   void programId
   return poolPda
@@ -81,4 +97,25 @@ export function getReadonlyProgram(connection: Connection): Program<Idl> {
     commitment: 'confirmed',
   })
   return new Program(idl, provider)
+}
+
+export async function fetchConfiguredUsdcMint(
+  connection: Connection
+): Promise<PublicKey | null> {
+  const program = getReadonlyProgram(connection)
+  const supportedUsdcConfigPda = getSupportedUsdcConfigPda(PROGRAM_ID)
+  const accountApi = program.account as {
+    supportedUsdcConfig?: {
+      fetch: (pubkey: PublicKey) => Promise<{ mint: PublicKey }>
+    }
+  }
+
+  if (!accountApi.supportedUsdcConfig) return null
+
+  try {
+    const config = await accountApi.supportedUsdcConfig.fetch(supportedUsdcConfigPda)
+    return config.mint
+  } catch {
+    return null
+  }
 }

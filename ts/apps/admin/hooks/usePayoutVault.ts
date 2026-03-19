@@ -3,8 +3,8 @@ import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useConnection } from '@solana/wallet-adapter-react'
 import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import { getPoolPda, getPoolSignerPda, PROGRAM_ID } from '@/lib/program'
-import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
 import { withRateLimitRetry } from "@/lib/rpc-throttle";
+import { useSupportedUsdcMint } from "@/hooks/useSupportedUsdcMint";
 
 const CACHE_TTL = 30_000 // 30 seconds
 
@@ -18,12 +18,7 @@ export function usePayoutVault() {
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), [])
   const poolSignerPda = useMemo(() => getPoolSignerPda(poolPda, PROGRAM_ID), [poolPda])
 
-  const usdcMint = useMemo(() => {
-    if (!connection) return null;
-    const endpoint = connection.rpcEndpoint ?? "";
-    const cluster = getClusterFromEndpoint(endpoint);
-    return getUsdcMintForCluster(cluster);
-  }, [connection]);
+  const { usdcMint } = useSupportedUsdcMint();
 
   const rpcEndpoint = connection.rpcEndpoint ?? ""
   const payoutUsdcVault = useMemo(() => {

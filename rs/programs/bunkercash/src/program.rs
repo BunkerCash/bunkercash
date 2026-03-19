@@ -16,7 +16,7 @@ use mpl_token_metadata::types::DataV2;
 use mpl_token_metadata::ID as TOKEN_METADATA_PROGRAM_ID;
 use spl_token_2022::state::Mint as Token2022Mint;
 
-declare_id!("CGk5t3huzEvgTizUP7iRFnDLZGsZT9EPNm72csfxoM76");
+declare_id!("Buc53Fvrx6TwHaNrkFPb4EzdUv6r8X8y8MrUC6cgJ9M2");
 
 const POOL_SEED: &[u8] = b"pool";
 const BRENT_MINT_SEED: &[u8] = b"bunkercash_mint";
@@ -89,6 +89,20 @@ fn apply_master_repayment(pool: &mut Pool, withdrawal: &mut Withdrawal, amount: 
 
     withdrawal.remaining = withdrawal.remaining.checked_sub(principal_returned).unwrap();
     pool.nav = pool.nav.checked_add(nav_growth).unwrap();
+}
+
+fn apply_master_cancellation(
+    pool: &mut Pool,
+    withdrawal: &mut Withdrawal,
+    amount: u64,
+) -> Result<()> {
+    require!(
+        amount <= withdrawal.remaining,
+        ErrorCode::RepaymentExceedsWithdrawal
+    );
+    withdrawal.remaining = withdrawal.remaining.checked_sub(amount).unwrap();
+    pool.nav = pool.nav.checked_sub(amount).ok_or(ErrorCode::InvalidNAV)?;
+    Ok(())
 }
 
 fn validate_purchase_limit(
@@ -755,9 +769,7 @@ pub mod bunkercash {
             ctx.accounts.usdc_mint.decimals,
         )?;
 
-        // Cancellation can return more than the outstanding balance. Only the
-        // excess above principal counts as NAV growth.
-        apply_master_repayment(pool, withdrawal, amount);
+        apply_master_cancellation(pool, withdrawal, amount)?;
 
         emit!(MasterCancelWithdrawalEvent {
             withdrawal_id: withdrawal.id,
@@ -768,7 +780,7 @@ pub mod bunkercash {
             timestamp: Clock::get()?.unix_timestamp,
         });
 
-        msg!("Master cancelled {} USDC from withdrawal #{}. Remaining: {}, NAV unchanged: {}",
+        msg!("Master cancelled {} USDC from withdrawal #{}. Remaining: {}, New NAV: {}",
             amount, withdrawal.id, withdrawal.remaining, pool.nav);
         Ok(())
     }
@@ -1511,9 +1523,10 @@ pub enum ErrorCode {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_master_repayment, calculate_claim_usdc_value, record_master_withdrawal,
-        validate_purchase_limit, validate_settlement_pending_claims, ErrorCode, Pool,
-        PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal, validate_supported_usdc_mint,
+        apply_master_cancellation, apply_master_repayment, calculate_claim_usdc_value,
+        record_master_withdrawal, validate_purchase_limit, validate_settlement_pending_claims,
+        ErrorCode, Pool, PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal,
+        validate_supported_usdc_mint,
     };
     use anchor_lang::prelude::Pubkey;
 
@@ -1622,7 +1635,7 @@ mod tests {
     }
 
     #[test]
-    fn cancellation_of_outstanding_principal_does_not_change_nav() {
+    fn cancellation_reduces_nav_by_cancelled_amount() {
         let mut pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 7_500_000,
@@ -1632,7 +1645,6 @@ mod tests {
             withdrawal_counter: 1,
             bump: 255,
         };
-        let original_nav = pool.nav;
         let mut withdrawal = Withdrawal {
             id: 0,
             amount: 1_250_000,
@@ -1642,14 +1654,14 @@ mod tests {
             bump: 0,
         };
 
-        apply_master_repayment(&mut pool, &mut withdrawal, 1_250_000);
+        apply_master_cancellation(&mut pool, &mut withdrawal, 1_250_000).unwrap();
 
-        assert_eq!(pool.nav, original_nav);
+        assert_eq!(pool.nav, 6_250_000);
         assert_eq!(withdrawal.remaining, 0);
     }
 
     #[test]
-    fn cancellation_only_adds_profit_to_nav() {
+    fn cancellation_rejects_amounts_above_remaining() {
         let mut pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 7_500_000,
@@ -1668,10 +1680,11 @@ mod tests {
             bump: 0,
         };
 
-        apply_master_repayment(&mut pool, &mut withdrawal, 1_400_000);
+        let err = apply_master_cancellation(&mut pool, &mut withdrawal, 1_400_000).unwrap_err();
 
-        assert_eq!(pool.nav, 7_650_000);
-        assert_eq!(withdrawal.remaining, 0);
+        assert_eq!(err, ErrorCode::RepaymentExceedsWithdrawal.into());
+        assert_eq!(pool.nav, 7_500_000);
+        assert_eq!(withdrawal.remaining, 1_250_000);
     }
 
     #[test]

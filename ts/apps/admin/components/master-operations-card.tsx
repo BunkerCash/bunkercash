@@ -30,7 +30,8 @@ import {
   getNextMasterWithdrawalPda,
   MASTER_PROGRAM_ID,
 } from "@/lib/master-program";
-import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
+import { getClusterFromEndpoint } from "@/lib/constants";
+import { getSupportedUsdcConfigPda } from "@/lib/program";
 import {
   formatUsdc,
   metadataBytesToHex,
@@ -38,6 +39,7 @@ import {
   parseUsdcInput,
   shortPk,
 } from "@/lib/master-operations";
+import { useSupportedUsdcMint } from "@/hooks/useSupportedUsdcMint";
 
 interface InstructionBuilder {
   instruction: () => Promise<Transaction["instructions"][number]>;
@@ -48,6 +50,7 @@ interface MasterWithdrawAccounts {
   withdrawal: PublicKey;
   poolUsdc: PublicKey;
   masterUsdc: PublicKey;
+  supportedUsdcConfig: PublicKey;
   usdcMint: PublicKey;
   masterWallet: PublicKey;
   tokenProgram: PublicKey;
@@ -129,7 +132,11 @@ export function MasterOperationsCard() {
     () => getClusterFromEndpoint(connection.rpcEndpoint ?? ""),
     [connection],
   );
-  const usdcMint = useMemo(() => getUsdcMintForCluster(cluster), [cluster]);
+  const { usdcMint } = useSupportedUsdcMint();
+  const supportedUsdcConfigPda = useMemo(
+    () => getSupportedUsdcConfigPda(MASTER_PROGRAM_ID),
+    []
+  );
 
   const activeWithdrawals = useMemo(
     () => withdrawals.filter((item) => BigInt(item.remaining) > BigInt(0)),
@@ -272,6 +279,7 @@ export function MasterOperationsCard() {
           withdrawal: nextWithdrawalPda,
           poolUsdc: ataState.payoutUsdcVault,
           masterUsdc: ataState.adminUsdcAta,
+          supportedUsdcConfig: supportedUsdcConfigPda,
           usdcMint,
           masterWallet: wallet.publicKey,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
@@ -339,6 +347,7 @@ export function MasterOperationsCard() {
           withdrawal: repayTarget.pubkey,
           masterUsdc: ataState.adminUsdcAta,
           poolUsdc: ataState.payoutUsdcVault,
+          supportedUsdcConfig: supportedUsdcConfigPda,
           usdcMint,
           masterWallet: wallet.publicKey,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
@@ -383,12 +392,6 @@ export function MasterOperationsCard() {
       setTxError("Enter a valid cancel amount.");
       return;
     }
-    if (amount > BigInt(cancelTarget.remaining)) {
-      setTxError(
-        "Cancel amount exceeds the selected withdrawal's remaining balance.",
-      );
-      return;
-    }
 
     const ataState = buildAtaInstructions();
     if (!ataState) return;
@@ -406,6 +409,7 @@ export function MasterOperationsCard() {
           withdrawal: cancelTarget.pubkey,
           masterUsdc: ataState.adminUsdcAta,
           poolUsdc: ataState.payoutUsdcVault,
+          supportedUsdcConfig: supportedUsdcConfigPda,
           usdcMint,
           masterWallet: wallet.publicKey,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
@@ -701,7 +705,8 @@ export function MasterOperationsCard() {
             </h2>
             <p className="mt-1 text-xs text-neutral-500">
               Returns USDC from the admin wallet to the payout vault and records
-              a cancellation against the same withdrawal without changing NAV.
+              a cancellation against the same withdrawal. The cancelled amount
+              reduces NAV and cannot exceed the withdrawal's remaining balance.
             </p>
           </div>
 
@@ -738,6 +743,7 @@ export function MasterOperationsCard() {
               <span className="font-mono text-neutral-300">
                 ${formatUsdc(cancelTarget.remaining)}
               </span>
+              . Returning more than this amount increases NAV only by the excess.
             </p>
           )}
 

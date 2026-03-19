@@ -3,11 +3,10 @@
 import { Layout } from "@/components/layout/Layout";
 import { StatCard } from "@/components/ui/StatCard";
 import { TradeInterface } from "@/components/TradeInterface";
-
-import { useTokenPrice } from "@/hooks/useTokenPrice";
+import { usePoolStats } from "@/hooks/usePoolStats";
 
 export default function Home() {
-  const { price, loading, error } = useTokenPrice();
+  const { stats, loading, error } = usePoolStats();
 
   return (
     <Layout>
@@ -19,16 +18,13 @@ export default function Home() {
               Buy Token
             </h1>
             <p className="text-muted-foreground max-w-xl mx-auto">
-              Bunker Cash is a freely tradable digital token. The token price is
-              determined exclusively by open market activity. There is no
-              guarantee of value, liquidity, or future price development.
+              Review the live pool metrics before purchasing Bunker Cash.
             </p>
           </div>
 
-          {/* Market Price Card */}
-          <div className="mb-8">
+          <div className="mb-8 grid gap-4 md:grid-cols-2">
             <StatCard
-              label="Current Market Price"
+              label="Current Pool NAV"
               value={
                 loading ? (
                   <span className="text-muted-foreground animate-pulse">
@@ -36,16 +32,35 @@ export default function Home() {
                   </span>
                 ) : error ? (
                   <span className="text-destructive text-sm">
-                    Error loading price
+                    Error loading stats
                   </span>
                 ) : (
                   <span className="text-primary">
-                    ${price?.toFixed(4) ?? "0.0000"} USD
+                    ${stats.navUsdc ?? "0.00"} USDC
                   </span>
                 )
               }
-              note="Market price is determined by supply and demand."
+              note="Read directly from the on-chain pool account."
               className="glow-primary"
+            />
+            <StatCard
+              label="Liquid Size"
+              value={
+                loading ? (
+                  <span className="text-muted-foreground animate-pulse">
+                    Loading...
+                  </span>
+                ) : error ? (
+                  <span className="text-destructive text-sm">
+                    Error loading stats
+                  </span>
+                ) : (
+                  <span className="text-primary">
+                    ${stats.treasuryUsdc ?? "0.00"} USDC
+                  </span>
+                )
+              }
+              note="Current USDC balance available in the payout vault."
             />
           </div>
 
