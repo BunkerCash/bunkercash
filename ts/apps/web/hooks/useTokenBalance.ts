@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { useConnection } from "@solana/wallet-adapter-react";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
@@ -12,7 +11,6 @@ import { getBunkercashMintPda, PROGRAM_ID } from "@/lib/program";
 import type { BalanceResponse } from "@/lib/solana-server";
 
 export function useTokenBalance() {
-  const { connection } = useConnection();
   const { publicKey } = useWallet();
   const [balance, setBalance] = useState<string>("0");
   const [loading, setLoading] = useState(false);

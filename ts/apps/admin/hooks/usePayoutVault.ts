@@ -53,13 +53,23 @@ export function usePayoutVault() {
     fetchBalance()
   }, [fetchBalance])
 
-  // Keep real-time subscription for live updates after settlements
+  // Keep real-time subscription for live updates after settlements.
+  // Bypass the KV-cached /api/pool-data route so on-chain changes are
+  // reflected immediately in the UI.
   useEffect(() => {
     if (!connection || !payoutUsdcVault) return
 
     const subscriptionId = connection.onAccountChange(
       payoutUsdcVault,
-      () => { void fetchBalance() },
+      async () => {
+        try {
+          const bal = await connection.getTokenAccountBalance(payoutUsdcVault, "confirmed")
+          setBalance(bal.value.uiAmountString ?? '0')
+        } catch {
+          // Fall back to cached route on error
+          void fetchBalance()
+        }
+      },
       "confirmed"
     )
 
