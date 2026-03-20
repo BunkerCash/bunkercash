@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useConnection } from "@solana/wallet-adapter-react";
-import { getReadonlyProgram, getPoolPda } from "./program";
+import { getPoolPda, getReadonlyProgram } from "./program";
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -46,6 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       try {
+        const walletAddr = publicKey.toBase58();
         const program = getReadonlyProgram(connection);
         const poolPda = getPoolPda();
         const accountApi = program.account as {
@@ -58,12 +59,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         setAdminAddress(onChainAdmin);
 
-        const walletAddr = publicKey.toBase58();
-        const override = process.env.NEXT_PUBLIC_ADMIN_OVERRIDE;
-        setIsAdmin(
-          walletAddr === onChainAdmin ||
-            (!!override && walletAddr === override)
-        );
+        const overrideWallet = process.env.NEXT_PUBLIC_ADMIN_OVERRIDE;
+        if (walletAddr === onChainAdmin || (overrideWallet && walletAddr === overrideWallet)) {
+          setIsAdmin(true);
+          return;
+        }
+
+        setIsAdmin(false);
       } catch {
         if (!cancelled) {
           setIsAdmin(false);
