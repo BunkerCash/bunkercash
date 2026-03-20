@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { PublicKey } from "@solana/web3.js";
 import { cachedFetch } from "@bunkercash/cloudflare-kv";
 import { fetchTokenBalance, type BalanceResponse } from "@/lib/solana-server";
 
@@ -12,6 +13,15 @@ export async function GET(request: NextRequest) {
   if (!wallet) {
     return NextResponse.json(
       { error: "Missing wallet query parameter" },
+      { status: 400 },
+    );
+  }
+
+  try {
+    new PublicKey(wallet);
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid wallet address" },
       { status: 400 },
     );
   }

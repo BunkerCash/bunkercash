@@ -198,23 +198,11 @@ export interface TransactionsResponse {
 }
 
 const DEPOSIT_USDC_DISC = [184, 148, 250, 169, 224, 213, 34, 126];
-const FILE_CLAIM_DISC = [187, 254, 40, 13, 146, 223, 230, 97];
 
 function bytesEqual(a: number[], b: number[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
   return true;
-}
-
-interface RawClaimRecord {
-  publicKey: PublicKey;
-  account: {
-    user: PublicKey;
-    usdcAmount: Stringable;
-    timestamp: Stringable;
-    processed: boolean;
-    paidAmount: Stringable;
-  };
 }
 
 export async function fetchTransactionsForWallet(
@@ -233,13 +221,13 @@ export async function fetchTransactionsForWallet(
   // Claims cover all withdrawals; deposits are detected via
   // a single lightweight getSignaturesForAddress call filtered to our program.
   try {
-    const { cachedFetch } = await import("@bunkercash/cloudflare-kv");
-    const { data: claimsData } = await cachedFetch<ClaimsResponse>(
-      "GEOBLOCKING_KV",
-      "cache:claims",
-      30,
-      fetchAllClaims,
-    );
+    const { kvGet } = await import("@bunkercash/cloudflare-kv");
+    // Read claims from KV directly — this function is already called inside
+    // cachedFetch from the route handler, so nesting another cachedFetch would
+    // create redundant cache layers.  Fall back to a fresh RPC fetch if the
+    // KV entry is missing (cold start).
+    const cached = await kvGet<{ data: ClaimsResponse }>("GEOBLOCKING_KV", "cache:claims");
+    const claimsData = cached?.data ?? await fetchAllClaims();
     const allClaims = [...claimsData.open, ...claimsData.closed];
     const myClaims = allClaims.filter((c) => c.user === wallet);
 
