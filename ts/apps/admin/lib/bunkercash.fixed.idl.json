@@ -825,6 +825,242 @@
       ]
     },
     {
+      "name": "master_profit",
+      "discriminator": [
+        200,
+        138,
+        80,
+        172,
+        191,
+        131,
+        13,
+        163
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "withdrawal",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  119,
+                  105,
+                  116,
+                  104,
+                  100,
+                  114,
+                  97,
+                  119,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "withdrawal.id",
+                "account": "Withdrawal"
+              }
+            ]
+          }
+        },
+        {
+          "name": "master_usdc",
+          "writable": true
+        },
+        {
+          "name": "pool_usdc",
+          "writable": true
+        },
+        {
+          "name": "supported_usdc_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  112,
+                  112,
+                  111,
+                  114,
+                  116,
+                  101,
+                  100,
+                  95,
+                  117,
+                  115,
+                  100,
+                  99,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "master_wallet",
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "master_close_withdrawal",
+      "discriminator": [
+        72,
+        163,
+        40,
+        207,
+        173,
+        212,
+        205,
+        163
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "withdrawal",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  119,
+                  105,
+                  116,
+                  104,
+                  100,
+                  114,
+                  97,
+                  119,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "withdrawal.id",
+                "account": "Withdrawal"
+              }
+            ]
+          }
+        },
+        {
+          "name": "master_usdc",
+          "writable": true
+        },
+        {
+          "name": "pool_usdc",
+          "writable": true
+        },
+        {
+          "name": "supported_usdc_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  112,
+                  112,
+                  111,
+                  114,
+                  116,
+                  101,
+                  100,
+                  95,
+                  117,
+                  115,
+                  100,
+                  99,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "master_wallet",
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "master_withdraw",
       "discriminator": [
         251,
@@ -1431,6 +1667,32 @@
       ]
     },
     {
+      "name": "MasterProfitEvent",
+      "discriminator": [
+        111,
+        55,
+        195,
+        224,
+        158,
+        36,
+        184,
+        185
+      ]
+    },
+    {
+      "name": "MasterCloseWithdrawalEvent",
+      "discriminator": [
+        67,
+        234,
+        246,
+        13,
+        104,
+        227,
+        253,
+        79
+      ]
+    },
+    {
       "name": "MasterWithdrawalEvent",
       "discriminator": [
         131,
@@ -1787,6 +2049,70 @@
     },
     {
       "name": "MasterRepaymentEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "withdrawal_id",
+            "type": "u64"
+          },
+          {
+            "name": "master_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "remaining",
+            "type": "u64"
+          },
+          {
+            "name": "new_nav",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MasterProfitEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "withdrawal_id",
+            "type": "u64"
+          },
+          {
+            "name": "master_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "remaining",
+            "type": "u64"
+          },
+          {
+            "name": "new_nav",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MasterCloseWithdrawalEvent",
       "type": {
         "kind": "struct",
         "fields": [

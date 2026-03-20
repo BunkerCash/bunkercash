@@ -48,6 +48,8 @@ const POOL_ACCOUNT_DISCRIMINATOR = 8;
 const LOCAL_RETURNED_STORAGE_KEY = "bunkercash.masterReturnedOverrides.v2";
 const MASTER_REPAY_DISC = "196,123,175,178,81,52,168,164";
 const MASTER_CANCEL_DISC = "254,236,97,119,73,158,24,170";
+const MASTER_PROFIT_DISC = "200,138,80,172,191,131,13,163";
+const MASTER_CLOSE_DISC = "72,163,40,207,173,212,205,163";
 const RETURN_SCAN_SIGNATURE_LIMIT = 500;
 const TRANSACTION_BATCH_SIZE = 20;
 const localReturnedOverrides = new Map<string, bigint>();
@@ -169,7 +171,12 @@ async function fetchReturnedAmountsByWithdrawal(
         if (!ixProgramId?.equals(programId)) continue;
         if (ix.data.length < 16) continue;
         const discKey = Array.from(ix.data.slice(0, 8)).join(",");
-        if (discKey !== MASTER_REPAY_DISC && discKey !== MASTER_CANCEL_DISC) {
+        if (
+          discKey !== MASTER_REPAY_DISC &&
+          discKey !== MASTER_CANCEL_DISC &&
+          discKey !== MASTER_PROFIT_DISC &&
+          discKey !== MASTER_CLOSE_DISC
+        ) {
           continue;
         }
 

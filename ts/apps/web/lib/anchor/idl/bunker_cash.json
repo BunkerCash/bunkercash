@@ -151,6 +151,66 @@
           }
         },
         {
+          "name": "supported_usdc_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  112,
+                  112,
+                  111,
+                  114,
+                  116,
+                  101,
+                  100,
+                  95,
+                  117,
+                  115,
+                  100,
+                  99,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "purchase_limit_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  117,
+                  114,
+                  99,
+                  104,
+                  97,
+                  115,
+                  101,
+                  95,
+                  108,
+                  105,
+                  109,
+                  105,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "usdc_mint"
         },
         {
@@ -413,6 +473,97 @@
           "name": "usdc_mint"
         },
         {
+          "name": "pool_usdc",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "usdc_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "supported_usdc_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  112,
+                  112,
+                  111,
+                  114,
+                  116,
+                  101,
+                  100,
+                  95,
+                  117,
+                  115,
+                  100,
+                  99,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "payer",
           "writable": true,
           "signer": true
@@ -420,6 +571,10 @@
         {
           "name": "token_program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
         },
         {
           "name": "system_program",
@@ -498,6 +653,39 @@
         {
           "name": "pool_usdc",
           "writable": true
+        },
+        {
+          "name": "supported_usdc_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  112,
+                  112,
+                  111,
+                  114,
+                  116,
+                  101,
+                  100,
+                  95,
+                  117,
+                  115,
+                  100,
+                  99,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
         },
         {
           "name": "usdc_mint"
@@ -585,6 +773,275 @@
           "writable": true
         },
         {
+          "name": "supported_usdc_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  112,
+                  112,
+                  111,
+                  114,
+                  116,
+                  101,
+                  100,
+                  95,
+                  117,
+                  115,
+                  100,
+                  99,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "master_wallet",
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "master_profit",
+      "discriminator": [
+        200,
+        138,
+        80,
+        172,
+        191,
+        131,
+        13,
+        163
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "withdrawal",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  119,
+                  105,
+                  116,
+                  104,
+                  100,
+                  114,
+                  97,
+                  119,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "withdrawal.id",
+                "account": "Withdrawal"
+              }
+            ]
+          }
+        },
+        {
+          "name": "master_usdc",
+          "writable": true
+        },
+        {
+          "name": "pool_usdc",
+          "writable": true
+        },
+        {
+          "name": "supported_usdc_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  112,
+                  112,
+                  111,
+                  114,
+                  116,
+                  101,
+                  100,
+                  95,
+                  117,
+                  115,
+                  100,
+                  99,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "master_wallet",
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "master_close_withdrawal",
+      "discriminator": [
+        72,
+        163,
+        40,
+        207,
+        173,
+        212,
+        205,
+        163
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "withdrawal",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  119,
+                  105,
+                  116,
+                  104,
+                  100,
+                  114,
+                  97,
+                  119,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "withdrawal.id",
+                "account": "Withdrawal"
+              }
+            ]
+          }
+        },
+        {
+          "name": "master_usdc",
+          "writable": true
+        },
+        {
+          "name": "pool_usdc",
+          "writable": true
+        },
+        {
+          "name": "supported_usdc_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  112,
+                  112,
+                  111,
+                  114,
+                  116,
+                  101,
+                  100,
+                  95,
+                  117,
+                  115,
+                  100,
+                  99,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "usdc_mint"
         },
         {
@@ -670,6 +1127,39 @@
           "writable": true
         },
         {
+          "name": "supported_usdc_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  112,
+                  112,
+                  111,
+                  114,
+                  116,
+                  101,
+                  100,
+                  95,
+                  117,
+                  115,
+                  100,
+                  99,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "usdc_mint"
         },
         {
@@ -701,6 +1191,161 @@
           }
         }
       ]
+    },
+    {
+      "name": "set_purchase_limit",
+      "discriminator": [
+        153,
+        195,
+        171,
+        169,
+        248,
+        211,
+        131,
+        194
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "purchase_limit_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  117,
+                  114,
+                  99,
+                  104,
+                  97,
+                  115,
+                  101,
+                  95,
+                  108,
+                  105,
+                  109,
+                  105,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "purchase_limit_usdc",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "set_supported_usdc_mint",
+      "discriminator": [
+        232,
+        78,
+        3,
+        189,
+        114,
+        60,
+        130,
+        39
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "supported_usdc_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  112,
+                  112,
+                  111,
+                  114,
+                  116,
+                  101,
+                  100,
+                  95,
+                  117,
+                  115,
+                  100,
+                  99,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
     },
     {
       "name": "settle_claims",
@@ -735,6 +1380,39 @@
         {
           "name": "pool_usdc",
           "writable": true
+        },
+        {
+          "name": "supported_usdc_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  112,
+                  112,
+                  111,
+                  114,
+                  116,
+                  101,
+                  100,
+                  95,
+                  117,
+                  115,
+                  100,
+                  99,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
         },
         {
           "name": "usdc_mint"
@@ -870,6 +1548,32 @@
       ]
     },
     {
+      "name": "PurchaseLimitConfig",
+      "discriminator": [
+        219,
+        61,
+        201,
+        206,
+        19,
+        87,
+        192,
+        188
+      ]
+    },
+    {
+      "name": "SupportedUsdcConfig",
+      "discriminator": [
+        120,
+        32,
+        91,
+        163,
+        125,
+        204,
+        59,
+        56
+      ]
+    },
+    {
       "name": "Withdrawal",
       "discriminator": [
         10,
@@ -960,6 +1664,32 @@
         220,
         185,
         248
+      ]
+    },
+    {
+      "name": "MasterProfitEvent",
+      "discriminator": [
+        111,
+        55,
+        195,
+        224,
+        158,
+        36,
+        184,
+        185
+      ]
+    },
+    {
+      "name": "MasterCloseWithdrawalEvent",
+      "discriminator": [
+        67,
+        234,
+        246,
+        13,
+        104,
+        227,
+        253,
+        79
       ]
     },
     {
@@ -1071,13 +1801,33 @@
     },
     {
       "code": 6008,
+      "name": "IncompleteSettlementSet",
+      "msg": "Settlement must include the full open-claim set when the pool vault cannot cover all claims"
+    },
+    {
+      "code": 6009,
+      "name": "PendingClaimsOutOfSync",
+      "msg": "On-chain pending claims are lower than the submitted claim set; sync pending claims before settling"
+    },
+    {
+      "code": 6010,
       "name": "MintAlreadyInitialized",
       "msg": "Bunker Cash mint PDA is already initialized"
     },
     {
-      "code": 6009,
+      "code": 6011,
       "name": "ClaimAmountTooSmall",
       "msg": "Claim amount must burn a non-zero amount of bRENT for a non-zero USDC value"
+    },
+    {
+      "code": 6012,
+      "name": "PurchaseLimitExceeded",
+      "msg": "Global purchase limit exceeded"
+    },
+    {
+      "code": 6013,
+      "name": "InvalidAmount",
+      "msg": "Amount must be greater than zero"
     }
   ],
   "types": [
@@ -1330,6 +2080,70 @@
       }
     },
     {
+      "name": "MasterProfitEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "withdrawal_id",
+            "type": "u64"
+          },
+          {
+            "name": "master_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "remaining",
+            "type": "u64"
+          },
+          {
+            "name": "new_nav",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MasterCloseWithdrawalEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "withdrawal_id",
+            "type": "u64"
+          },
+          {
+            "name": "master_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "remaining",
+            "type": "u64"
+          },
+          {
+            "name": "new_nav",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "MasterWithdrawalEvent",
       "type": {
         "kind": "struct",
@@ -1498,6 +2312,42 @@
           {
             "name": "timestamp",
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PurchaseLimitConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "purchase_limit_usdc",
+            "type": "u64"
+          },
+          {
+            "name": "total_deposited_usdc",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SupportedUsdcConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }

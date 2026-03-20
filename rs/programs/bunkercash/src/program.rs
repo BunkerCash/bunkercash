@@ -91,6 +91,10 @@ fn apply_master_repayment(pool: &mut Pool, withdrawal: &mut Withdrawal, amount: 
     pool.nav = pool.nav.checked_add(nav_growth).unwrap();
 }
 
+fn apply_master_profit(pool: &mut Pool, amount: u64) {
+    pool.nav = pool.nav.checked_add(amount).unwrap();
+}
+
 fn apply_master_cancellation(
     pool: &mut Pool,
     withdrawal: &mut Withdrawal,
@@ -102,6 +106,24 @@ fn apply_master_cancellation(
     );
     withdrawal.remaining = withdrawal.remaining.checked_sub(amount).unwrap();
     pool.nav = pool.nav.checked_sub(amount).ok_or(ErrorCode::InvalidNAV)?;
+    Ok(())
+}
+
+fn apply_master_close_withdrawal(
+    pool: &mut Pool,
+    withdrawal: &mut Withdrawal,
+    amount: u64,
+) -> Result<()> {
+    let remaining = withdrawal.remaining;
+    if amount >= remaining {
+        let nav_growth = amount.checked_sub(remaining).unwrap();
+        pool.nav = pool.nav.checked_add(nav_growth).unwrap();
+    } else {
+        let loss = remaining.checked_sub(amount).unwrap();
+        pool.nav = pool.nav.checked_sub(loss).ok_or(ErrorCode::InvalidNAV)?;
+    }
+
+    withdrawal.remaining = 0;
     Ok(())
 }
 
@@ -737,6 +759,54 @@ pub mod bunkercash {
         Ok(())
     }
 
+    pub fn master_profit(
+        ctx: Context<MasterRepay>,
+        amount: u64,
+    ) -> Result<()> {
+        validate_supported_usdc_mint(
+            &ctx.accounts.supported_usdc_config,
+            &ctx.accounts.usdc_mint.key(),
+        )?;
+        validate_non_zero_amount(amount)?;
+
+        let pool = &mut ctx.accounts.pool;
+        let withdrawal = &mut ctx.accounts.withdrawal;
+
+        require!(
+            ctx.accounts.master_wallet.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+
+        anchor_spl::token_2022::transfer_checked(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                anchor_spl::token_2022::TransferChecked {
+                    from: ctx.accounts.master_usdc.to_account_info(),
+                    to: ctx.accounts.pool_usdc.to_account_info(),
+                    authority: ctx.accounts.master_wallet.to_account_info(),
+                    mint: ctx.accounts.usdc_mint.to_account_info(),
+                },
+            ),
+            amount,
+            ctx.accounts.usdc_mint.decimals,
+        )?;
+
+        apply_master_profit(pool, amount);
+
+        emit!(MasterProfitEvent {
+            withdrawal_id: withdrawal.id,
+            master_wallet: ctx.accounts.master_wallet.key(),
+            amount,
+            remaining: withdrawal.remaining,
+            new_nav: pool.nav,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+
+        msg!("Master booked {} USDC profit against withdrawal #{}. Remaining: {}, New NAV: {}",
+            amount, withdrawal.id, withdrawal.remaining, pool.nav);
+        Ok(())
+    }
+
     pub fn master_cancel_withdrawal(
         ctx: Context<MasterRepay>,
         amount: u64,
@@ -782,6 +852,55 @@ pub mod bunkercash {
 
         msg!("Master cancelled {} USDC from withdrawal #{}. Remaining: {}, New NAV: {}",
             amount, withdrawal.id, withdrawal.remaining, pool.nav);
+        Ok(())
+    }
+
+    pub fn master_close_withdrawal(
+        ctx: Context<MasterRepay>,
+        amount: u64,
+    ) -> Result<()> {
+        validate_supported_usdc_mint(
+            &ctx.accounts.supported_usdc_config,
+            &ctx.accounts.usdc_mint.key(),
+        )?;
+
+        let pool = &mut ctx.accounts.pool;
+        let withdrawal = &mut ctx.accounts.withdrawal;
+
+        require!(
+            ctx.accounts.master_wallet.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+
+        if amount > 0 {
+            anchor_spl::token_2022::transfer_checked(
+                CpiContext::new(
+                    ctx.accounts.token_program.to_account_info(),
+                    anchor_spl::token_2022::TransferChecked {
+                        from: ctx.accounts.master_usdc.to_account_info(),
+                        to: ctx.accounts.pool_usdc.to_account_info(),
+                        authority: ctx.accounts.master_wallet.to_account_info(),
+                        mint: ctx.accounts.usdc_mint.to_account_info(),
+                    },
+                ),
+                amount,
+                ctx.accounts.usdc_mint.decimals,
+            )?;
+        }
+
+        apply_master_close_withdrawal(pool, withdrawal, amount)?;
+
+        emit!(MasterCloseWithdrawalEvent {
+            withdrawal_id: withdrawal.id,
+            master_wallet: ctx.accounts.master_wallet.key(),
+            amount,
+            remaining: withdrawal.remaining,
+            new_nav: pool.nav,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+
+        msg!("Master closed withdrawal #{} with {} USDC returned. Remaining: {}, New NAV: {}",
+            withdrawal.id, amount, withdrawal.remaining, pool.nav);
         Ok(())
     }
 
@@ -1455,12 +1574,32 @@ pub struct MasterRepaymentEvent {
 }
 
 #[event]
+pub struct MasterProfitEvent {
+    pub withdrawal_id: u64,
+    pub master_wallet: Pubkey,
+    pub amount: u64,
+    pub remaining: u64,
+    pub new_nav: u64,
+    pub timestamp: i64,
+}
+
+#[event]
 pub struct MasterCancelWithdrawalEvent {
     pub withdrawal_id: u64,
     pub master_wallet: Pubkey,
     pub amount: u64,
     pub remaining: u64,
     pub nav: u64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct MasterCloseWithdrawalEvent {
+    pub withdrawal_id: u64,
+    pub master_wallet: Pubkey,
+    pub amount: u64,
+    pub remaining: u64,
+    pub new_nav: u64,
     pub timestamp: i64,
 }
 
@@ -1523,10 +1662,10 @@ pub enum ErrorCode {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_master_cancellation, apply_master_repayment, calculate_claim_usdc_value,
-        record_master_withdrawal, validate_purchase_limit, validate_settlement_pending_claims,
-        ErrorCode, Pool, PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal,
-        validate_supported_usdc_mint,
+        apply_master_cancellation, apply_master_close_withdrawal, apply_master_profit,
+        apply_master_repayment, calculate_claim_usdc_value, record_master_withdrawal,
+        validate_purchase_limit, validate_settlement_pending_claims, ErrorCode, Pool,
+        PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal, validate_supported_usdc_mint,
     };
     use anchor_lang::prelude::Pubkey;
 
@@ -1635,6 +1774,32 @@ mod tests {
     }
 
     #[test]
+    fn master_profit_always_increases_nav_without_touching_remaining() {
+        let mut pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 7_500_000,
+            total_brent_supply: 7_500_000,
+            total_pending_claims: 0,
+            claim_counter: 0,
+            withdrawal_counter: 1,
+            bump: 255,
+        };
+        let withdrawal = Withdrawal {
+            id: 0,
+            amount: 1_250_000,
+            remaining: 400_000,
+            metadata_hash: [0; 32],
+            timestamp: 0,
+            bump: 0,
+        };
+
+        apply_master_profit(&mut pool, 225_000);
+
+        assert_eq!(pool.nav, 7_725_000);
+        assert_eq!(withdrawal.remaining, 400_000);
+    }
+
+    #[test]
     fn cancellation_reduces_nav_by_cancelled_amount() {
         let mut pool = Pool {
             master_wallet: Pubkey::new_unique(),
@@ -1685,6 +1850,84 @@ mod tests {
         assert_eq!(err, ErrorCode::RepaymentExceedsWithdrawal.into());
         assert_eq!(pool.nav, 7_500_000);
         assert_eq!(withdrawal.remaining, 1_250_000);
+    }
+
+    #[test]
+    fn close_withdrawal_with_profit_zeroes_remaining_and_increases_nav() {
+        let mut pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 7_500_000,
+            total_brent_supply: 7_500_000,
+            total_pending_claims: 0,
+            claim_counter: 0,
+            withdrawal_counter: 1,
+            bump: 255,
+        };
+        let mut withdrawal = Withdrawal {
+            id: 0,
+            amount: 1_250_000,
+            remaining: 400_000,
+            metadata_hash: [0; 32],
+            timestamp: 0,
+            bump: 0,
+        };
+
+        apply_master_close_withdrawal(&mut pool, &mut withdrawal, 525_000).unwrap();
+
+        assert_eq!(pool.nav, 7_625_000);
+        assert_eq!(withdrawal.remaining, 0);
+    }
+
+    #[test]
+    fn close_withdrawal_with_loss_zeroes_remaining_and_reduces_nav() {
+        let mut pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 7_500_000,
+            total_brent_supply: 7_500_000,
+            total_pending_claims: 0,
+            claim_counter: 0,
+            withdrawal_counter: 1,
+            bump: 255,
+        };
+        let mut withdrawal = Withdrawal {
+            id: 0,
+            amount: 1_250_000,
+            remaining: 400_000,
+            metadata_hash: [0; 32],
+            timestamp: 0,
+            bump: 0,
+        };
+
+        apply_master_close_withdrawal(&mut pool, &mut withdrawal, 250_000).unwrap();
+
+        assert_eq!(pool.nav, 7_350_000);
+        assert_eq!(withdrawal.remaining, 0);
+    }
+
+    #[test]
+    fn close_withdrawal_at_full_loss_allows_zero_return() {
+        let mut pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 7_500_000,
+            total_brent_supply: 7_500_000,
+            total_pending_claims: 0,
+            claim_counter: 0,
+            withdrawal_counter: 1,
+            bump: 255,
+        };
+        let mut withdrawal = Withdrawal {
+            id: 0,
+            amount: 1_250_000,
+            remaining: 400_000,
+            metadata_hash: [0; 32],
+            timestamp: 0,
+            bump: 0,
+        };
+
+        apply_master_close_withdrawal(&mut pool, &mut withdrawal, 0).unwrap();
+
+        assert_eq!(pool.nav, 7_100_000);
+        assert_eq!(withdrawal.remaining, 0);
     }
 
     #[test]

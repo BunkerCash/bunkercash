@@ -65,10 +65,10 @@ interface MasterProgramMethods {
   ) => {
     accounts: (accounts: MasterWithdrawAccounts) => InstructionBuilder;
   };
-  masterRepay: (amount: BN) => {
+  masterProfit: (amount: BN) => {
     accounts: (accounts: MasterAdjustAccounts) => InstructionBuilder;
   };
-  masterCancelWithdrawal: (amount: BN) => {
+  masterCloseWithdrawal: (amount: BN) => {
     accounts: (accounts: MasterAdjustAccounts) => InstructionBuilder;
   };
 }
@@ -86,7 +86,19 @@ function formatTimestamp(raw: string): string {
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
+  if (error instanceof Error) {
+    const message = error.message;
+    if (
+      message.includes("InstructionFallbackNotFound") ||
+      message.includes("Fallback functions are not supported") ||
+      message.includes("custom program error: 0x65")
+    ) {
+      return "The connected program deployment does not include this instruction yet. Rebuild and redeploy the updated on-chain program before using Profit or Close Withdrawal.";
+    }
+    return message;
+  }
+
+  return fallback;
 }
 
 export function MasterOperationsCard() {
@@ -99,12 +111,12 @@ export function MasterOperationsCard() {
 
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [metadataInput, setMetadataInput] = useState("");
-  const [repayWithdrawalId, setRepayWithdrawalId] = useState("");
-  const [repayAmount, setRepayAmount] = useState("");
-  const [cancelWithdrawalId, setCancelWithdrawalId] = useState("");
-  const [cancelAmount, setCancelAmount] = useState("");
+  const [profitWithdrawalId, setProfitWithdrawalId] = useState("");
+  const [profitAmount, setProfitAmount] = useState("");
+  const [closeWithdrawalId, setCloseWithdrawalId] = useState("");
+  const [closeAmount, setCloseAmount] = useState("");
   const [submitting, setSubmitting] = useState<
-    "withdraw" | "repay" | "cancel" | null
+    "withdraw" | "profit" | "close" | null
   >(null);
   const [txError, setTxError] = useState<string | null>(null);
   const [txSuccess, setTxSuccess] = useState<{
@@ -151,16 +163,24 @@ export function MasterOperationsCard() {
     [activeWithdrawals],
   );
 
-  const repayTarget = useMemo(
+  const profitTarget = useMemo(
     () =>
-      withdrawals.find((item) => item.id === repayWithdrawalId) ?? null,
-    [withdrawals, repayWithdrawalId],
+      withdrawals.find((item) => item.id === profitWithdrawalId) ?? null,
+    [withdrawals, profitWithdrawalId],
   );
-  const cancelTarget = useMemo(
+  const closeTarget = useMemo(
     () =>
-      activeWithdrawals.find((item) => item.id === cancelWithdrawalId) ?? null,
-    [activeWithdrawals, cancelWithdrawalId],
+      activeWithdrawals.find((item) => item.id === closeWithdrawalId) ?? null,
+    [activeWithdrawals, closeWithdrawalId],
   );
+  const parsedCloseAmount = useMemo(
+    () => parseUsdcInput(closeAmount, { allowZero: true }),
+    [closeAmount],
+  );
+  const closePnlDelta = useMemo(() => {
+    if (!closeTarget || parsedCloseAmount === null) return null;
+    return parsedCloseAmount - BigInt(closeTarget.remaining);
+  }, [closeTarget, parsedCloseAmount]);
 
   const adminWallet = pool?.masterWallet ?? null;
   const adminWalletBase58 = adminWallet?.toBase58() ?? null;
@@ -322,12 +342,12 @@ export function MasterOperationsCard() {
     }
   };
 
-  const handleRepay = async () => {
-    if (!program || !wallet.publicKey || !repayTarget || !usdcMint) return;
+  const handleProfit = async () => {
+    if (!program || !wallet.publicKey || !profitTarget || !usdcMint) return;
 
-    const amount = parseUsdcInput(repayAmount);
+    const amount = parseUsdcInput(profitAmount);
     if (!amount) {
-      setTxError("Enter a valid repay amount.");
+      setTxError("Enter a valid profit amount.");
       return;
     }
 
@@ -335,16 +355,16 @@ export function MasterOperationsCard() {
     if (!ataState) return;
     if (!(await ensureAdminUsdcBalance(ataState.adminUsdcAta, amount))) return;
 
-    setSubmitting("repay");
+    setSubmitting("profit");
     setTxError(null);
     setTxSuccess(null);
 
     try {
       const ix = await (program.methods as unknown as MasterProgramMethods)
-        .masterRepay(new BN(amount.toString()))
+        .masterProfit(new BN(amount.toString()))
         .accounts({
           pool: poolPda,
-          withdrawal: repayTarget.pubkey,
+          withdrawal: profitTarget.pubkey,
           masterUsdc: ataState.adminUsdcAta,
           poolUsdc: ataState.payoutUsdcVault,
           supportedUsdcConfig: supportedUsdcConfigPda,
@@ -362,51 +382,54 @@ export function MasterOperationsCard() {
       const provider = program.provider as ProviderLike;
       const signature = await provider.sendAndConfirm(tx);
 
-      recordLocalReturnedAmount(repayTarget.pubkey, amount);
+      recordLocalReturnedAmount(profitTarget.pubkey, amount);
       setTxSuccess({
-        label: `Repaid withdrawal #${repayTarget.id}`,
+        label: `Recorded profit against withdrawal #${profitTarget.id}`,
         signature,
       });
-      setRepayAmount("");
+      setProfitAmount("");
       refresh();
       refreshVault();
     } catch (e: unknown) {
-      console.error("Error submitting master repay:", e);
+      console.error("Error submitting master profit:", e);
       if (e instanceof SendTransactionError) {
         const logs = await e.getLogs(connection);
         if (logs?.length) {
-          console.error("Master repay transaction logs:", logs);
+          console.error("Master profit transaction logs:", logs);
         }
       }
-      setTxError(getErrorMessage(e, "Failed to submit repayment"));
+      setTxError(getErrorMessage(e, "Failed to submit profit"));
     } finally {
       setSubmitting(null);
     }
   };
 
-  const handleCancel = async () => {
-    if (!program || !wallet.publicKey || !cancelTarget || !usdcMint) return;
+  const handleClose = async () => {
+    if (!program || !wallet.publicKey || !closeTarget || !usdcMint) return;
 
-    const amount = parseUsdcInput(cancelAmount);
-    if (!amount) {
-      setTxError("Enter a valid cancel amount.");
+    const amount = parseUsdcInput(closeAmount, { allowZero: true });
+    if (amount === null) {
+      setTxError("Enter a valid close amount.");
       return;
     }
 
     const ataState = buildAtaInstructions();
     if (!ataState) return;
-    if (!(await ensureAdminUsdcBalance(ataState.adminUsdcAta, amount))) return;
+    if (amount > BigInt(0)) {
+      const hasBalance = await ensureAdminUsdcBalance(ataState.adminUsdcAta, amount);
+      if (!hasBalance) return;
+    }
 
-    setSubmitting("cancel");
+    setSubmitting("close");
     setTxError(null);
     setTxSuccess(null);
 
     try {
       const ix = await (program.methods as unknown as MasterProgramMethods)
-        .masterCancelWithdrawal(new BN(amount.toString()))
+        .masterCloseWithdrawal(new BN(amount.toString()))
         .accounts({
           pool: poolPda,
-          withdrawal: cancelTarget.pubkey,
+          withdrawal: closeTarget.pubkey,
           masterUsdc: ataState.adminUsdcAta,
           poolUsdc: ataState.payoutUsdcVault,
           supportedUsdcConfig: supportedUsdcConfigPda,
@@ -424,23 +447,33 @@ export function MasterOperationsCard() {
       const provider = program.provider as ProviderLike;
       const signature = await provider.sendAndConfirm(tx);
 
-      recordLocalReturnedAmount(cancelTarget.pubkey, amount);
+      recordLocalReturnedAmount(closeTarget.pubkey, amount);
+
+      const remaining = BigInt(closeTarget.remaining);
+      const pnlDelta = amount - remaining;
+      let label = `Closed withdrawal #${closeTarget.id} at breakeven`;
+      if (pnlDelta > BigInt(0)) {
+        label = `Closed withdrawal #${closeTarget.id} with profit of $${formatUsdc(pnlDelta)}`;
+      } else if (pnlDelta < BigInt(0)) {
+        label = `Closed withdrawal #${closeTarget.id} with loss of $${formatUsdc(-pnlDelta)}`;
+      }
+
       setTxSuccess({
-        label: `Cancelled withdrawal #${cancelTarget.id}`,
+        label,
         signature,
       });
-      setCancelAmount("");
+      setCloseAmount("");
       refresh();
       refreshVault();
     } catch (e: unknown) {
-      console.error("Error submitting cancel withdrawal:", e);
+      console.error("Error closing withdrawal:", e);
       if (e instanceof SendTransactionError) {
         const logs = await e.getLogs(connection);
         if (logs?.length) {
-          console.error("Cancel withdrawal transaction logs:", logs);
+          console.error("Close withdrawal transaction logs:", logs);
         }
       }
-      setTxError(getErrorMessage(e, "Failed to cancel withdrawal"));
+      setTxError(getErrorMessage(e, "Failed to close withdrawal"));
     } finally {
       setSubmitting(null);
     }
@@ -454,8 +487,8 @@ export function MasterOperationsCard() {
             Master Operations
           </h1>
           <p className="mt-1 text-sm text-neutral-500">
-            Admin withdrawals, repayments, and cancellations for the current
-            program.
+            Admin withdrawals, profit bookings, and withdrawal closeouts for
+            the current program.
           </p>
         </div>
         <button
@@ -624,11 +657,12 @@ export function MasterOperationsCard() {
 
         <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-6">
           <div className="mb-4">
-            <h2 className="text-sm font-medium text-white">Master Repay</h2>
+            <h2 className="text-sm font-medium text-white">Profit</h2>
             <p className="mt-1 text-xs text-neutral-500">
-              Sends USDC from the admin wallet back into the payout vault. Any
-              amount above the withdrawal&apos;s remaining balance still
-              increases NAV.
+              Returns USDC from the admin wallet to the payout vault and books
+              the full amount as profit against the selected withdrawal. Profit
+              always increases NAV and does not reduce the withdrawal&apos;s
+              remaining balance.
             </p>
           </div>
 
@@ -636,8 +670,8 @@ export function MasterOperationsCard() {
             Withdrawal
           </label>
           <select
-            value={repayWithdrawalId}
-            onChange={(e) => setRepayWithdrawalId(e.target.value)}
+            value={profitWithdrawalId}
+            onChange={(e) => setProfitWithdrawalId(e.target.value)}
             className="mb-4 h-10 w-full rounded-lg border border-neutral-700/60 bg-neutral-800/60 px-3 text-sm text-white focus:border-[#00FFB2]/50 focus:outline-none focus:ring-1 focus:ring-[#00FFB2]/50"
           >
             <option value="">Select withdrawal</option>
@@ -657,56 +691,49 @@ export function MasterOperationsCard() {
           <input
             type="number"
             min="0"
-            value={repayAmount}
-            onChange={(e) => setRepayAmount(e.target.value)}
+            value={profitAmount}
+            onChange={(e) => setProfitAmount(e.target.value)}
             className="h-10 w-full rounded-lg border border-neutral-700/60 bg-neutral-800/60 px-3 font-mono text-sm text-white focus:border-[#00FFB2]/50 focus:outline-none focus:ring-1 focus:ring-[#00FFB2]/50"
             placeholder="0.00"
           />
-          {repayTarget && (
+          {profitTarget && (
             <p className="mt-2 text-[11px] text-neutral-500">
-              {BigInt(repayTarget.remaining) > BigInt(0) ? (
-                <>
-                  Remaining balance:{" "}
-                  <span className="font-mono text-neutral-300">
-                    ${formatUsdc(repayTarget.remaining)}
-                  </span>
-                  . Extra repayment above this amount is treated as NAV growth.
-                </>
-              ) : (
-                <>
-                  This withdrawal is fully repaid. Any amount repaid will
-                  increase NAV directly.
-                </>
-              )}
+              Remaining balance stays unchanged at{" "}
+              <span className="font-mono text-neutral-300">
+                ${formatUsdc(profitTarget.remaining)}
+              </span>
+              . The submitted amount is treated as pure profit and increases NAV
+              one-for-one.
             </p>
           )}
 
           <button
-            onClick={handleRepay}
+            onClick={handleProfit}
             disabled={
               !isAuthorizedWallet ||
-              !repayWithdrawalId ||
-              !repayAmount ||
+              !profitWithdrawalId ||
+              !profitAmount ||
               submitting !== null
             }
             className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-[#00FFB2] text-sm font-medium text-black transition-colors hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600"
           >
-            {submitting === "repay" && (
+            {submitting === "profit" && (
               <Loader2 className="h-4 w-4 animate-spin" />
             )}
-            {submitting === "repay" ? "Submitting..." : "Repay Withdrawal"}
+            {submitting === "profit" ? "Submitting..." : "Record Profit"}
           </button>
         </div>
 
         <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-6">
           <div className="mb-4">
             <h2 className="text-sm font-medium text-white">
-              Cancel Withdrawal
+              Close Withdrawal
             </h2>
             <p className="mt-1 text-xs text-neutral-500">
-              Returns USDC from the admin wallet to the payout vault and records
-              a cancellation against the same withdrawal. The cancelled amount
-              reduces NAV and cannot exceed the withdrawal's remaining balance.
+              Returns the final USDC amount from the admin wallet to the payout
+              vault, closes the selected withdrawal, and adjusts NAV by the
+              difference between the returned amount and the withdrawal&apos;s
+              remaining balance.
             </p>
           </div>
 
@@ -714,8 +741,8 @@ export function MasterOperationsCard() {
             Withdrawal
           </label>
           <select
-            value={cancelWithdrawalId}
-            onChange={(e) => setCancelWithdrawalId(e.target.value)}
+            value={closeWithdrawalId}
+            onChange={(e) => setCloseWithdrawalId(e.target.value)}
             className="mb-4 h-10 w-full rounded-lg border border-neutral-700/60 bg-neutral-800/60 px-3 text-sm text-white focus:border-[#00FFB2]/50 focus:outline-none focus:ring-1 focus:ring-[#00FFB2]/50"
           >
             <option value="">Select withdrawal</option>
@@ -727,40 +754,60 @@ export function MasterOperationsCard() {
           </select>
 
           <label className="mb-2 block text-xs text-neutral-400">
-            Amount (USDC)
+            Returned Amount (USDC)
           </label>
           <input
             type="number"
             min="0"
-            value={cancelAmount}
-            onChange={(e) => setCancelAmount(e.target.value)}
+            value={closeAmount}
+            onChange={(e) => setCloseAmount(e.target.value)}
             className="h-10 w-full rounded-lg border border-neutral-700/60 bg-neutral-800/60 px-3 font-mono text-sm text-white focus:border-[#00FFB2]/50 focus:outline-none focus:ring-1 focus:ring-[#00FFB2]/50"
             placeholder="0.00"
           />
-          {cancelTarget && (
+          {closeTarget && (
             <p className="mt-2 text-[11px] text-neutral-500">
               Remaining balance:{" "}
               <span className="font-mono text-neutral-300">
-                ${formatUsdc(cancelTarget.remaining)}
+                ${formatUsdc(closeTarget.remaining)}
               </span>
-              . Returning more than this amount increases NAV only by the excess.
+              {closePnlDelta === null ? (
+                ". Enter the final returned amount to preview the closeout result."
+              ) : closePnlDelta > BigInt(0) ? (
+                <>
+                  . This closes with profit of{" "}
+                  <span className="font-mono text-neutral-300">
+                    ${formatUsdc(closePnlDelta)}
+                  </span>{" "}
+                  and increases NAV by the same amount.
+                </>
+              ) : closePnlDelta < BigInt(0) ? (
+                <>
+                  . This closes with loss of{" "}
+                  <span className="font-mono text-neutral-300">
+                    ${formatUsdc(-closePnlDelta)}
+                  </span>{" "}
+                  and reduces NAV by the same amount.
+                </>
+              ) : (
+                ". This closes at breakeven with no NAV change."
+              )}
             </p>
           )}
 
           <button
-            onClick={handleCancel}
+            onClick={handleClose}
             disabled={
               !isAuthorizedWallet ||
-              !cancelWithdrawalId ||
-              !cancelAmount ||
+              !closeWithdrawalId ||
+              closeAmount.trim() === "" ||
               submitting !== null
             }
             className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-neutral-200 text-sm font-medium text-black transition-colors hover:bg-white disabled:bg-neutral-800 disabled:text-neutral-600"
           >
-            {submitting === "cancel" && (
+            {submitting === "close" && (
               <Loader2 className="h-4 w-4 animate-spin" />
             )}
-            {submitting === "cancel" ? "Submitting..." : "Cancel Amount"}
+            {submitting === "close" ? "Submitting..." : "Close Withdrawal"}
           </button>
         </div>
       </div>
