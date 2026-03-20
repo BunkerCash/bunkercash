@@ -10,6 +10,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
 import {
   getAssociatedTokenAddressSync,
+  TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
@@ -74,7 +75,9 @@ const USDC_DECIMALS = 6;
 
 function getConnection(): Connection {
   const endpoint =
-    process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? "https://api.devnet.solana.com";
+    process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
+    process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
+    "https://api.devnet.solana.com";
   return new Connection(endpoint, "confirmed");
 }
 
@@ -131,7 +134,7 @@ export async function fetchPoolData(): Promise<PoolDataResponse> {
         usdcMint,
         poolSignerPda,
         true,
-        TOKEN_2022_PROGRAM_ID,
+        TOKEN_PROGRAM_ID,
         ASSOCIATED_TOKEN_PROGRAM_ID,
       );
       const bal = await connection.getTokenAccountBalance(payoutVault);

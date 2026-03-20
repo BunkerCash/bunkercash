@@ -221,7 +221,6 @@ pub mod bunkercash {
         let purchase_limit_config = &mut ctx.accounts.purchase_limit_config;
         let user = ctx.accounts.user.key();
 
-        purchase_limit_config.bump = ctx.bumps.purchase_limit_config;
         validate_purchase_limit(purchase_limit_config, usdc_amount)?;
 
         let brent_to_mint = if pool.total_brent_supply == 0 {
@@ -324,6 +323,20 @@ pub mod bunkercash {
 
         purchase_limit_config.purchase_limit_usdc = purchase_limit_usdc;
         purchase_limit_config.bump = ctx.bumps.purchase_limit_config;
+
+        Ok(())
+    }
+
+    pub fn reset_purchase_counter(ctx: Context<SetPurchaseLimit>) -> Result<()> {
+        let pool = &ctx.accounts.pool;
+        let purchase_limit_config = &mut ctx.accounts.purchase_limit_config;
+
+        require!(
+            ctx.accounts.admin.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+
+        purchase_limit_config.total_deposited_usdc = 0;
 
         Ok(())
     }
@@ -969,11 +982,9 @@ pub struct DepositUsdc<'info> {
     pub supported_usdc_config: Account<'info, SupportedUsdcConfig>,
 
     #[account(
-        init_if_needed,
-        payer = user,
-        space = 8 + PurchaseLimitConfig::INIT_SPACE,
+        mut,
         seeds = [PURCHASE_LIMIT_SEED],
-        bump
+        bump = purchase_limit_config.bump
     )]
     pub purchase_limit_config: Account<'info, PurchaseLimitConfig>,
 
