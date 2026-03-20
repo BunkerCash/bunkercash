@@ -227,9 +227,11 @@ export async function fetchTransactionsForWallet(
     // Read claims from KV directly — this function is already called inside
     // cachedFetch from the route handler, so nesting another cachedFetch would
     // create redundant cache layers.  Fall back to a fresh RPC fetch if the
-    // KV entry is missing (cold start).
-    const cached = await kvGet<{ data: ClaimsResponse }>("GEOBLOCKING_KV", "cache:claims");
-    const claimsData = cached?.data ?? await fetchAllClaims();
+    // KV entry is missing or stale (cold start / expired).
+    const CLAIMS_TTL_SECONDS = 30;
+    const cached = await kvGet<{ data: ClaimsResponse; ts: number }>("GEOBLOCKING_KV", "cache:claims");
+    const isFresh = cached && Date.now() - cached.ts < CLAIMS_TTL_SECONDS * 1000;
+    const claimsData = isFresh ? cached.data : await fetchAllClaims();
     const allClaims = [...claimsData.open, ...claimsData.closed];
     const myClaims = allClaims.filter((c) => c.user === wallet);
 
@@ -263,58 +265,63 @@ export async function fetchTransactionsForWallet(
     );
 
     if (signatures.length > 0) {
-      const batch = signatures;
       const bs58 = await import("bs58");
 
-      let txs: (import("@solana/web3.js").ParsedTransactionWithMeta | null)[];
-      try {
-        txs = await connection.getParsedTransactions(
-          batch.map((s) => s.signature),
-          { commitment: "confirmed", maxSupportedTransactionVersion: 0 },
-        );
-      } catch {
-        txs = [];
-      }
+      // Batch fetch in groups of 5 to avoid RPC 429s (matches admin pattern)
+      const BATCH = 5;
+      for (let start = 0; start < signatures.length; start += BATCH) {
+        const batch = signatures.slice(start, start + BATCH);
 
-      for (let i = 0; i < txs.length; i++) {
-        const tx = txs[i];
-        if (!tx?.meta || tx.meta.err) continue;
+        let txs: (import("@solana/web3.js").ParsedTransactionWithMeta | null)[];
+        try {
+          txs = await connection.getParsedTransactions(
+            batch.map((s) => s.signature),
+            { commitment: "confirmed", maxSupportedTransactionVersion: 0 },
+          );
+        } catch {
+          continue;
+        }
 
-        // Skip transactions that don't involve this wallet
-        const accountKeys = tx.transaction.message.accountKeys.map((k) =>
-          typeof k === "string" ? k : k.pubkey.toBase58(),
-        );
-        if (!accountKeys.includes(wallet)) continue;
+        for (let i = 0; i < txs.length; i++) {
+          const tx = txs[i];
+          if (!tx?.meta || tx.meta.err) continue;
 
-        const sig = batch[i];
-        const blockTime = tx.blockTime;
+          // Skip transactions that don't involve this wallet
+          const accountKeys = tx.transaction.message.accountKeys.map((k) =>
+            typeof k === "string" ? k : k.pubkey.toBase58(),
+          );
+          if (!accountKeys.includes(wallet)) continue;
 
-        for (const ix of tx.transaction.message.instructions) {
-          if (
-            "programId" in ix &&
-            ix.programId.equals(PROGRAM_ID) &&
-            "data" in ix
-          ) {
-            try {
-              if (typeof ix.data !== "string") continue;
-              const dataBytes = Array.from(bs58.default.decode(ix.data)) as number[];
-              const disc = dataBytes.slice(0, 8);
+          const sig = batch[i];
+          const blockTime = tx.blockTime;
 
-              if (bytesEqual(disc, DEPOSIT_USDC_DISC)) {
-                const amountBN = new BN(
-                  Buffer.from(dataBytes.slice(8, 16) as number[]),
-                  "le",
-                );
-                results.push({
-                  id: `buy-${sig.signature.slice(0, 8)}`,
-                  type: "investment",
-                  amount: Number(amountBN.toString()) / 10 ** USDC_DECIMALS,
-                  timestamp: blockTime ? blockTime * 1000 : Date.now(),
-                  txSignature: sig.signature,
-                });
+          for (const ix of tx.transaction.message.instructions) {
+            if (
+              "programId" in ix &&
+              ix.programId.equals(PROGRAM_ID) &&
+              "data" in ix
+            ) {
+              try {
+                if (typeof ix.data !== "string") continue;
+                const dataBytes = Array.from(bs58.default.decode(ix.data)) as number[];
+                const disc = dataBytes.slice(0, 8);
+
+                if (bytesEqual(disc, DEPOSIT_USDC_DISC)) {
+                  const amountBN = new BN(
+                    Buffer.from(dataBytes.slice(8, 16) as number[]),
+                    "le",
+                  );
+                  results.push({
+                    id: `buy-${sig.signature.slice(0, 8)}`,
+                    type: "investment",
+                    amount: Number(amountBN.toString()) / 10 ** USDC_DECIMALS,
+                    timestamp: blockTime ? blockTime * 1000 : Date.now(),
+                    txSignature: sig.signature,
+                  });
+                }
+              } catch {
+                // Skip unparseable
               }
-            } catch {
-              // Skip unparseable
             }
           }
         }

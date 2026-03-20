@@ -57,6 +57,8 @@ interface CachedValue<T> {
 export interface CachedFetchResult<T> {
   data: T;
   cacheHit: boolean;
+  /** True when the fetcher failed and stale cached data was served instead. */
+  staleFallback?: boolean;
 }
 
 // In-flight deduplication map — prevents concurrent requests from
@@ -97,7 +99,7 @@ export async function cachedFetch<T>(
     } catch (err) {
       // Fetcher failed — serve stale cached data if available
       if (staleData !== null) {
-        return { data: staleData, cacheHit: true };
+        return { data: staleData, cacheHit: true, staleFallback: true };
       }
       throw err;
     }

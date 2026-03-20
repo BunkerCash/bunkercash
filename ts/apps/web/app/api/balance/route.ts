@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
   const start = performance.now();
   try {
     const cacheKey = `cache:balance:${wallet}`;
-    const { data, cacheHit } = await cachedFetch<BalanceResponse>(
+    const { data, cacheHit, staleFallback } = await cachedFetch<BalanceResponse>(
       BINDING,
       cacheKey,
       TTL_SECONDS,
@@ -37,13 +37,14 @@ export async function GET(request: NextRequest) {
     );
 
     const elapsed = performance.now() - start;
+    const cacheStatus = staleFallback ? "STALE" : cacheHit ? "HIT" : "MISS";
 
     return NextResponse.json(data, {
       headers: {
         "Cache-Control": `public, s-maxage=${TTL_SECONDS}, stale-while-revalidate=${TTL_SECONDS * 2}`,
-        "X-Cache": cacheHit ? "HIT" : "MISS",
+        "X-Cache": cacheStatus,
         "X-Response-Time": `${elapsed.toFixed(1)}ms`,
-        "Server-Timing": `total;dur=${elapsed.toFixed(1)};desc="${cacheHit ? "kv-hit" : "rpc-fetch"}"`,
+        "Server-Timing": `total;dur=${elapsed.toFixed(1)};desc="${cacheStatus === "MISS" ? "rpc-fetch" : `kv-${cacheStatus.toLowerCase()}`}"`,
       },
     });
   } catch (e: unknown) {
