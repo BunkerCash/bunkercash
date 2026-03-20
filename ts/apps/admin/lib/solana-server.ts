@@ -85,7 +85,9 @@ const USDC_DECIMALS = 6;
 
 function getConnection(): Connection {
   const endpoint =
-    process.env.NEXT_PUBLIC_RPC_ENDPOINT || clusterApiUrl("devnet");
+    process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
+    process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
+    clusterApiUrl("devnet");
   return new Connection(endpoint, "confirmed");
 }
 

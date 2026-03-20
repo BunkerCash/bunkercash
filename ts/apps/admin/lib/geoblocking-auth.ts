@@ -17,7 +17,11 @@ let adminWalletsPromise: Promise<Set<string>> | null = null;
 let adminWalletsFailureTs = 0;
 
 function getRpcEndpoint() {
-  return process.env.NEXT_PUBLIC_RPC_ENDPOINT || clusterApiUrl("devnet");
+  return (
+    process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
+    process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
+    clusterApiUrl("devnet")
+  );
 }
 
 export async function getAuthorizedAdminWallets(): Promise<Set<string>> {

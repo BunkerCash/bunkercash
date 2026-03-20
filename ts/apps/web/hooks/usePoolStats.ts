@@ -54,7 +54,7 @@ export function usePoolStats() {
         totalSupply: fmt(data.totalSupplyRaw),
         circulatingSupply: fmt(data.totalSupplyRaw),
         pendingClaimsUsdc: fmt(data.pendingClaimsUsdcRaw),
-        treasuryUsdc: data.treasuryUsdcRaw?.toString() ?? null,
+        treasuryUsdc: data.treasuryUsdcRaw != null ? fmt(data.treasuryUsdcRaw) : null,
         navUsdc: fmt(data.navUsdcRaw),
         pricePerToken: data.pricePerToken,
         lastRefreshed: new Date(data.ts),
