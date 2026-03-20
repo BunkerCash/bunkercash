@@ -54,16 +54,21 @@ interface CachedValue<T> {
  * Read-through cache: check KV first, fall back to fetcher, write result back.
  * `ttlSeconds` controls the freshness window — stale entries are re-fetched.
  */
+export interface CachedFetchResult<T> {
+  data: T;
+  cacheHit: boolean;
+}
+
 export async function cachedFetch<T>(
   binding: string,
   key: string,
   ttlSeconds: number,
   fetcher: () => Promise<T>,
-): Promise<T> {
+): Promise<CachedFetchResult<T>> {
   try {
     const cached = await kvGet<CachedValue<T>>(binding, key);
     if (cached && Date.now() - cached.ts < ttlSeconds * 1000) {
-      return cached.data;
+      return { data: cached.data, cacheHit: true };
     }
   } catch {
     // KV read failed — fall through to fetcher
@@ -84,5 +89,5 @@ export async function cachedFetch<T>(
     // KV write failed — data is still returned, just not cached
   }
 
-  return data;
+  return { data, cacheHit: false };
 }

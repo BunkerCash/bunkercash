@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
   const start = performance.now();
   try {
     const cacheKey = `cache:balance:${wallet}`;
-    const data = await cachedFetch<BalanceResponse>(
+    const { data, cacheHit } = await cachedFetch<BalanceResponse>(
       BINDING,
       cacheKey,
       TTL_SECONDS,
@@ -27,7 +27,6 @@ export async function GET(request: NextRequest) {
     );
 
     const elapsed = performance.now() - start;
-    const cacheHit = elapsed < 500;
 
     return NextResponse.json(data, {
       headers: {

@@ -235,7 +235,7 @@ export async function fetchTransactionsForWallet(
   // a single lightweight getSignaturesForAddress call filtered to our program.
   try {
     const { cachedFetch } = await import("@bunkercash/cloudflare-kv");
-    const claimsData = await cachedFetch<ClaimsResponse>(
+    const { data: claimsData } = await cachedFetch<ClaimsResponse>(
       "GEOBLOCKING_KV",
       "cache:claims",
       30,
@@ -273,10 +273,7 @@ export async function fetchTransactionsForWallet(
     );
 
     if (signatures.length > 0) {
-      // Only parse the FIRST batch of 5 to find deposits quickly.
-      // This is a best-effort scan — deposits not in the first 5 sigs
-      // will appear on the next cache refresh.
-      const batch = signatures.slice(0, 5);
+      const batch = signatures;
       const bs58 = await import("bs58");
 
       let txs: (import("@solana/web3.js").ParsedTransactionWithMeta | null)[];

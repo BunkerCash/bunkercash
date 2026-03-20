@@ -50,8 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         setAdminAddress(onChainAdmin);
 
-        const overrideWallet = process.env.NEXT_PUBLIC_ADMIN_OVERRIDE;
-        if (walletAddr === onChainAdmin || (overrideWallet && walletAddr === overrideWallet)) {
+        if (walletAddr === onChainAdmin) {
           setIsAdmin(true);
           return;
         }

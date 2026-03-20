@@ -11,7 +11,7 @@ const TTL_SECONDS = 30;
 export async function GET() {
   const start = performance.now();
   try {
-    const data = await cachedFetch<PoolDataResponse>(
+    const { data, cacheHit } = await cachedFetch<PoolDataResponse>(
       BINDING,
       CACHE_KEY,
       TTL_SECONDS,
@@ -19,7 +19,6 @@ export async function GET() {
     );
 
     const elapsed = performance.now() - start;
-    const cacheHit = elapsed < 500; // RPC calls take 1s+, KV reads < 100ms
 
     return NextResponse.json(data, {
       headers: {

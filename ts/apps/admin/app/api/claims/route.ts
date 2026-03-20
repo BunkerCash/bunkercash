@@ -10,7 +10,7 @@ const TTL_SECONDS = 30;
 
 export async function GET() {
   try {
-    const data = await cachedFetch<ClaimsResponse>(
+    const { data } = await cachedFetch<ClaimsResponse>(
       BINDING,
       CACHE_KEY,
       TTL_SECONDS,

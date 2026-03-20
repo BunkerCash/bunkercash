@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
   const start = performance.now();
   try {
     const cacheKey = `cache:transactions:${wallet}`;
-    const data = await cachedFetch<TransactionsResponse>(
+    const { data, cacheHit } = await cachedFetch<TransactionsResponse>(
       BINDING,
       cacheKey,
       TTL_SECONDS,
@@ -30,7 +30,6 @@ export async function GET(request: NextRequest) {
     );
 
     const elapsed = performance.now() - start;
-    const cacheHit = elapsed < 500;
 
     return NextResponse.json(data, {
       headers: {

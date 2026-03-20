@@ -11,7 +11,7 @@ const TTL_SECONDS = 30;
 export async function GET() {
   const start = performance.now();
   try {
-    const data = await cachedFetch<ClaimsResponse>(
+    const { data, cacheHit } = await cachedFetch<ClaimsResponse>(
       BINDING,
       CACHE_KEY,
       TTL_SECONDS,
@@ -19,7 +19,6 @@ export async function GET() {
     );
 
     const elapsed = performance.now() - start;
-    const cacheHit = elapsed < 500;
 
     return NextResponse.json(data, {
       headers: {
