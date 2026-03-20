@@ -10,7 +10,6 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
 import {
   getAssociatedTokenAddressSync,
-  TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
@@ -132,7 +131,7 @@ export async function fetchPoolData(): Promise<PoolDataResponse> {
         usdcMint,
         poolSignerPda,
         true,
-        TOKEN_PROGRAM_ID,
+        TOKEN_2022_PROGRAM_ID,
         ASSOCIATED_TOKEN_PROGRAM_ID,
       );
       const bal = await connection.getTokenAccountBalance(payoutVault);

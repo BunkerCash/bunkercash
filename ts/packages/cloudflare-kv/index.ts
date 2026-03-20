@@ -59,6 +59,10 @@ export interface CachedFetchResult<T> {
   cacheHit: boolean;
 }
 
+// In-flight deduplication map — prevents concurrent requests from
+// stampeding the origin when the cache is cold or stale.
+const inflight = new Map<string, Promise<CachedFetchResult<unknown>>>();
+
 export async function cachedFetch<T>(
   binding: string,
   key: string,
@@ -74,20 +78,35 @@ export async function cachedFetch<T>(
     // KV read failed — fall through to fetcher
   }
 
-  const data = await fetcher();
-
-  // Await the write so the cache is populated before returning.
-  // Use a minimum TTL of 60s (Cloudflare KV enforced minimum).
-  try {
-    await kvPut(
-      binding,
-      key,
-      { data, ts: Date.now() } satisfies CachedValue<T>,
-      { expirationTtl: Math.max(ttlSeconds * 2, 60) },
-    );
-  } catch {
-    // KV write failed — data is still returned, just not cached
+  const flightKey = `${binding}:${key}`;
+  const existing = inflight.get(flightKey);
+  if (existing) {
+    return existing as Promise<CachedFetchResult<T>>;
   }
 
-  return { data, cacheHit: false };
+  const promise = (async (): Promise<CachedFetchResult<T>> => {
+    const data = await fetcher();
+
+    // Await the write so the cache is populated before returning.
+    // Use a minimum TTL of 60s (Cloudflare KV enforced minimum).
+    try {
+      await kvPut(
+        binding,
+        key,
+        { data, ts: Date.now() } satisfies CachedValue<T>,
+        { expirationTtl: Math.max(ttlSeconds * 2, 60) },
+      );
+    } catch {
+      // KV write failed — data is still returned, just not cached
+    }
+
+    return { data, cacheHit: false };
+  })();
+
+  inflight.set(flightKey, promise as Promise<CachedFetchResult<unknown>>);
+  try {
+    return await promise;
+  } finally {
+    inflight.delete(flightKey);
+  }
 }

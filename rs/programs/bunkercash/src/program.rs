@@ -1343,6 +1343,12 @@ pub struct Withdrawal {
     pub bump: u8,
 }
 
+/// Global deposit cap configuration.
+///
+/// **`total_deposited_usdc` is monotonic** — it tracks cumulative lifetime
+/// inflow and is never decremented on redemption.  This makes the limit a
+/// lifetime fundraising cap, not a current-pool-size cap.  To re-open
+/// deposits after redemptions, the admin must raise `purchase_limit_usdc`.
 #[account]
 #[derive(InitSpace)]
 pub struct PurchaseLimitConfig {
