@@ -253,11 +253,12 @@ export async function fetchTransactionsForWallet(
   // Detect deposits via program signature scan (single RPC call, no tx parsing)
   try {
     const connection = getConnection();
-    const walletPubkey = new PublicKey(wallet);
 
+    // Query program signatures rather than wallet signatures so that
+    // non-bunkercash transactions don't push deposits out of the window.
     const signatures = await connection.getSignaturesForAddress(
-      walletPubkey,
-      { limit: 20 },
+      PROGRAM_ID,
+      { limit: 100 },
       "confirmed",
     );
 
@@ -279,6 +280,12 @@ export async function fetchTransactionsForWallet(
         const tx = txs[i];
         if (!tx?.meta || tx.meta.err) continue;
 
+        // Skip transactions that don't involve this wallet
+        const accountKeys = tx.transaction.message.accountKeys.map((k) =>
+          typeof k === "string" ? k : k.pubkey.toBase58(),
+        );
+        if (!accountKeys.includes(wallet)) continue;
+
         const sig = batch[i];
         const blockTime = tx.blockTime;
 
@@ -290,12 +297,12 @@ export async function fetchTransactionsForWallet(
           ) {
             try {
               if (typeof ix.data !== "string") continue;
-              const dataBytes = Array.from(bs58.default.decode(ix.data));
+              const dataBytes = Array.from(bs58.default.decode(ix.data)) as number[];
               const disc = dataBytes.slice(0, 8);
 
               if (bytesEqual(disc, DEPOSIT_USDC_DISC)) {
                 const amountBN = new BN(
-                  Buffer.from(dataBytes.slice(8, 16)),
+                  Buffer.from(dataBytes.slice(8, 16) as number[]),
                   "le",
                 );
                 results.push({

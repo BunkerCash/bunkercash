@@ -69,10 +69,16 @@ export async function cachedFetch<T>(
   ttlSeconds: number,
   fetcher: () => Promise<T>,
 ): Promise<CachedFetchResult<T>> {
+  let staleData: T | null = null;
+
   try {
     const cached = await kvGet<CachedValue<T>>(binding, key);
-    if (cached && Date.now() - cached.ts < ttlSeconds * 1000) {
-      return { data: cached.data, cacheHit: true };
+    if (cached) {
+      if (Date.now() - cached.ts < ttlSeconds * 1000) {
+        return { data: cached.data, cacheHit: true };
+      }
+      // Keep stale data as fallback in case the fetcher fails
+      staleData = cached.data;
     }
   } catch {
     // KV read failed — fall through to fetcher
@@ -85,7 +91,16 @@ export async function cachedFetch<T>(
   }
 
   const promise = (async (): Promise<CachedFetchResult<T>> => {
-    const data = await fetcher();
+    let data: T;
+    try {
+      data = await fetcher();
+    } catch (err) {
+      // Fetcher failed — serve stale cached data if available
+      if (staleData !== null) {
+        return { data: staleData, cacheHit: true };
+      }
+      throw err;
+    }
 
     // Await the write so the cache is populated before returning.
     // Use a minimum TTL of 60s (Cloudflare KV enforced minimum).

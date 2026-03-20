@@ -52,7 +52,7 @@ function formatTime(date: Date): string {
 export function EventLogTable() {
   const { connection } = useConnection();
   const [activeFilter, setActiveFilter] = useState<EventType | "All">("All");
-  const { events, loading, error, refresh } = useRecentProgramEvents(10);
+  const { events, loading, error, refresh } = useRecentProgramEvents();
 
   const explorerClusterParam = useMemo(() => {
     const cluster = getClusterFromEndpoint(connection.rpcEndpoint ?? "");

@@ -33,7 +33,7 @@ function deserializeEvent(e: SerializedEvent): ProgramEvent {
   }
 }
 
-export function useRecentProgramEvents(_limit = 20) {
+export function useRecentProgramEvents() {
   const [events, setEvents] = useState<ProgramEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
