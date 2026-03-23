@@ -1,56 +1,54 @@
-"use client"
-import { useEffect, useState, useMemo } from 'react'
-import { useConnection, useWallet } from '@solana/wallet-adapter-react'
-import { PublicKey } from '@solana/web3.js'
-import { getReadonlyProgram, getPoolPda, PROGRAM_ID } from '@/lib/program'
+"use client";
+import { useEffect, useState } from "react";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { PublicKey } from "@solana/web3.js";
+import type { PoolDataResponse } from "@/lib/solana-server";
 
 export function useIsAdmin() {
-  const { connection } = useConnection()
-  const wallet = useWallet()
-  const { publicKey } = wallet
-  const [isAdmin, setIsAdmin] = useState(false)
-  const [isSquadsMember, setIsSquadsMember] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [poolAdmin, setPoolAdmin] = useState<PublicKey | null>(null)
-  const [isGovernedBySquads, setIsGovernedBySquads] = useState(false)
-
-  const program = useMemo(() => {
-    return getReadonlyProgram(connection)
-  }, [connection])
-
-  const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), [])
+  const wallet = useWallet();
+  const { publicKey } = wallet;
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isSquadsMember, setIsSquadsMember] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [poolAdmin, setPoolAdmin] = useState<PublicKey | null>(null);
+  const [isGovernedBySquads, setIsGovernedBySquads] = useState(false);
 
   useEffect(() => {
-    const fetchAdmin = async () => {
-      if (!program) return
+    let cancelled = false;
 
-      setLoading(true)
+    async function fetchAdmin() {
+      setLoading(true);
       try {
-        const accountApi = program.account as {
-          pool: { fetch: (pubkey: PublicKey) => Promise<{ masterWallet: PublicKey }> }
-        }
-        const poolState = await accountApi.pool.fetch(poolPda)
-        const adminPubkey = poolState.masterWallet as PublicKey
-        setPoolAdmin(adminPubkey)
-        setIsGovernedBySquads(false)
-        setIsSquadsMember(false)
+        const res = await fetch("/api/pool-data");
+        if (!res.ok) throw new Error(`pool-data: ${res.status}`);
+        const data: PoolDataResponse = await res.json();
+
+        if (cancelled) return;
+
+        const adminPubkey = new PublicKey(data.adminWallet);
+        setPoolAdmin(adminPubkey);
+        setIsGovernedBySquads(false);
+        setIsSquadsMember(false);
         setIsAdmin(
-          !!publicKey &&
-          publicKey.toBase58() === adminPubkey.toBase58()
-        )
+          !!publicKey && publicKey.toBase58() === data.adminWallet,
+        );
       } catch (e: unknown) {
-        console.error('Error fetching pool admin:', e)
-        setPoolAdmin(null)
-        setIsAdmin(false)
-        setIsSquadsMember(false)
-        setIsGovernedBySquads(false)
+        if (cancelled) return;
+        console.error("Error fetching pool admin:", e);
+        setPoolAdmin(null);
+        setIsAdmin(false);
+        setIsSquadsMember(false);
+        setIsGovernedBySquads(false);
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false);
       }
     }
 
-    fetchAdmin()
-  }, [program, poolPda, publicKey, connection])
+    fetchAdmin();
+    return () => {
+      cancelled = true;
+    };
+  }, [publicKey]);
 
-  return { isAdmin, isSquadsMember, loading, poolAdmin, isGovernedBySquads }
+  return { isAdmin, isSquadsMember, loading, poolAdmin, isGovernedBySquads };
 }

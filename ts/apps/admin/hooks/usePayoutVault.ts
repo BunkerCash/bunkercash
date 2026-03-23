@@ -1,16 +1,13 @@
 "use client"
-import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useConnection } from '@solana/wallet-adapter-react'
 import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import { getPoolPda, getPoolSignerPda, PROGRAM_ID } from '@/lib/program'
-import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
-import { withRateLimitRetry } from "@/lib/rpc-throttle";
-
-const CACHE_TTL = 30_000 // 30 seconds
+import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants"
+import type { PoolDataResponse } from "@/lib/solana-server"
 
 export function usePayoutVault() {
   const { connection } = useConnection()
-  const cacheRef = useRef<{ data: string; timestamp: number; endpoint: string } | null>(null)
   const [balance, setBalance] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -19,13 +16,12 @@ export function usePayoutVault() {
   const poolSignerPda = useMemo(() => getPoolSignerPda(poolPda, PROGRAM_ID), [poolPda])
 
   const usdcMint = useMemo(() => {
-    if (!connection) return null;
-    const endpoint = connection.rpcEndpoint ?? "";
-    const cluster = getClusterFromEndpoint(endpoint);
-    return getUsdcMintForCluster(cluster);
-  }, [connection]);
+    if (!connection) return null
+    const endpoint = connection.rpcEndpoint ?? ""
+    const cluster = getClusterFromEndpoint(endpoint)
+    return getUsdcMintForCluster(cluster)
+  }, [connection])
 
-  const rpcEndpoint = connection.rpcEndpoint ?? ""
   const payoutUsdcVault = useMemo(() => {
     if (!usdcMint) return null
     return getAssociatedTokenAddressSync(
@@ -37,77 +33,51 @@ export function usePayoutVault() {
     )
   }, [usdcMint, poolSignerPda])
 
-  const fetchBalance = useCallback(async (bypassCache = false) => {
-    if (!connection || !payoutUsdcVault) return
-
-    if (!bypassCache && cacheRef.current && cacheRef.current.endpoint === rpcEndpoint && Date.now() - cacheRef.current.timestamp < CACHE_TTL) {
-      setBalance(cacheRef.current.data)
-      setLoading(false)
-      return
-    }
-
+  const fetchBalance = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const bal = await withRateLimitRetry(() =>
-        connection.getTokenAccountBalance(payoutUsdcVault)
-      )
-      const value = bal.value.uiAmountString ?? '0'
-      cacheRef.current = { data: value, timestamp: Date.now(), endpoint: rpcEndpoint }
-      setBalance(value)
+      const res = await fetch("/api/pool-data")
+      if (!res.ok) throw new Error(`pool-data: ${res.status}`)
+      const data: PoolDataResponse = await res.json()
+      const raw = data.treasuryUsdcRaw ?? 0
+      setBalance(raw.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : 'Failed to fetch balance'
-      if (message.includes('could not find account')) {
-        cacheRef.current = { data: '0', timestamp: Date.now(), endpoint: rpcEndpoint }
-        setBalance('0')
-      } else {
-        console.error('Error fetching payout vault balance:', e)
-        setError(message)
-        setBalance(null)
-      }
+      setError(e instanceof Error ? e.message : 'Failed to fetch balance')
+      setBalance(null)
     } finally {
       setLoading(false)
     }
-  }, [connection, payoutUsdcVault, rpcEndpoint])
+  }, [])
 
   useEffect(() => {
     fetchBalance()
   }, [fetchBalance])
 
+  // Keep real-time subscription for live updates after settlements.
+  // Bypass the KV-cached /api/pool-data route so on-chain changes are
+  // reflected immediately in the UI.
   useEffect(() => {
     if (!connection || !payoutUsdcVault) return
 
     const subscriptionId = connection.onAccountChange(
       payoutUsdcVault,
-      () => {
-        cacheRef.current = null
-        void fetchBalance(true)
+      async () => {
+        try {
+          const bal = await connection.getTokenAccountBalance(payoutUsdcVault, "confirmed")
+          setBalance(bal.value.uiAmountString ?? '0')
+        } catch {
+          // Fall back to cached route on error
+          void fetchBalance()
+        }
       },
       "confirmed"
     )
 
-    const handleFocus = () => {
-      cacheRef.current = null
-      void fetchBalance(true)
-    }
-
-    window.addEventListener("focus", handleFocus)
-    document.addEventListener("visibilitychange", handleFocus)
-
     return () => {
       connection.removeAccountChangeListener(subscriptionId).catch(() => {})
-      window.removeEventListener("focus", handleFocus)
-      document.removeEventListener("visibilitychange", handleFocus)
     }
   }, [connection, payoutUsdcVault, fetchBalance])
 
-  useEffect(() => {
-    return () => {
-      cacheRef.current = null
-    }
-  }, [])
-
-  const refresh = useCallback(() => fetchBalance(true), [fetchBalance])
-
-  return { balance, loading, error, refresh }
+  return { balance, loading, error, refresh: fetchBalance }
 }

@@ -1,61 +1,36 @@
 "use client"
-import { useEffect, useState, useMemo } from 'react'
-import { useConnection } from '@solana/wallet-adapter-react'
-import { getReadonlyProgram, getPoolPda, PROGRAM_ID } from '@/lib/program'
-import { PublicKey } from '@solana/web3.js'
-
-interface Stringable {
-  toString(): string
-}
-
-interface PoolAccount {
-  masterWallet: PublicKey
-  nav: Stringable
-  totalBrentSupply: Stringable
-}
-
-function derivePrice(navRaw: bigint, supplyRaw: bigint): number {
-  if (supplyRaw === BigInt(0)) return 1
-  return Number(navRaw) / Number(supplyRaw)
-}
+import { useEffect, useState } from 'react'
+import type { PoolDataResponse } from '@/lib/solana-server'
 
 export function useTokenPrice() {
-  const { connection } = useConnection()
   const [price, setPrice] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const program = useMemo(() => getReadonlyProgram(connection), [connection])
-
-  const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), [])
-
   useEffect(() => {
-    const fetchPrice = async () => {
-      if (!program) return
-      
+    let cancelled = false
+
+    async function fetchPrice() {
       setLoading(true)
       setError(null)
       try {
-        const accountApi = program.account as {
-          pool: { fetch: (pubkey: PublicKey) => Promise<PoolAccount> }
-        }
-        const poolAccount = await accountApi.pool.fetch(poolPda)
-        const priceFloat = derivePrice(
-          BigInt(poolAccount.nav.toString()),
-          BigInt(poolAccount.totalBrentSupply.toString())
-        )
-
-        setPrice(priceFloat)
+        const res = await fetch('/api/pool-data')
+        if (!res.ok) throw new Error(`pool-data: ${res.status}`)
+        const data: PoolDataResponse = await res.json()
+        if (!cancelled) setPrice(data.tokenPrice)
       } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Failed to fetch token price')
-        setPrice(null)
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : 'Failed to fetch token price')
+          setPrice(null)
+        }
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
 
     fetchPrice()
-  }, [program, poolPda])
+    return () => { cancelled = true }
+  }, [])
 
   return { price, loading, error }
 }

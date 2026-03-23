@@ -1,27 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useConnection } from "@solana/wallet-adapter-react";
-import {
-  getReadonlyProgram,
-  getPoolPda,
-  getBunkercashMintPda,
-  PROGRAM_ID,
-} from "@/lib/program";
-import { usePayoutVault } from "@/hooks/usePayoutVault";
-
-const BUNKERCASH_DECIMALS = 6;
-const USDC_DECIMALS = 6;
-
-interface Stringable {
-  toString(): string;
-}
-
-interface PoolAccountLike {
-  nav: Stringable;
-  totalBrentSupply: Stringable;
-  totalPendingClaims: Stringable;
-}
+import { useCallback, useEffect, useState } from "react";
+import type { PoolDataResponse } from "@/lib/solana-server";
 
 export interface PoolStats {
   totalSupply: string | null;
@@ -38,95 +18,62 @@ export interface PoolStats {
   navUsdcRaw: number | null;
 }
 
+const emptyStats: PoolStats = {
+  totalSupply: null,
+  circulatingSupply: null,
+  pendingClaimsUsdc: null,
+  treasuryUsdc: null,
+  navUsdc: null,
+  pricePerToken: null,
+  lastRefreshed: null,
+  totalSupplyRaw: null,
+  circulatingSupplyRaw: null,
+  pendingClaimsUsdcRaw: null,
+  treasuryUsdcRaw: null,
+  navUsdcRaw: null,
+};
+
+function fmt(n: number): string {
+  return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
 export function usePoolStats() {
-  const { connection } = useConnection();
-  const [stats, setStats] = useState<PoolStats>({
-    totalSupply: null,
-    circulatingSupply: null,
-    pendingClaimsUsdc: null,
-    treasuryUsdc: null,
-    navUsdc: null,
-    pricePerToken: null,
-    lastRefreshed: null,
-    totalSupplyRaw: null,
-    circulatingSupplyRaw: null,
-    pendingClaimsUsdcRaw: null,
-    treasuryUsdcRaw: null,
-    navUsdcRaw: null,
-  });
+  const [stats, setStats] = useState<PoolStats>(emptyStats);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const program = useMemo(() => getReadonlyProgram(connection), [connection]);
-
-  const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), []);
-  const mintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), []);
-
-  const {
-    balance: vaultBalance,
-    loading: vaultLoading,
-    error: vaultError,
-  } = usePayoutVault();
-
   const fetchStats = useCallback(async () => {
-    if (!program || !connection) return;
-
     setLoading(true);
     setError(null);
     try {
-      const accountApi = program.account as {
-        pool: { fetch: (pubkey: typeof poolPda) => Promise<PoolAccountLike> };
-      };
-      const [mintInfo, poolAccount] = await Promise.all([
-        connection.getTokenSupply(mintPda, "confirmed"),
-        accountApi.pool.fetch(poolPda),
-      ]);
-
-      const totalSupplyRaw = Number(mintInfo.value.amount) / 10 ** BUNKERCASH_DECIMALS;
-      const navUsdcRaw = Number(poolAccount.nav.toString()) / 10 ** USDC_DECIMALS;
-      const pendingClaimsUsdcRaw =
-        Number(poolAccount.totalPendingClaims.toString()) / 10 ** USDC_DECIMALS;
-      const treasuryUsdcRaw = vaultBalance ? parseFloat(vaultBalance.replace(/,/g, "")) : null;
-      const pricePerToken =
-        totalSupplyRaw > 0 ? navUsdcRaw / totalSupplyRaw : 1;
+      const res = await fetch("/api/pool-data");
+      if (!res.ok) throw new Error(`pool-data: ${res.status}`);
+      const data: PoolDataResponse = await res.json();
 
       setStats({
-        totalSupply: totalSupplyRaw.toLocaleString(undefined, {
-          maximumFractionDigits: 2,
-        }),
-        circulatingSupply: totalSupplyRaw.toLocaleString(undefined, {
-          maximumFractionDigits: 2,
-        }),
-        pendingClaimsUsdc: pendingClaimsUsdcRaw.toLocaleString(undefined, {
-          maximumFractionDigits: 2,
-        }),
-        treasuryUsdc: vaultBalance,
-        navUsdc: navUsdcRaw.toLocaleString(undefined, {
-          maximumFractionDigits: 2,
-        }),
-        pricePerToken,
-        lastRefreshed: new Date(),
-        totalSupplyRaw,
-        circulatingSupplyRaw: totalSupplyRaw,
-        pendingClaimsUsdcRaw,
-        treasuryUsdcRaw,
-        navUsdcRaw,
+        totalSupply: fmt(data.totalSupplyRaw),
+        circulatingSupply: fmt(data.totalSupplyRaw),
+        pendingClaimsUsdc: fmt(data.pendingClaimsUsdcRaw),
+        treasuryUsdc: data.treasuryUsdcRaw != null ? fmt(data.treasuryUsdcRaw) : null,
+        navUsdc: fmt(data.navUsdcRaw),
+        pricePerToken: data.pricePerToken,
+        lastRefreshed: new Date(data.ts),
+        totalSupplyRaw: data.totalSupplyRaw,
+        circulatingSupplyRaw: data.totalSupplyRaw,
+        pendingClaimsUsdcRaw: data.pendingClaimsUsdcRaw,
+        treasuryUsdcRaw: data.treasuryUsdcRaw,
+        navUsdcRaw: data.navUsdcRaw,
       });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to fetch pool stats");
     } finally {
       setLoading(false);
     }
-  }, [connection, mintPda, poolPda, program, vaultBalance]);
+  }, []);
 
   useEffect(() => {
     void fetchStats();
   }, [fetchStats]);
 
-  return {
-    stats,
-    loading: loading || vaultLoading,
-    error: error || vaultError,
-    refresh: fetchStats,
-  };
+  return { stats, loading, error, refresh: fetchStats };
 }

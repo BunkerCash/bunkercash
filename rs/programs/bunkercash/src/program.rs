@@ -21,12 +21,16 @@ declare_id!("CGk5t3huzEvgTizUP7iRFnDLZGsZT9EPNm72csfxoM76");
 const POOL_SEED: &[u8] = b"pool";
 const BRENT_MINT_SEED: &[u8] = b"bunkercash_mint";
 const CLAIM_SEED: &[u8] = b"claim";
+const PURCHASE_LIMIT_SEED: &[u8] = b"purchase_limit";
+const SUPPORTED_USDC_CONFIG_SEED: &[u8] = b"supported_usdc_config";
 const TOKEN_DECIMALS: u8 = 6;
-const TOKEN_2022_USDC_MINT: Pubkey = pubkey!("Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx");
 
-fn validate_supported_usdc_mint(usdc_mint: &Pubkey) -> Result<()> {
+fn validate_supported_usdc_mint(
+    supported_usdc_config: &SupportedUsdcConfig,
+    usdc_mint: &Pubkey,
+) -> Result<()> {
     require!(
-        *usdc_mint == TOKEN_2022_USDC_MINT,
+        *usdc_mint == supported_usdc_config.mint,
         ErrorCode::InvalidUsdcMint
     );
     Ok(())
@@ -85,6 +89,27 @@ fn apply_master_repayment(pool: &mut Pool, withdrawal: &mut Withdrawal, amount: 
 
     withdrawal.remaining = withdrawal.remaining.checked_sub(principal_returned).unwrap();
     pool.nav = pool.nav.checked_add(nav_growth).unwrap();
+}
+
+fn validate_purchase_limit(
+    purchase_limit_config: &PurchaseLimitConfig,
+    amount: u64,
+) -> Result<()> {
+    if purchase_limit_config.purchase_limit_usdc == 0 {
+        return Ok(());
+    }
+
+    let new_total = purchase_limit_config
+        .total_deposited_usdc
+        .checked_add(amount)
+        .ok_or(ErrorCode::PurchaseLimitExceeded)?;
+
+    require!(
+        new_total <= purchase_limit_config.purchase_limit_usdc,
+        ErrorCode::PurchaseLimitExceeded
+    );
+
+    Ok(())
 }
 
 fn validate_settlement_pending_claims(
@@ -152,9 +177,8 @@ pub mod bunkercash {
         ctx: Context<Initialize>,
         master_wallet: Pubkey,
     ) -> Result<()> {
-        validate_supported_usdc_mint(&ctx.accounts.usdc_mint.key())?;
-
         let pool = &mut ctx.accounts.pool;
+        let supported_usdc_config = &mut ctx.accounts.supported_usdc_config;
         let timestamp = Clock::get()?.unix_timestamp;
         pool.master_wallet = master_wallet;
         pool.nav = 0;
@@ -165,6 +189,8 @@ pub mod bunkercash {
         pool.bump = ctx.bumps.pool;
 
         let usdc_mint_key = ctx.accounts.usdc_mint.key();
+        supported_usdc_config.mint = usdc_mint_key;
+        supported_usdc_config.bump = ctx.bumps.supported_usdc_config;
 
         emit!(PoolInitializedEvent {
             pool: pool.key(),
@@ -185,11 +211,17 @@ pub mod bunkercash {
         ctx: Context<DepositUsdc>,
         usdc_amount: u64,
     ) -> Result<()> {
-        validate_supported_usdc_mint(&ctx.accounts.usdc_mint.key())?;
+        validate_supported_usdc_mint(
+            &ctx.accounts.supported_usdc_config,
+            &ctx.accounts.usdc_mint.key(),
+        )?;
         validate_non_zero_amount(usdc_amount)?;
 
         let pool = &mut ctx.accounts.pool;
+        let purchase_limit_config = &mut ctx.accounts.purchase_limit_config;
         let user = ctx.accounts.user.key();
+
+        validate_purchase_limit(purchase_limit_config, usdc_amount)?;
 
         let brent_to_mint = if pool.total_brent_supply == 0 {
             usdc_amount
@@ -218,6 +250,10 @@ pub mod bunkercash {
 
         pool.nav = pool.nav.checked_add(usdc_amount).unwrap();
         pool.total_brent_supply = pool.total_brent_supply.checked_add(brent_to_mint).unwrap();
+        purchase_limit_config.total_deposited_usdc = purchase_limit_config
+            .total_deposited_usdc
+            .checked_add(usdc_amount)
+            .unwrap();
 
         let pool_bump = pool.bump;
         let new_nav = pool.nav;
@@ -255,6 +291,53 @@ pub mod bunkercash {
         });
 
         msg!("Deposited {} USDC, minted {} bRENT. New NAV: {}", usdc_amount, brent_to_mint, new_nav);
+        Ok(())
+    }
+
+    pub fn set_supported_usdc_mint(ctx: Context<SetSupportedUsdcMint>) -> Result<()> {
+        let pool = &ctx.accounts.pool;
+        let supported_usdc_config = &mut ctx.accounts.supported_usdc_config;
+
+        require!(
+            ctx.accounts.admin.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+
+        supported_usdc_config.mint = ctx.accounts.usdc_mint.key();
+        supported_usdc_config.bump = ctx.bumps.supported_usdc_config;
+
+        Ok(())
+    }
+
+    pub fn set_purchase_limit(
+        ctx: Context<SetPurchaseLimit>,
+        purchase_limit_usdc: u64,
+    ) -> Result<()> {
+        let pool = &ctx.accounts.pool;
+        let purchase_limit_config = &mut ctx.accounts.purchase_limit_config;
+
+        require!(
+            ctx.accounts.admin.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+
+        purchase_limit_config.purchase_limit_usdc = purchase_limit_usdc;
+        purchase_limit_config.bump = ctx.bumps.purchase_limit_config;
+
+        Ok(())
+    }
+
+    pub fn reset_purchase_counter(ctx: Context<SetPurchaseLimit>) -> Result<()> {
+        let pool = &ctx.accounts.pool;
+        let purchase_limit_config = &mut ctx.accounts.purchase_limit_config;
+
+        require!(
+            ctx.accounts.admin.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+
+        purchase_limit_config.total_deposited_usdc = 0;
+
         Ok(())
     }
 
@@ -384,7 +467,10 @@ pub mod bunkercash {
         ctx: Context<'a, 'b, 'c, 'info, SettleClaims<'info>>,
         _claim_indices: Vec<u8>,
     ) -> Result<()> {
-        validate_supported_usdc_mint(&ctx.accounts.usdc_mint.key())?;
+        validate_supported_usdc_mint(
+            &ctx.accounts.supported_usdc_config,
+            &ctx.accounts.usdc_mint.key(),
+        )?;
 
         let pool = &mut ctx.accounts.pool;
         let master_wallet = ctx.accounts.master_wallet.key();
@@ -543,7 +629,10 @@ pub mod bunkercash {
         amount: u64,
         metadata_hash: [u8; 32],
     ) -> Result<()> {
-        validate_supported_usdc_mint(&ctx.accounts.usdc_mint.key())?;
+        validate_supported_usdc_mint(
+            &ctx.accounts.supported_usdc_config,
+            &ctx.accounts.usdc_mint.key(),
+        )?;
         validate_non_zero_amount(amount)?;
 
         let pool = &mut ctx.accounts.pool;
@@ -603,7 +692,10 @@ pub mod bunkercash {
         ctx: Context<MasterRepay>,
         amount: u64,
     ) -> Result<()> {
-        validate_supported_usdc_mint(&ctx.accounts.usdc_mint.key())?;
+        validate_supported_usdc_mint(
+            &ctx.accounts.supported_usdc_config,
+            &ctx.accounts.usdc_mint.key(),
+        )?;
         validate_non_zero_amount(amount)?;
 
         let pool = &mut ctx.accounts.pool;
@@ -648,7 +740,10 @@ pub mod bunkercash {
         ctx: Context<MasterRepay>,
         amount: u64,
     ) -> Result<()> {
-        validate_supported_usdc_mint(&ctx.accounts.usdc_mint.key())?;
+        validate_supported_usdc_mint(
+            &ctx.accounts.supported_usdc_config,
+            &ctx.accounts.usdc_mint.key(),
+        )?;
         validate_non_zero_amount(amount)?;
 
         let pool = &mut ctx.accounts.pool;
@@ -658,9 +753,6 @@ pub mod bunkercash {
             ctx.accounts.master_wallet.key() == pool.master_wallet,
             ErrorCode::Unauthorized
         );
-
-        // Cancellation returns outstanding principal without affecting NAV.
-        require!(withdrawal.remaining >= amount, ErrorCode::RepaymentExceedsWithdrawal);
 
         anchor_spl::token_2022::transfer_checked(
             CpiContext::new(
@@ -676,7 +768,9 @@ pub mod bunkercash {
             ctx.accounts.usdc_mint.decimals,
         )?;
 
-        withdrawal.remaining = withdrawal.remaining.checked_sub(amount).unwrap();
+        // Cancellation can return more than the outstanding balance. Only the
+        // excess above principal counts as NAV growth.
+        apply_master_repayment(pool, withdrawal, amount);
 
         emit!(MasterCancelWithdrawalEvent {
             withdrawal_id: withdrawal.id,
@@ -819,6 +913,15 @@ pub struct Initialize<'info> {
     )]
     pub pool_usdc: InterfaceAccount<'info, TokenAccount>,
 
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + SupportedUsdcConfig::INIT_SPACE,
+        seeds = [SUPPORTED_USDC_CONFIG_SEED],
+        bump
+    )]
+    pub supported_usdc_config: Account<'info, SupportedUsdcConfig>,
+
     #[account(mut)]
     pub payer: Signer<'info>,
 
@@ -873,6 +976,19 @@ pub struct DepositUsdc<'info> {
     pub brent_mint: InterfaceAccount<'info, Mint>,
 
     #[account(
+        seeds = [SUPPORTED_USDC_CONFIG_SEED],
+        bump = supported_usdc_config.bump
+    )]
+    pub supported_usdc_config: Account<'info, SupportedUsdcConfig>,
+
+    #[account(
+        mut,
+        seeds = [PURCHASE_LIMIT_SEED],
+        bump = purchase_limit_config.bump
+    )]
+    pub purchase_limit_config: Account<'info, PurchaseLimitConfig>,
+
+    #[account(
         mint::decimals = TOKEN_DECIMALS,
         mint::token_program = token_program
     )]
@@ -880,6 +996,59 @@ pub struct DepositUsdc<'info> {
 
     #[account(mut)]
     pub user: Signer<'info>,
+
+    pub token_program: Program<'info, Token2022>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct SetPurchaseLimit<'info> {
+    #[account(
+        seeds = [POOL_SEED],
+        bump = pool.bump
+    )]
+    pub pool: Account<'info, Pool>,
+
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = 8 + PurchaseLimitConfig::INIT_SPACE,
+        seeds = [PURCHASE_LIMIT_SEED],
+        bump
+    )]
+    pub purchase_limit_config: Account<'info, PurchaseLimitConfig>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct SetSupportedUsdcMint<'info> {
+    #[account(
+        seeds = [POOL_SEED],
+        bump = pool.bump
+    )]
+    pub pool: Account<'info, Pool>,
+
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = 8 + SupportedUsdcConfig::INIT_SPACE,
+        seeds = [SUPPORTED_USDC_CONFIG_SEED],
+        bump
+    )]
+    pub supported_usdc_config: Account<'info, SupportedUsdcConfig>,
+
+    #[account(
+        mint::decimals = TOKEN_DECIMALS,
+        mint::token_program = token_program
+    )]
+    pub usdc_mint: InterfaceAccount<'info, Mint>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
 
     pub token_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
@@ -971,6 +1140,12 @@ pub struct SettleClaims<'info> {
     pub pool_usdc: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
+        seeds = [SUPPORTED_USDC_CONFIG_SEED],
+        bump = supported_usdc_config.bump
+    )]
+    pub supported_usdc_config: Account<'info, SupportedUsdcConfig>,
+
+    #[account(
         mint::decimals = TOKEN_DECIMALS,
         mint::token_program = token_program
     )]
@@ -1017,6 +1192,12 @@ pub struct MasterWithdraw<'info> {
     pub master_usdc: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
+        seeds = [SUPPORTED_USDC_CONFIG_SEED],
+        bump = supported_usdc_config.bump
+    )]
+    pub supported_usdc_config: Account<'info, SupportedUsdcConfig>,
+
+    #[account(
         mint::decimals = TOKEN_DECIMALS,
         mint::token_program = token_program
     )]
@@ -1061,6 +1242,12 @@ pub struct MasterRepay<'info> {
         address = canonical_pool_usdc_vault(pool.key(), usdc_mint.key(), token_program.key()) @ ErrorCode::InvalidPoolUsdcVault
     )]
     pub pool_usdc: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
+        seeds = [SUPPORTED_USDC_CONFIG_SEED],
+        bump = supported_usdc_config.bump
+    )]
+    pub supported_usdc_config: Account<'info, SupportedUsdcConfig>,
 
     #[account(
         mint::decimals = TOKEN_DECIMALS,
@@ -1164,6 +1351,27 @@ pub struct Withdrawal {
     pub remaining: u64,
     pub metadata_hash: [u8; 32],
     pub timestamp: i64,
+    pub bump: u8,
+}
+
+/// Global deposit cap configuration.
+///
+/// **`total_deposited_usdc` is monotonic** — it tracks cumulative lifetime
+/// inflow and is never decremented on redemption.  This makes the limit a
+/// lifetime fundraising cap, not a current-pool-size cap.  To re-open
+/// deposits after redemptions, the admin must raise `purchase_limit_usdc`.
+#[account]
+#[derive(InitSpace)]
+pub struct PurchaseLimitConfig {
+    pub purchase_limit_usdc: u64,
+    pub total_deposited_usdc: u64,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct SupportedUsdcConfig {
+    pub mint: Pubkey,
     pub bump: u8,
 }
 
@@ -1311,6 +1519,8 @@ pub enum ErrorCode {
     MintAlreadyInitialized,
     #[msg("Claim amount must burn a non-zero amount of bRENT for a non-zero USDC value")]
     ClaimAmountTooSmall,
+    #[msg("Global purchase limit exceeded")]
+    PurchaseLimitExceeded,
     #[msg("Amount must be greater than zero")]
     InvalidAmount,
 }
@@ -1319,7 +1529,8 @@ pub enum ErrorCode {
 mod tests {
     use super::{
         apply_master_repayment, calculate_claim_usdc_value, record_master_withdrawal,
-        validate_settlement_pending_claims, ErrorCode, Pool, Withdrawal,
+        validate_purchase_limit, validate_settlement_pending_claims, ErrorCode, Pool,
+        PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal, validate_supported_usdc_mint,
     };
     use anchor_lang::prelude::Pubkey;
 
@@ -1425,6 +1636,102 @@ mod tests {
 
         assert_eq!(pool.nav, original_nav);
         assert_eq!(withdrawal.remaining, 0);
+    }
+
+    #[test]
+    fn cancellation_of_outstanding_principal_does_not_change_nav() {
+        let mut pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 7_500_000,
+            total_brent_supply: 7_500_000,
+            total_pending_claims: 0,
+            claim_counter: 0,
+            withdrawal_counter: 1,
+            bump: 255,
+        };
+        let original_nav = pool.nav;
+        let mut withdrawal = Withdrawal {
+            id: 0,
+            amount: 1_250_000,
+            remaining: 1_250_000,
+            metadata_hash: [0; 32],
+            timestamp: 0,
+            bump: 0,
+        };
+
+        apply_master_repayment(&mut pool, &mut withdrawal, 1_250_000);
+
+        assert_eq!(pool.nav, original_nav);
+        assert_eq!(withdrawal.remaining, 0);
+    }
+
+    #[test]
+    fn cancellation_only_adds_profit_to_nav() {
+        let mut pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 7_500_000,
+            total_brent_supply: 7_500_000,
+            total_pending_claims: 0,
+            claim_counter: 0,
+            withdrawal_counter: 1,
+            bump: 255,
+        };
+        let mut withdrawal = Withdrawal {
+            id: 0,
+            amount: 1_250_000,
+            remaining: 1_250_000,
+            metadata_hash: [0; 32],
+            timestamp: 0,
+            bump: 0,
+        };
+
+        apply_master_repayment(&mut pool, &mut withdrawal, 1_400_000);
+
+        assert_eq!(pool.nav, 7_650_000);
+        assert_eq!(withdrawal.remaining, 0);
+    }
+
+    #[test]
+    fn zero_purchase_limit_means_unlimited() {
+        let purchase_limit_config = PurchaseLimitConfig {
+            purchase_limit_usdc: 0,
+            total_deposited_usdc: 50_000_000,
+            bump: 255,
+        };
+
+        assert!(validate_purchase_limit(&purchase_limit_config, 75_000_000).is_ok());
+    }
+
+    #[test]
+    fn purchase_limit_rejects_deposits_above_cap() {
+        let purchase_limit_config = PurchaseLimitConfig {
+            purchase_limit_usdc: 100_000_000,
+            total_deposited_usdc: 80_000_000,
+            bump: 255,
+        };
+
+        let err = validate_purchase_limit(&purchase_limit_config, 25_000_000).unwrap_err();
+        assert_eq!(err, ErrorCode::PurchaseLimitExceeded.into());
+    }
+
+    #[test]
+    fn supported_usdc_validation_accepts_configured_mint() {
+        let mint = Pubkey::new_unique();
+        let supported_usdc_config = SupportedUsdcConfig { mint, bump: 255 };
+
+        assert!(validate_supported_usdc_mint(&supported_usdc_config, &mint).is_ok());
+    }
+
+    #[test]
+    fn supported_usdc_validation_rejects_other_mints() {
+        let supported_usdc_config = SupportedUsdcConfig {
+            mint: Pubkey::new_unique(),
+            bump: 255,
+        };
+
+        let err = validate_supported_usdc_mint(&supported_usdc_config, &Pubkey::new_unique())
+            .unwrap_err();
+        assert_eq!(err, ErrorCode::InvalidUsdcMint.into());
     }
 
     #[test]

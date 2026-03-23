@@ -1,0 +1,310 @@
+/**
+ * Server-side Solana helpers for the admin app.
+ * Results are cached in Cloudflare KV via `cachedFetch`.
+ */
+import { Connection, PublicKey } from "@solana/web3.js";
+import { clusterApiUrl } from "@solana/web3.js";
+import {
+  getAssociatedTokenAddressSync,
+  TOKEN_2022_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
+import {
+  getReadonlyProgram,
+  getPoolPda,
+  getBunkercashMintPda,
+  getPoolSignerPda,
+  PROGRAM_ID,
+} from "@/lib/program";
+import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
+import { fetchDecodedClaimAccounts } from "@/lib/claim-accounts";
+import type { DecodedClaimAccount } from "@/lib/claim-accounts";
+
+// ── Types ──────────────────────────────────────────────
+
+interface Stringable {
+  toString(): string;
+}
+
+interface PoolAccountLike {
+  masterWallet: PublicKey;
+  nav: Stringable;
+  totalBrentSupply: Stringable;
+  totalPendingClaims: Stringable;
+}
+
+export interface PoolDataResponse {
+  tokenPrice: number;
+  totalSupplyRaw: number;
+  navUsdcRaw: number;
+  pendingClaimsUsdcRaw: number;
+  treasuryUsdcRaw: number | null;
+  pricePerToken: number;
+  adminWallet: string;
+  ts: number;
+}
+
+export interface SerializedClaim {
+  pubkey: string;
+  id: string;
+  user: string;
+  requestedUsdc: string;
+  paidUsdc: string;
+  remainingUsdc: string;
+  processed: boolean;
+  createdAt: string;
+}
+
+export interface ClaimsResponse {
+  open: SerializedClaim[];
+  closed: SerializedClaim[];
+  totalRequestedUsdc: string;
+  openCount: number;
+  ts: number;
+}
+
+export interface SerializedEvent {
+  id: string;
+  type: string;
+  time: number;
+  wallet: string;
+  amount: number | null;
+  currency: "BNKR" | "USDC" | null;
+  txHash: string;
+}
+
+export interface EventsResponse {
+  events: SerializedEvent[];
+  ts: number;
+}
+
+// ── Helpers ────────────────────────────────────────────
+
+const BUNKERCASH_DECIMALS = 6;
+const USDC_DECIMALS = 6;
+
+function getConnection(): Connection {
+  const endpoint =
+    process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
+    process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
+    clusterApiUrl("devnet");
+  return new Connection(endpoint, "confirmed");
+}
+
+function serializeClaim(claim: DecodedClaimAccount): SerializedClaim {
+  return {
+    pubkey: claim.pubkey.toBase58(),
+    id: claim.id,
+    user: claim.user.toBase58(),
+    requestedUsdc: claim.requestedUsdc,
+    paidUsdc: claim.paidUsdc,
+    remainingUsdc: claim.remainingUsdc,
+    processed: claim.processed,
+    createdAt: claim.createdAt,
+  };
+}
+
+// ── Fetchers ───────────────────────────────────────────
+
+export async function fetchPoolData(): Promise<PoolDataResponse> {
+  const connection = getConnection();
+  const program = getReadonlyProgram(connection);
+  const poolPda = getPoolPda(PROGRAM_ID);
+  const mintPda = getBunkercashMintPda(PROGRAM_ID);
+
+  const accountApi = program.account as {
+    pool: { fetch: (pubkey: PublicKey) => Promise<PoolAccountLike> };
+  };
+
+  const [mintInfo, poolAccount] = await Promise.all([
+    connection.getTokenSupply(mintPda, "confirmed"),
+    accountApi.pool.fetch(poolPda),
+  ]);
+
+  const totalSupplyRaw =
+    Number(mintInfo.value.amount) / 10 ** BUNKERCASH_DECIMALS;
+  const navUsdcRaw =
+    Number(poolAccount.nav.toString()) / 10 ** USDC_DECIMALS;
+  const pendingClaimsUsdcRaw =
+    Number(poolAccount.totalPendingClaims.toString()) / 10 ** USDC_DECIMALS;
+  const tokenPrice = totalSupplyRaw > 0 ? navUsdcRaw / totalSupplyRaw : 1;
+  const adminWallet = poolAccount.masterWallet.toBase58();
+
+  let treasuryUsdcRaw: number | null = null;
+  try {
+    const poolSignerPda = getPoolSignerPda(poolPda, PROGRAM_ID);
+    const endpoint = (connection as { rpcEndpoint?: string }).rpcEndpoint ?? "";
+    const cluster = getClusterFromEndpoint(endpoint);
+    const usdcMint = getUsdcMintForCluster(cluster);
+
+    if (usdcMint) {
+      const payoutVault = getAssociatedTokenAddressSync(
+        usdcMint,
+        poolSignerPda,
+        true,
+        TOKEN_2022_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+      );
+      const bal = await connection.getTokenAccountBalance(payoutVault);
+      treasuryUsdcRaw = bal.value.uiAmount ?? 0;
+    }
+  } catch {
+    treasuryUsdcRaw = 0;
+  }
+
+  return {
+    tokenPrice,
+    totalSupplyRaw,
+    navUsdcRaw,
+    pendingClaimsUsdcRaw,
+    treasuryUsdcRaw,
+    pricePerToken: tokenPrice,
+    adminWallet,
+    ts: Date.now(),
+  };
+}
+
+export async function fetchAllClaims(): Promise<ClaimsResponse> {
+  const connection = getConnection();
+  const allClaims = await fetchDecodedClaimAccounts(connection);
+
+  const open: SerializedClaim[] = [];
+  const closed: SerializedClaim[] = [];
+  let totalRequested = BigInt(0);
+
+  for (const claim of allClaims) {
+    const serialized = serializeClaim(claim);
+    if (claim.processed) {
+      closed.push(serialized);
+    } else {
+      open.push(serialized);
+      totalRequested += BigInt(claim.remainingUsdc);
+    }
+  }
+
+  return {
+    open,
+    closed,
+    totalRequestedUsdc: totalRequested.toString(),
+    openCount: open.filter((c) => BigInt(c.remainingUsdc) > BigInt(0)).length,
+    ts: Date.now(),
+  };
+}
+
+// ── Events fetcher ─────────────────────────────────────
+
+const DISC_MAP: Record<string, { type: string; currency: "BNKR" | "USDC" | null; amountSource: string }> = {
+  "184,148,250,169,224,213,34,126": { type: "Buy", currency: "USDC", amountSource: "ix_arg" },
+  "187,254,40,13,146,223,230,97": { type: "File Claim", currency: "BNKR", amountSource: "ix_arg" },
+  "58,91,9,15,201,59,179,94": { type: "Settlement", currency: "USDC", amountSource: "claims_settled_event" },
+  "251,226,132,202,30,7,50,85": { type: "Master Withdraw", currency: "USDC", amountSource: "ix_arg" },
+  "196,123,175,178,81,52,168,164": { type: "Master Repay", currency: "USDC", amountSource: "ix_arg" },
+  "254,236,97,119,73,158,24,170": { type: "Master Cancel", currency: "USDC", amountSource: "ix_arg" },
+};
+
+const CLAIMS_SETTLED_EVENT_DISC = [88, 125, 52, 74, 137, 168, 85, 245];
+const CLAIMS_SETTLED_TOTAL_PAID_OFFSET = 8 + 32 + 32 + 8 + 8 + 8; // 96
+const BNKR_DECIMALS = 6;
+
+function decodeU64LE(bytes: Uint8Array, offset: number): bigint {
+  let value = BigInt(0);
+  for (let i = 0; i < 8 && offset + i < bytes.length; i++) {
+    value += BigInt(bytes[offset + i]!) << BigInt(8 * i);
+  }
+  return value;
+}
+
+function parseBase64Log(log: string): Uint8Array | null {
+  if (!log.startsWith("Program data: ")) return null;
+  try {
+    const b64 = log.slice("Program data: ".length);
+    return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  } catch {
+    return null;
+  }
+}
+
+function parseClaimsSettledAmount(logMessages: string[] | null | undefined): number | null {
+  if (!logMessages) return null;
+  for (const log of logMessages) {
+    const bytes = parseBase64Log(log);
+    if (!bytes || bytes.length < CLAIMS_SETTLED_TOTAL_PAID_OFFSET + 8) continue;
+    const discMatch = CLAIMS_SETTLED_EVENT_DISC.every((b, i) => bytes[i] === b);
+    if (!discMatch) continue;
+    const raw = decodeU64LE(bytes, CLAIMS_SETTLED_TOTAL_PAID_OFFSET);
+    return Number(raw) / 10 ** USDC_DECIMALS;
+  }
+  return null;
+}
+
+export async function fetchRecentEvents(limit = 20): Promise<EventsResponse> {
+  const connection = getConnection();
+  const programIdStr = PROGRAM_ID.toBase58();
+
+  const sigs = await connection.getSignaturesForAddress(PROGRAM_ID, { limit });
+  if (sigs.length === 0) {
+    return { events: [], ts: Date.now() };
+  }
+
+  // Batch fetch in groups of 5 to avoid 429s
+  const events: SerializedEvent[] = [];
+  const BATCH = 5;
+
+  for (let start = 0; start < sigs.length; start += BATCH) {
+    const batch = sigs.slice(start, start + BATCH);
+
+    let txs: (import("@solana/web3.js").VersionedTransactionResponse | null)[];
+    try {
+      txs = await connection.getTransactions(
+        batch.map((s) => s.signature),
+        { commitment: "confirmed", maxSupportedTransactionVersion: 0 },
+      );
+    } catch {
+      continue;
+    }
+
+    for (let i = 0; i < batch.length; i++) {
+      const sig = batch[i]!;
+      const tx = txs[i];
+      if (!tx) continue;
+
+      const timestamp = sig.blockTime ? sig.blockTime * 1000 : Date.now();
+      const msg = tx.transaction.message;
+      const accountKeys = msg.staticAccountKeys;
+      const instructions = msg.compiledInstructions;
+      const defaultWallet = accountKeys[0]?.toBase58() ?? "unknown";
+
+      for (const ix of instructions) {
+        const ixProgramId = accountKeys[ix.programIdIndex]?.toBase58();
+        if (ixProgramId !== programIdStr) continue;
+        const data = ix.data;
+        if (data.length < 8) continue;
+
+        const discKey = Array.from(data.slice(0, 8)).join(",");
+        const info = DISC_MAP[discKey];
+        if (!info) continue;
+
+        let amount: number | null = null;
+        if (info.amountSource === "ix_arg" && data.length >= 16) {
+          const raw = decodeU64LE(data, 8);
+          const decimals = info.currency === "BNKR" ? BNKR_DECIMALS : USDC_DECIMALS;
+          amount = Number(raw) / 10 ** decimals;
+        } else if (info.amountSource === "claims_settled_event") {
+          amount = parseClaimsSettledAmount(tx.meta?.logMessages);
+        }
+
+        events.push({
+          id: `${sig.signature}-${events.length}`,
+          type: info.type,
+          time: timestamp,
+          wallet: defaultWallet,
+          amount,
+          currency: info.currency,
+          txHash: sig.signature,
+        });
+      }
+    }
+  }
+
+  return { events, ts: Date.now() };
+}
