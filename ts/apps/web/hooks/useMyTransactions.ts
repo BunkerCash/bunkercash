@@ -50,15 +50,8 @@ export function useMyTransactions() {
 
       txCache = { key: wallet.publicKey!.toBase58(), data: parsed };
       setTransactions(parsed);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e ?? "");
-      if (msg.includes("429") || msg.includes("Too many requests")) {
-        setError(
-          "Rate limited by Solana RPC. Please wait a moment and click Refresh.",
-        );
-      } else {
-        setError("Failed to fetch transactions. Please try again.");
-      }
+    } catch {
+      setError("Failed to fetch transactions. Please try again.");
     } finally {
       setLoading(false);
     }

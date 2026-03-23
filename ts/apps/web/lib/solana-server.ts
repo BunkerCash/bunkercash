@@ -363,25 +363,3 @@ export async function fetchTokenBalance(wallet: string): Promise<BalanceResponse
   }
 }
 
-// ── Pool admin fetcher (for isAdmin check) ─────────────
-
-export interface PoolAdminResponse {
-  adminWallet: string;
-  ts: number;
-}
-
-export async function fetchPoolAdmin(): Promise<PoolAdminResponse> {
-  const connection = getConnection();
-  const program = getReadonlyProgram(connection);
-  const poolPda = getPoolPda(PROGRAM_ID);
-
-  const accountApi = program.account as {
-    pool: { fetch: (pubkey: PublicKey) => Promise<PoolAccountLike> };
-  };
-
-  const poolAccount = await accountApi.pool.fetch(poolPda);
-  return {
-    adminWallet: poolAccount.masterWallet.toBase58(),
-    ts: Date.now(),
-  };
-}

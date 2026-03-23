@@ -9,17 +9,24 @@ const CACHE_KEY = "cache:admin_pool_data";
 const TTL_SECONDS = 30;
 
 export async function GET() {
+  const start = performance.now();
   try {
-    const { data } = await cachedFetch<PoolDataResponse>(
+    const { data, cacheHit, staleFallback } = await cachedFetch<PoolDataResponse>(
       BINDING,
       CACHE_KEY,
       TTL_SECONDS,
       fetchPoolData,
     );
 
+    const elapsed = performance.now() - start;
+    const cacheStatus = staleFallback ? "STALE" : cacheHit ? "HIT" : "MISS";
+
     return NextResponse.json(data, {
       headers: {
         "Cache-Control": `public, s-maxage=${TTL_SECONDS}, stale-while-revalidate=${TTL_SECONDS * 2}`,
+        "X-Cache": cacheStatus,
+        "X-Response-Time": `${elapsed.toFixed(1)}ms`,
+        "Server-Timing": `total;dur=${elapsed.toFixed(1)};desc="${cacheStatus === "MISS" ? "rpc-fetch" : `kv-${cacheStatus.toLowerCase()}`}"`,
       },
     });
   } catch (e: unknown) {
