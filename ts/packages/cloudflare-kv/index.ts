@@ -89,6 +89,13 @@ export async function cachedFetch<T>(
   const flightKey = `${binding}:${key}`;
   const existing = inflight.get(flightKey);
   if (existing) {
+    // If the in-flight request fails but we have stale data locally,
+    // serve it instead of propagating the error.
+    if (staleData !== null) {
+      return (existing as Promise<CachedFetchResult<T>>).catch(
+        () => ({ data: staleData!, cacheHit: true, staleFallback: true }),
+      );
+    }
     return existing as Promise<CachedFetchResult<T>>;
   }
 
