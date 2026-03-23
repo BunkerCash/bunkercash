@@ -26,14 +26,23 @@ function normalizeCountries(countries: string[]): string[] {
 }
 
 export async function getBlockedCountries(): Promise<string[]> {
-  const countries = await kvGet<string[]>(BINDING, KEY);
-  return countries ?? [];
+  const countries = await kvGet<unknown>(BINDING, KEY);
+  if (!countries) return [];
+  // Runtime validation — reject malformed KV data rather than trusting the cast
+  if (
+    !Array.isArray(countries) ||
+    countries.some((item) => typeof item !== "string")
+  ) {
+    return [];
+  }
+  return countries as string[];
 }
 
 export async function setBlockedCountries(
   countries: string[],
 ): Promise<string[]> {
   const normalized = normalizeCountries(countries);
+  parseBlockedCountries(normalized);
   await kvPut(BINDING, KEY, normalized);
   return normalized;
 }
