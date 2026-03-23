@@ -40,7 +40,8 @@ export function usePayoutVault() {
       const res = await fetch("/api/pool-data")
       if (!res.ok) throw new Error(`pool-data: ${res.status}`)
       const data: PoolDataResponse = await res.json()
-      setBalance(data.treasuryUsdcRaw?.toString() ?? '0')
+      const raw = data.treasuryUsdcRaw ?? 0
+      setBalance(raw.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to fetch balance')
       setBalance(null)
