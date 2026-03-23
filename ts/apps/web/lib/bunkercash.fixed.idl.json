@@ -1828,6 +1828,11 @@
       "code": 6013,
       "name": "InvalidAmount",
       "msg": "Amount must be greater than zero"
+    },
+    {
+      "code": 6014,
+      "name": "WithdrawalAlreadyClosed",
+      "msg": "Withdrawal is already closed"
     }
   ],
   "types": [

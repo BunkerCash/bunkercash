@@ -95,8 +95,15 @@ fn apply_master_profit(pool: &mut Pool, amount: u64) {
     pool.nav = pool.nav.checked_add(amount).unwrap();
 }
 
+fn validate_open_withdrawal(withdrawal: &Withdrawal) -> Result<()> {
+    require!(
+        withdrawal.remaining > 0,
+        ErrorCode::WithdrawalAlreadyClosed
+    );
+    Ok(())
+}
+
 fn apply_master_cancellation(
-    pool: &mut Pool,
     withdrawal: &mut Withdrawal,
     amount: u64,
 ) -> Result<()> {
@@ -105,7 +112,6 @@ fn apply_master_cancellation(
         ErrorCode::RepaymentExceedsWithdrawal
     );
     withdrawal.remaining = withdrawal.remaining.checked_sub(amount).unwrap();
-    pool.nav = pool.nav.checked_sub(amount).ok_or(ErrorCode::InvalidNAV)?;
     Ok(())
 }
 
@@ -776,6 +782,7 @@ pub mod bunkercash {
             ctx.accounts.master_wallet.key() == pool.master_wallet,
             ErrorCode::Unauthorized
         );
+        validate_open_withdrawal(withdrawal)?;
 
         anchor_spl::token_2022::transfer_checked(
             CpiContext::new(
@@ -839,7 +846,7 @@ pub mod bunkercash {
             ctx.accounts.usdc_mint.decimals,
         )?;
 
-        apply_master_cancellation(pool, withdrawal, amount)?;
+        apply_master_cancellation(withdrawal, amount)?;
 
         emit!(MasterCancelWithdrawalEvent {
             withdrawal_id: withdrawal.id,
@@ -1657,6 +1664,8 @@ pub enum ErrorCode {
     PurchaseLimitExceeded,
     #[msg("Amount must be greater than zero")]
     InvalidAmount,
+    #[msg("Withdrawal is already closed")]
+    WithdrawalAlreadyClosed,
 }
 
 #[cfg(test)]
@@ -1664,8 +1673,9 @@ mod tests {
     use super::{
         apply_master_cancellation, apply_master_close_withdrawal, apply_master_profit,
         apply_master_repayment, calculate_claim_usdc_value, record_master_withdrawal,
-        validate_purchase_limit, validate_settlement_pending_claims, ErrorCode, Pool,
-        PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal, validate_supported_usdc_mint,
+        validate_open_withdrawal, validate_purchase_limit, validate_settlement_pending_claims,
+        ErrorCode, Pool, PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal,
+        validate_supported_usdc_mint,
     };
     use anchor_lang::prelude::Pubkey;
 
@@ -1800,8 +1810,8 @@ mod tests {
     }
 
     #[test]
-    fn cancellation_reduces_nav_by_cancelled_amount() {
-        let mut pool = Pool {
+    fn cancellation_reduces_remaining_without_changing_nav() {
+        let pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 7_500_000,
             total_brent_supply: 7_500_000,
@@ -1819,15 +1829,15 @@ mod tests {
             bump: 0,
         };
 
-        apply_master_cancellation(&mut pool, &mut withdrawal, 1_250_000).unwrap();
+        apply_master_cancellation(&mut withdrawal, 1_250_000).unwrap();
 
-        assert_eq!(pool.nav, 6_250_000);
+        assert_eq!(pool.nav, 7_500_000);
         assert_eq!(withdrawal.remaining, 0);
     }
 
     #[test]
     fn cancellation_rejects_amounts_above_remaining() {
-        let mut pool = Pool {
+        let pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 7_500_000,
             total_brent_supply: 7_500_000,
@@ -1845,11 +1855,27 @@ mod tests {
             bump: 0,
         };
 
-        let err = apply_master_cancellation(&mut pool, &mut withdrawal, 1_400_000).unwrap_err();
+        let err = apply_master_cancellation(&mut withdrawal, 1_400_000).unwrap_err();
 
         assert_eq!(err, ErrorCode::RepaymentExceedsWithdrawal.into());
         assert_eq!(pool.nav, 7_500_000);
         assert_eq!(withdrawal.remaining, 1_250_000);
+    }
+
+    #[test]
+    fn validate_open_withdrawal_rejects_closed_withdrawals() {
+        let withdrawal = Withdrawal {
+            id: 0,
+            amount: 1_250_000,
+            remaining: 0,
+            metadata_hash: [0; 32],
+            timestamp: 0,
+            bump: 0,
+        };
+
+        let err = validate_open_withdrawal(&withdrawal).unwrap_err();
+
+        assert_eq!(err, ErrorCode::WithdrawalAlreadyClosed.into());
     }
 
     #[test]
