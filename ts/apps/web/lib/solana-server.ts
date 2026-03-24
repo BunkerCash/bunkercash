@@ -18,9 +18,9 @@ import {
   getPoolPda,
   getBunkercashMintPda,
   getPoolSignerPda,
+  fetchConfiguredUsdcMint,
   PROGRAM_ID,
 } from "@/lib/program";
-import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
 import { fetchDecodedClaimAccounts } from "@/lib/claim-accounts";
 import type { DecodedClaimAccount } from "@/lib/claim-accounts";
 
@@ -124,9 +124,7 @@ export async function fetchPoolData(): Promise<PoolDataResponse> {
   let treasuryUsdcRaw: number | null = null;
   try {
     const poolSignerPda = getPoolSignerPda(poolPda, PROGRAM_ID);
-    const endpoint = (connection as { rpcEndpoint?: string }).rpcEndpoint ?? "";
-    const cluster = getClusterFromEndpoint(endpoint);
-    const usdcMint = getUsdcMintForCluster(cluster);
+    const usdcMint = await fetchConfiguredUsdcMint(connection);
 
     if (usdcMint) {
       const payoutVault = getAssociatedTokenAddressSync(
@@ -362,4 +360,3 @@ export async function fetchTokenBalance(wallet: string): Promise<BalanceResponse
     return { balance: "0", ts: Date.now() };
   }
 }
-

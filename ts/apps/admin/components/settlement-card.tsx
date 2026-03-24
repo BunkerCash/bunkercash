@@ -280,9 +280,11 @@ export function SettlementCard() {
           const remainingAccounts: AccountMetaLike[] = [];
 
           for (const item of batch) {
+            const claimUser = new PublicKey(item.claim.user);
+            const claimPubkey = new PublicKey(item.claim.pubkey);
             const userUsdcAta = getAssociatedTokenAddressSync(
               usdcMint,
-              item.claim.user,
+              claimUser,
               false,
               TOKEN_2022_PROGRAM_ID,
               ASSOCIATED_TOKEN_PROGRAM_ID
@@ -292,7 +294,7 @@ export function SettlementCard() {
               createAssociatedTokenAccountIdempotentInstruction(
                 publicKey,
                 userUsdcAta,
-                item.claim.user,
+                claimUser,
                 usdcMint,
                 TOKEN_2022_PROGRAM_ID,
                 ASSOCIATED_TOKEN_PROGRAM_ID
@@ -300,7 +302,7 @@ export function SettlementCard() {
             );
 
             remainingAccounts.push(
-              { pubkey: item.claim.pubkey, isSigner: false, isWritable: true },
+              { pubkey: claimPubkey, isSigner: false, isWritable: true },
               { pubkey: userUsdcAta, isSigner: false, isWritable: true }
             );
           }
@@ -561,7 +563,7 @@ export function SettlementCard() {
                 </tr>
               ) : (
                 claims.map((claim) => {
-                  const plannedItem = settlementPlan.find((item) => item.claim.pubkey.equals(claim.pubkey));
+                  const plannedItem = settlementPlan.find((item) => item.claim.pubkey === claim.pubkey);
                   const plannedPayout = plannedItem?.payout ?? BigInt(0);
 
                   return (
