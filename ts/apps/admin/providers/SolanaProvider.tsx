@@ -14,7 +14,10 @@ import "@solana/wallet-adapter-react-ui/styles.css";
 
 export const SolanaProvider: FC<{ children: ReactNode }> = ({ children }) => {
   const endpoint = useMemo(
-    () => process.env.NEXT_PUBLIC_RPC_ENDPOINT || clusterApiUrl("devnet"),
+    () =>
+      process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
+      process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
+      clusterApiUrl("devnet"),
     []
   );
   const wallets = useMemo(() => [new PhantomWalletAdapter()], []);

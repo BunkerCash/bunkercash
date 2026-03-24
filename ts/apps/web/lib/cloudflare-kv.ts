@@ -1,34 +1,17 @@
-const ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID!;
-const NAMESPACE_ID = process.env.CLOUDFLARE_KV_NAMESPACE_ID!;
-const API_TOKEN = process.env.CLOUDFLARE_API_TOKEN!;
+import { kvGet } from "@bunkercash/cloudflare-kv";
 
-const KV_BASE = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/storage/kv/namespaces/${NAMESPACE_ID}`;
+const BINDING = "GEOBLOCKING_KV";
+const KEY = "geoblocking:blocked_countries";
 
-const KEY = encodeURIComponent("geoblocking:blocked_countries");
-
-// NOTE: In-memory caching is intentionally omitted here.
-// This middleware runs in Next.js Edge Runtime where each request
-// executes in an isolated V8 context — module-level variables reset
-// on every invocation and never serve a cached value. Caching should
-// be done at the CDN / Cloudflare layer instead.
 export async function getBlockedCountries(): Promise<string[]> {
-  const res = await fetch(`${KV_BASE}/values/${KEY}`, {
-    headers: { Authorization: `Bearer ${API_TOKEN}` },
-    cache: "no-store",
-  });
-
-  if (!res.ok) {
-    if (res.status === 404) return [];
-    throw new Error(`KV read failed: ${res.status}`);
-  }
-
-  const text = await res.text();
-  const parsed: unknown = JSON.parse(text);
+  const countries = await kvGet<unknown>(BINDING, KEY);
+  if (!countries) return [];
+  // Runtime validation — reject malformed KV data rather than trusting the cast
   if (
-    !Array.isArray(parsed) ||
-    parsed.some((item) => typeof item !== "string")
+    !Array.isArray(countries) ||
+    countries.some((item) => typeof item !== "string")
   ) {
-    throw new Error("Blocked countries KV data is corrupted (expected string[])");
+    return [];
   }
-  return parsed as string[];
+  return countries as string[];
 }
