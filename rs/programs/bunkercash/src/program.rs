@@ -107,6 +107,10 @@ fn apply_master_cancellation(
     withdrawal: &mut Withdrawal,
     amount: u64,
 ) -> Result<()> {
+    // Cancellation is a principal return on an open master withdrawal.
+    // NAV already includes the outstanding balance because `master_withdraw`
+    // records the receivable without reducing NAV, so returning principal here
+    // only shrinks the remaining receivable and must not change NAV.
     require!(
         amount <= withdrawal.remaining,
         ErrorCode::RepaymentExceedsWithdrawal
@@ -1954,6 +1958,39 @@ mod tests {
         apply_master_close_withdrawal(&mut pool, &mut withdrawal, 0).unwrap();
 
         assert_eq!(pool.nav, 7_100_000);
+        assert_eq!(withdrawal.remaining, 0);
+    }
+
+    #[test]
+    fn cancellation_then_close_only_realizes_pnl_on_still_outstanding_balance() {
+        let mut pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 7_500_000,
+            total_brent_supply: 7_500_000,
+            total_pending_claims: 0,
+            claim_counter: 0,
+            withdrawal_counter: 1,
+            bump: 255,
+        };
+        let mut withdrawal = Withdrawal {
+            id: 0,
+            amount: 1_250_000,
+            remaining: 1_250_000,
+            metadata_hash: [0; 32],
+            timestamp: 0,
+            bump: 0,
+        };
+
+        apply_master_cancellation(&mut withdrawal, 400_000).unwrap();
+
+        assert_eq!(pool.nav, 7_500_000);
+        assert_eq!(withdrawal.remaining, 850_000);
+
+        apply_master_close_withdrawal(&mut pool, &mut withdrawal, 700_000).unwrap();
+
+        // Total returned capital is 1,100,000 (400,000 cancelled + 700,000 on close),
+        // so the final realized loss against the original 1,250,000 withdrawal is 150,000.
+        assert_eq!(pool.nav, 7_350_000);
         assert_eq!(withdrawal.remaining, 0);
     }
 
