@@ -120,6 +120,7 @@ fn apply_master_close_withdrawal(
     withdrawal: &mut Withdrawal,
     amount: u64,
 ) -> Result<()> {
+    validate_open_withdrawal(withdrawal)?;
     let remaining = withdrawal.remaining;
     if amount >= remaining {
         let nav_growth = amount.checked_sub(remaining).unwrap();
@@ -1953,6 +1954,33 @@ mod tests {
         apply_master_close_withdrawal(&mut pool, &mut withdrawal, 0).unwrap();
 
         assert_eq!(pool.nav, 7_100_000);
+        assert_eq!(withdrawal.remaining, 0);
+    }
+
+    #[test]
+    fn close_withdrawal_rejects_already_closed_withdrawals() {
+        let mut pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 7_500_000,
+            total_brent_supply: 7_500_000,
+            total_pending_claims: 0,
+            claim_counter: 0,
+            withdrawal_counter: 1,
+            bump: 255,
+        };
+        let mut withdrawal = Withdrawal {
+            id: 0,
+            amount: 1_250_000,
+            remaining: 0,
+            metadata_hash: [0; 32],
+            timestamp: 0,
+            bump: 0,
+        };
+
+        let err = apply_master_close_withdrawal(&mut pool, &mut withdrawal, 525_000).unwrap_err();
+
+        assert_eq!(err, ErrorCode::WithdrawalAlreadyClosed.into());
+        assert_eq!(pool.nav, 7_500_000);
         assert_eq!(withdrawal.remaining, 0);
     }
 

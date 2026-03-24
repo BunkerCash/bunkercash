@@ -164,11 +164,12 @@ export async function fetchAllClaims(): Promise<ClaimsResponse> {
 
   for (const claim of allClaims) {
     const serialized = serializeClaim(claim);
-    if (claim.processed) {
+    const remainingUsdc = BigInt(claim.remainingUsdc);
+    if (claim.processed || remainingUsdc === BigInt(0)) {
       closed.push(serialized);
     } else {
       open.push(serialized);
-      totalRequested += BigInt(claim.remainingUsdc);
+      totalRequested += remainingUsdc;
     }
   }
 
@@ -176,7 +177,7 @@ export async function fetchAllClaims(): Promise<ClaimsResponse> {
     open,
     closed,
     totalRequestedUsdc: totalRequested.toString(),
-    openCount: open.filter((c) => BigInt(c.remainingUsdc) > BigInt(0)).length,
+    openCount: open.length,
     ts: Date.now(),
   };
 }
