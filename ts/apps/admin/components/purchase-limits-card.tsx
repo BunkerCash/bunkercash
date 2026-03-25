@@ -1,20 +1,21 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { BN } from "@coral-xyz/anchor";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { AlertCircle, DollarSign, Info, RefreshCw, Settings } from "lucide-react";
+import { PublicKey, SendTransactionError, SystemProgram, Transaction } from "@solana/web3.js";
+import { AlertCircle, DollarSign, Info, Loader2, RefreshCw, Settings } from "lucide-react";
 import { usePayoutVault } from "@/hooks/usePayoutVault";
 import {
   getProgram,
   getReadonlyProgram,
   getPoolPda,
-  getBunkercashMintPda,
+  getPurchaseLimitConfigPda,
+  getSupportedUsdcConfigPda,
   PROGRAM_ID,
 } from "@/lib/program";
-
-const MAX_PURCHASE_USDC = 1_000_000;
-const USDC_DECIMALS = 6;
-const CACHE_TTL = 30_000;
+import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
+import { formatUsdc, parseUsdcInput, shortPk } from "@/lib/master-operations";
 
 interface Stringable {
   toString(): string;
@@ -25,14 +26,65 @@ interface PoolAccountLike {
   nav: Stringable;
 }
 
-interface PoolInfo {
-  totalSupply: number;
-  pricePerToken: number;
-  admin: string;
-  navUsdc: number;
+interface PurchaseLimitConfigLike {
+  purchaseLimitUsdc: Stringable;
+  totalDepositedUsdc: Stringable;
 }
 
-let poolInfoCache: { data: PoolInfo; timestamp: number; endpoint: string } | null = null;
+interface SupportedUsdcConfigLike {
+  mint: { toBase58(): string };
+}
+
+interface PurchaseLimitsState {
+  admin: string;
+  navUsdcRaw: bigint;
+  purchaseLimitUsdcRaw: bigint;
+  totalDepositedUsdcRaw: bigint;
+  supportedUsdcMint: string | null;
+}
+
+interface SetPurchaseLimitMethods {
+  setPurchaseLimit: (amount: BN) => {
+    accounts: (accounts: {
+      pool: PublicKey;
+      purchaseLimitConfig: PublicKey;
+      admin: PublicKey;
+      systemProgram: PublicKey;
+    }) => {
+      instruction: () => Promise<Transaction["instructions"][number]>;
+    };
+  };
+}
+
+interface SetSupportedUsdcMintMethods {
+  setSupportedUsdcMint: () => {
+    accounts: (accounts: {
+      pool: PublicKey;
+      supportedUsdcConfig: PublicKey;
+      usdcMint: PublicKey;
+      admin: PublicKey;
+      tokenProgram: PublicKey;
+      systemProgram: PublicKey;
+    }) => {
+      instruction: () => Promise<Transaction["instructions"][number]>;
+    };
+  };
+}
+
+interface ProviderLike {
+  sendAndConfirm: (tx: Transaction) => Promise<string>;
+}
+
+function parseLimitInput(value: string): bigint | null {
+  const trimmed = value.trim();
+  if (trimmed === "") return null;
+  if (/^0(?:\.0{0,6})?$/.test(trimmed)) return BigInt(0);
+  return parseUsdcInput(trimmed);
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
 
 export function PurchaseLimitsCard() {
   const { connection } = useConnection();
@@ -44,87 +96,233 @@ export function PurchaseLimitsCard() {
     refresh: refreshVault,
   } = usePayoutVault();
 
-  const rpcEndpoint = connection.rpcEndpoint ?? "";
-  const [poolInfo, setPoolInfo] = useState<PoolInfo | null>(
-    poolInfoCache?.endpoint === rpcEndpoint ? poolInfoCache.data : null
-  );
-  const [poolLoading, setPoolLoading] = useState(
-    !(poolInfoCache?.endpoint === rpcEndpoint && poolInfoCache.data)
-  );
-  const [poolError, setPoolError] = useState<string | null>(null);
+  const [state, setState] = useState<PurchaseLimitsState | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [limitInput, setLimitInput] = useState("");
+  const [mintInput, setMintInput] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [txSuccess, setTxSuccess] = useState<string | null>(null);
 
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), []);
-  const mintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), []);
+  const purchaseLimitConfigPda = useMemo(
+    () => getPurchaseLimitConfigPda(PROGRAM_ID),
+    []
+  );
+  const supportedUsdcConfigPda = useMemo(
+    () => getSupportedUsdcConfigPda(PROGRAM_ID),
+    []
+  );
 
   const program = useMemo(() => {
     if (wallet.publicKey) return getProgram(connection, wallet);
     return getReadonlyProgram(connection);
   }, [connection, wallet]);
 
-  const fetchPoolInfo = useCallback(
-    async (bypassCache = false) => {
-      if (!program) return;
+  const fetchState = useCallback(async () => {
+    if (!program) return;
 
-      if (
-        !bypassCache &&
-        poolInfoCache &&
-        poolInfoCache.endpoint === rpcEndpoint &&
-        Date.now() - poolInfoCache.timestamp < CACHE_TTL
-      ) {
-        setPoolInfo(poolInfoCache.data);
-        setPoolLoading(false);
-        return;
+    setLoading(true);
+    setError(null);
+    try {
+      const accountApi = program.account as {
+        pool: { fetch: (pubkey: typeof poolPda) => Promise<PoolAccountLike> };
+        purchaseLimitConfig?: {
+          fetch: (pubkey: typeof purchaseLimitConfigPda) => Promise<PurchaseLimitConfigLike>;
+        };
+        supportedUsdcConfig?: {
+          fetch: (pubkey: typeof supportedUsdcConfigPda) => Promise<SupportedUsdcConfigLike>;
+        };
+      };
+
+      const poolAccount = await accountApi.pool.fetch(poolPda);
+      let purchaseLimitUsdcRaw = BigInt(0);
+      let totalDepositedUsdcRaw = BigInt(0);
+      let supportedUsdcMint: string | null = null;
+
+      if (accountApi.purchaseLimitConfig) {
+        try {
+          const config = await accountApi.purchaseLimitConfig.fetch(
+            purchaseLimitConfigPda
+          );
+          purchaseLimitUsdcRaw = BigInt(config.purchaseLimitUsdc.toString());
+          totalDepositedUsdcRaw = BigInt(config.totalDepositedUsdc.toString());
+        } catch {
+          purchaseLimitUsdcRaw = BigInt(0);
+          totalDepositedUsdcRaw = BigInt(0);
+        }
       }
 
-      setPoolLoading(true);
-      setPoolError(null);
-      try {
-        const accountApi = program.account as {
-          pool: { fetch: (pubkey: typeof poolPda) => Promise<PoolAccountLike> };
-        };
-        const [poolAccount, mintInfo] = await Promise.all([
-          accountApi.pool.fetch(poolPda),
-          connection.getTokenSupply(mintPda, "confirmed"),
-        ]);
-
-        const supplyDecimals = mintInfo.value.decimals;
-        const totalSupply = Number(mintInfo.value.amount) / 10 ** supplyDecimals;
-        const navUsdc = Number(poolAccount.nav.toString()) / 10 ** USDC_DECIMALS;
-        const pricePerToken = totalSupply > 0 ? navUsdc / totalSupply : 1;
-
-        const info: PoolInfo = {
-          totalSupply,
-          pricePerToken,
-          admin: poolAccount.masterWallet.toBase58(),
-          navUsdc,
-        };
-
-        poolInfoCache = {
-          data: info,
-          timestamp: Date.now(),
-          endpoint: rpcEndpoint,
-        };
-        setPoolInfo(info);
-      } catch (e: unknown) {
-        setPoolError(e instanceof Error ? e.message : "Failed to fetch pool info");
-      } finally {
-        setPoolLoading(false);
+      if (accountApi.supportedUsdcConfig) {
+        try {
+          const config = await accountApi.supportedUsdcConfig.fetch(
+            supportedUsdcConfigPda
+          );
+          supportedUsdcMint = config.mint.toBase58();
+        } catch {
+          supportedUsdcMint = null;
+        }
       }
-    },
-    [connection, mintPda, poolPda, program, rpcEndpoint]
-  );
+
+      setState({
+        admin: poolAccount.masterWallet.toBase58(),
+        navUsdcRaw: BigInt(poolAccount.nav.toString()),
+        purchaseLimitUsdcRaw,
+        totalDepositedUsdcRaw,
+        supportedUsdcMint,
+      });
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to fetch purchase limit state");
+      setState(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [poolPda, program, purchaseLimitConfigPda, supportedUsdcConfigPda]);
 
   useEffect(() => {
-    void fetchPoolInfo();
-  }, [fetchPoolInfo]);
+    void fetchState();
+  }, [fetchState]);
 
-  const totalVolume = poolInfo
-    ? Math.round(poolInfo.totalSupply * poolInfo.pricePerToken)
-    : 0;
-  const utilizationPercent = Math.min(
-    Math.round((totalVolume / MAX_PURCHASE_USDC) * 100),
-    100
-  );
+  useEffect(() => {
+    if (!state || limitInput !== "") return;
+    setLimitInput(
+      state.purchaseLimitUsdcRaw === BigInt(0)
+        ? "0"
+        : formatUsdc(state.purchaseLimitUsdcRaw)
+    );
+  }, [state, limitInput]);
+
+  useEffect(() => {
+    if (!state || mintInput !== "" || !state.supportedUsdcMint) return;
+    setMintInput(state.supportedUsdcMint);
+  }, [state, mintInput]);
+
+  const remainingCapacityRaw = useMemo(() => {
+    if (!state) return null;
+    if (state.purchaseLimitUsdcRaw === BigInt(0)) return null;
+    return state.purchaseLimitUsdcRaw > state.totalDepositedUsdcRaw
+      ? state.purchaseLimitUsdcRaw - state.totalDepositedUsdcRaw
+      : BigInt(0);
+  }, [state]);
+
+  const utilizationPercent = useMemo(() => {
+    if (!state || state.purchaseLimitUsdcRaw === BigInt(0)) return null;
+    const used = Number(state.totalDepositedUsdcRaw);
+    const cap = Number(state.purchaseLimitUsdcRaw);
+    if (cap <= 0) return 0;
+    return Math.min(Math.round((used / cap) * 100), 100);
+  }, [state]);
+
+  const parsedLimit = useMemo(() => parseLimitInput(limitInput), [limitInput]);
+  const parsedMint = useMemo(() => {
+    const trimmed = mintInput.trim();
+    if (!trimmed) return null;
+    try {
+      return new PublicKey(trimmed);
+    } catch {
+      return null;
+    }
+  }, [mintInput]);
+  const connectedWalletBase58 = wallet.publicKey?.toBase58() ?? null;
+  const adminWalletBase58 = state?.admin ?? null;
+  const isAuthorizedWallet =
+    !!connectedWalletBase58 &&
+    !!adminWalletBase58 &&
+    connectedWalletBase58 === adminWalletBase58;
+
+  const handleSave = async () => {
+    if (!program || !wallet.publicKey || parsedLimit === null) return;
+
+    setSubmitting(true);
+    setError(null);
+    setTxSuccess(null);
+
+    try {
+      const ix = await (program.methods as unknown as SetPurchaseLimitMethods)
+        .setPurchaseLimit(new BN(parsedLimit.toString()))
+        .accounts({
+          pool: poolPda,
+          purchaseLimitConfig: purchaseLimitConfigPda,
+          admin: wallet.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .instruction();
+
+      const tx = new Transaction().add(ix);
+      const provider = program.provider as ProviderLike;
+      const signature = await provider.sendAndConfirm(tx);
+
+      setTxSuccess(signature);
+      await fetchState();
+      await refreshVault();
+    } catch (e: unknown) {
+      if (e instanceof SendTransactionError) {
+        const logs = await e.getLogs(connection);
+        if (logs?.length) {
+          console.error("Purchase limit transaction logs:", logs);
+        }
+      }
+      setError(getErrorMessage(e, "Failed to update purchase limit"));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleMintSave = async () => {
+    if (!program || !wallet.publicKey || !parsedMint) return;
+
+    setSubmitting(true);
+    setError(null);
+    setTxSuccess(null);
+
+    try {
+      const ix = await (program.methods as unknown as SetSupportedUsdcMintMethods)
+        .setSupportedUsdcMint()
+        .accounts({
+          pool: poolPda,
+          supportedUsdcConfig: supportedUsdcConfigPda,
+          usdcMint: parsedMint,
+          admin: wallet.publicKey,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .instruction();
+
+      const tx = new Transaction().add(ix);
+      const provider = program.provider as ProviderLike;
+      const signature = await provider.sendAndConfirm(tx);
+
+      setTxSuccess(signature);
+      await fetchState();
+      await refreshVault();
+    } catch (e: unknown) {
+      if (e instanceof SendTransactionError) {
+        const logs = await e.getLogs(connection);
+        if (logs?.length) {
+          console.error("Supported mint transaction logs:", logs);
+        }
+      }
+      setError(getErrorMessage(e, "Failed to update supported USDC mint"));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const displayCap = !state
+    ? "Unavailable"
+    : state.purchaseLimitUsdcRaw === BigInt(0)
+      ? "Unlimited"
+      : `$${formatUsdc(state.purchaseLimitUsdcRaw)}`;
+
+  const displayDeposited = !state
+    ? "Unavailable"
+    : `$${formatUsdc(state.totalDepositedUsdcRaw)}`;
+
+  const displayRemaining = !state
+    ? "Unavailable"
+    : remainingCapacityRaw == null
+      ? "Unlimited"
+      : `$${formatUsdc(remainingCapacityRaw)}`;
 
   return (
     <div>
@@ -132,7 +330,7 @@ export function PurchaseLimitsCard() {
         <h1 className="text-xl font-semibold text-white">Purchase Limits</h1>
         <button
           onClick={() => {
-            void fetchPoolInfo(true);
+            void fetchState();
             void refreshVault();
           }}
           className="rounded-lg p-1.5 text-neutral-500 transition-colors hover:bg-neutral-800/40 hover:text-white"
@@ -141,47 +339,85 @@ export function PurchaseLimitsCard() {
         </button>
       </div>
 
-      <div className="mb-6 grid grid-cols-1 gap-5 lg:grid-cols-2">
+      <div className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-4">
         <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-6">
-          <div className="mb-5 flex items-center justify-between">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
-              Total Volume Bought
-            </span>
-            <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-medium text-emerald-400">
-              Live
-            </span>
+          <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-neutral-500">
+            Global Cap
           </div>
+          <div className="font-mono text-2xl font-bold text-white">
+            {loading ? "Loading..." : displayCap}
+          </div>
+          <div className="mt-2 text-xs text-neutral-500">
+            `0` means unlimited aggregate deposits
+          </div>
+        </div>
 
-          {poolLoading ? (
-            <div className="mb-4 h-8 w-32 animate-pulse rounded bg-neutral-800/60" />
-          ) : poolError ? (
-            <p className="mb-4 text-sm text-red-400">{poolError}</p>
-          ) : (
-            <>
-              <div className="mb-1 font-mono text-3xl font-bold tracking-tight text-white">
-                ${totalVolume.toLocaleString("en-US")}
-              </div>
-              <div className="mb-4 text-xs text-neutral-500">
-                {poolInfo?.totalSupply.toLocaleString(undefined, {
-                  maximumFractionDigits: 2,
-                })}{" "}
-                BNKR @ ${poolInfo?.pricePerToken.toFixed(2)} USDC
-              </div>
-            </>
-          )}
+        <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-6">
+          <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-neutral-500">
+            Total Deposited
+          </div>
+          <div className="font-mono text-2xl font-bold text-white">
+            {loading ? "Loading..." : displayDeposited}
+          </div>
+          <div className="mt-2 text-xs text-neutral-500">
+            Cumulative USDC accepted by `deposit_usdc`
+          </div>
+        </div>
 
-          {poolLoading ? (
-            <div className="mb-2.5 flex items-center justify-between">
-              <div className="h-3 w-16 animate-pulse rounded bg-neutral-800/60" />
-              <div className="h-3 w-24 animate-pulse rounded bg-neutral-800/60" />
+        <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-6">
+          <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-neutral-500">
+            Remaining Capacity
+          </div>
+          <div className="font-mono text-2xl font-bold text-[#00FFB2]">
+            {loading ? "Loading..." : displayRemaining}
+          </div>
+          <div className="mt-2 text-xs text-neutral-500">
+            Further purchases stop when this reaches zero
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-6">
+          <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-neutral-500">
+            <DollarSign className="h-4 w-4" />
+            Pool Snapshot
+          </div>
+          <div className="space-y-2 text-xs text-neutral-400">
+            <div className="flex items-center justify-between">
+              <span>Supported Mint</span>
+              <span className="font-mono text-white">
+                {loading
+                  ? "Loading..."
+                  : state?.supportedUsdcMint
+                    ? shortPk(state.supportedUsdcMint)
+                    : "Unset"}
+              </span>
             </div>
-          ) : (
-            <div className="mb-2.5 flex items-center justify-between text-xs text-neutral-500">
-              <span>{utilizationPercent}% of current cap</span>
-              <span>${MAX_PURCHASE_USDC.toLocaleString()} max/tx</span>
+            <div className="flex items-center justify-between">
+              <span>Pool NAV</span>
+              <span className="font-mono text-white">
+                {loading || !state ? "Loading..." : `$${formatUsdc(state.navUsdcRaw)}`}
+              </span>
             </div>
-          )}
+            <div className="flex items-center justify-between">
+              <span>Payout Vault</span>
+              <span className="font-mono text-white">
+                {vaultLoading
+                  ? "Loading..."
+                  : vaultError
+                    ? "Unavailable"
+                    : `$${vaultBalance ?? "0.00"}`}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
 
+      {utilizationPercent != null && (
+        <div className="mb-6 rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-6">
+          <div className="mb-2.5 flex items-center justify-between text-xs text-neutral-500">
+            <span>{utilizationPercent}% of aggregate cap used</span>
+            <span>{displayDeposited} / {displayCap}</span>
+          </div>
           <div className="h-2 overflow-hidden rounded-full bg-neutral-800">
             <div
               className="h-full rounded-full bg-[#00FFB2] transition-all duration-500"
@@ -189,52 +425,34 @@ export function PurchaseLimitsCard() {
             />
           </div>
         </div>
+      )}
 
-        <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-6">
-          <div className="mb-5 flex items-center gap-2">
-            <DollarSign className="h-4 w-4 text-neutral-500" />
-            <span className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
-              Treasury (Payout Vault)
-            </span>
+      {error && (
+        <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-500" />
+            <p className="text-sm text-red-300">{error}</p>
           </div>
-
-          {vaultLoading ? (
-            <div className="mb-2 h-8 w-24 animate-pulse rounded bg-neutral-800/60" />
-          ) : vaultError ? (
-            <p className="text-sm text-red-400">{vaultError}</p>
-          ) : (
-            <>
-              <div className="mb-1 font-mono text-3xl font-bold tracking-tight text-[#00FFB2]">
-                ${Number(vaultBalance ?? 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
-              </div>
-              <div className="text-xs text-neutral-500">USDC available for claims</div>
-            </>
-          )}
-
-          {poolInfo && (
-            <div className="mt-4 border-t border-neutral-800/60 pt-4">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-neutral-500">Current Price</span>
-                <span className="font-mono font-medium text-white">
-                  ${poolInfo.pricePerToken.toFixed(6)} USDC/BNKR
-                </span>
-              </div>
-              <div className="mt-2 flex items-center justify-between text-xs">
-                <span className="text-neutral-500">Pool NAV</span>
-                <span className="font-mono font-medium text-white">
-                  ${poolInfo.navUsdc.toLocaleString("en-US", { maximumFractionDigits: 2 })}
-                </span>
-              </div>
-            </div>
-          )}
         </div>
-      </div>
+      )}
+
+      {txSuccess && (
+        <div className="mb-6 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-300">
+          Configuration updated successfully. Tx: {shortPk(txSuccess)}
+        </div>
+      )}
+
+      {wallet.publicKey && adminWalletBase58 && !isAuthorizedWallet && (
+        <div className="mb-6 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm text-amber-300">
+          Connected wallet {shortPk(wallet.publicKey.toBase58())} is not the current pool admin.
+        </div>
+      )}
 
       <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-6">
         <div className="mb-5 flex items-center gap-2">
           <Settings className="h-4 w-4 text-neutral-500" />
           <span className="text-[11px] font-medium uppercase tracking-wider text-neutral-500">
-            Limit Reference
+            Update Aggregate Deposit Cap
           </span>
         </div>
 
@@ -243,22 +461,70 @@ export function PurchaseLimitsCard() {
             <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#00FFB2]" />
             <div className="space-y-2 text-sm text-neutral-300">
               <p>
-                This page is read-only. The primary buy flow is currently capped at{" "}
-                <span className="font-mono text-white">${MAX_PURCHASE_USDC.toLocaleString()}</span>{" "}
-                per transaction.
+                This cap applies to all primary purchases combined. If you set it to
+                `100`, the program will stop accepting further buys after
+                aggregate deposits reach 100 USDC.
               </p>
               <p className="text-neutral-500">
-                Pool stats are read from the on-chain pool account and current mint supply.
+                Set the value to `0` to remove the limit.
               </p>
             </div>
           </div>
         </div>
 
-        {poolInfo && (
+        <div className="mt-5">
+          <label className="mb-2 block text-xs text-neutral-400">
+            Purchase Limit (USDC)
+          </label>
+          <input
+            type="text"
+            value={limitInput}
+            onChange={(e) => setLimitInput(e.target.value)}
+            placeholder="0 for unlimited"
+            className="h-10 w-full rounded-lg border border-neutral-700/60 bg-neutral-800/60 px-3 font-mono text-sm text-white focus:border-[#00FFB2]/50 focus:outline-none focus:ring-1 focus:ring-[#00FFB2]/50"
+          />
+        </div>
+
+        <button
+          onClick={handleSave}
+          disabled={!isAuthorizedWallet || parsedLimit === null || submitting}
+          className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-[#00FFB2] text-sm font-medium text-black transition-colors hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600"
+        >
+          {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+          {submitting ? "Saving..." : "Save Purchase Limit"}
+        </button>
+
+        {state && (
+          <div className="mt-6 border-t border-neutral-800/60 pt-6">
+            <label className="mb-2 block text-xs text-neutral-400">
+              Supported Token-2022 USDC Mint
+            </label>
+            <input
+              type="text"
+              value={mintInput}
+              onChange={(e) => setMintInput(e.target.value)}
+              placeholder="Enter mint pubkey"
+              className="h-10 w-full rounded-lg border border-neutral-700/60 bg-neutral-800/60 px-3 font-mono text-sm text-white focus:border-[#00FFB2]/50 focus:outline-none focus:ring-1 focus:ring-[#00FFB2]/50"
+            />
+            <p className="mt-2 text-xs text-neutral-500">
+              Future deposits, settlements, and master operations validate against this stored mint.
+            </p>
+            <button
+              onClick={handleMintSave}
+              disabled={!isAuthorizedWallet || parsedMint === null || submitting}
+              className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-neutral-200 text-sm font-medium text-black transition-colors hover:bg-white disabled:bg-neutral-800 disabled:text-neutral-600"
+            >
+              {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+              {submitting ? "Saving..." : "Save Supported Mint"}
+            </button>
+          </div>
+        )}
+
+        {state && (
           <div className="mt-4 flex items-start gap-2 rounded-lg border border-neutral-800 bg-neutral-950/50 p-3">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-neutral-500" />
             <div className="text-xs text-neutral-400">
-              Current pool admin: <span className="font-mono text-neutral-200">{poolInfo.admin}</span>
+              Current pool admin: <span className="font-mono text-neutral-200">{state.admin}</span>
             </div>
           </div>
         )}

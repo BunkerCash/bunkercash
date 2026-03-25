@@ -13,9 +13,9 @@ import {
 import { AlertCircle, CheckCircle2, Loader2, RefreshCw, Wallet } from "lucide-react";
 import { useAllOpenClaims, type OpenClaim } from "@/hooks/useAllOpenClaims";
 import { usePayoutVault } from "@/hooks/usePayoutVault";
-import { getProgram, getPoolPda, getPoolSignerPda, getReadonlyProgram, PROGRAM_ID } from "@/lib/program";
+import { getProgram, getPoolPda, getPoolSignerPda, getReadonlyProgram, getSupportedUsdcConfigPda, PROGRAM_ID } from "@/lib/program";
 import type { ProgramWallet } from "@/lib/program";
-import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
+import { useSupportedUsdcMint } from "@/hooks/useSupportedUsdcMint";
 
 const USDC_DECIMALS = 6;
 const CLAIMS_PER_TX = 6;
@@ -30,6 +30,7 @@ interface InstructionBuilder {
   accounts: (accounts: {
     pool: PublicKey;
     poolUsdc: PublicKey;
+    supportedUsdcConfig: PublicKey;
     usdcMint: PublicKey;
     masterWallet: PublicKey;
     tokenProgram: PublicKey;
@@ -100,6 +101,19 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+function getErrorText(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error ?? "");
+}
+
+function isBlockhashNotFoundError(error: unknown): boolean {
+  return /blockhash not found/i.test(getErrorText(error));
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export function SettlementCard() {
   const { connection } = useConnection();
   const wallet = useWallet();
@@ -135,11 +149,11 @@ export function SettlementCard() {
     [connection, publicKey, signTransaction, signAllTransactions]
   );
   const readonlyProgram = useMemo(() => getReadonlyProgram(connection), [connection]);
-  const cluster = useMemo(
-    () => getClusterFromEndpoint(connection.rpcEndpoint ?? ""),
-    [connection]
+  const { usdcMint } = useSupportedUsdcMint();
+  const supportedUsdcConfigPda = useMemo(
+    () => getSupportedUsdcConfigPda(PROGRAM_ID),
+    []
   );
-  const usdcMint = useMemo(() => getUsdcMintForCluster(cluster), [cluster]);
   const payoutVault = useMemo(() => {
     if (!usdcMint) return null;
     return getAssociatedTokenAddressSync(
@@ -162,15 +176,29 @@ export function SettlementCard() {
   const canBatchSafely =
     (poolPendingClaims !== null ? vaultRaw >= poolPendingClaims : vaultRaw >= totalRequested);
 
+  const fetchPoolPendingClaims = useCallback(async () => {
+    try {
+      setPoolStateError(null);
+      const accountApi = readonlyProgram.account as {
+        pool: { fetch: (pubkey: typeof poolPda) => Promise<PoolAccountLike> };
+      };
+      const poolState = await accountApi.pool.fetch(poolPda);
+      setPoolPendingClaims(BigInt(poolState.totalPendingClaims.toString()));
+    } catch (e: unknown) {
+      setPoolPendingClaims(null);
+      setPoolStateError(e instanceof Error ? e.message : "Failed to fetch pool state");
+    }
+  }, [poolPda, readonlyProgram]);
+
   useEffect(() => {
     let cancelled = false;
 
     void (async () => {
       try {
-        setPoolStateError(null);
         const accountApi = readonlyProgram.account as {
           pool: { fetch: (pubkey: typeof poolPda) => Promise<PoolAccountLike> };
         };
+        setPoolStateError(null);
         const poolState = await accountApi.pool.fetch(poolPda);
         if (cancelled) return;
         setPoolPendingClaims(BigInt(poolState.totalPendingClaims.toString()));
@@ -184,7 +212,7 @@ export function SettlementCard() {
     return () => {
       cancelled = true;
     };
-  }, [poolPda, readonlyProgram]);
+  }, [fetchPoolPendingClaims, poolPda, readonlyProgram]);
 
   const settlementPlan = useMemo((): SettlementItem[] => {
     if (claims.length === 0 || totalRequested === BigInt(0) || vaultRaw === BigInt(0)) return [];
@@ -243,52 +271,74 @@ export function SettlementCard() {
       ? chunkClaims(settlementPlan, CLAIMS_PER_TX)
       : [settlementPlan];
 
-    for (const batch of batches) {
-      try {
-        const tx = new Transaction();
-        const remainingAccounts: AccountMetaLike[] = [];
+    const sendSettlementBatch = async (batch: SettlementItem[]): Promise<string> => {
+      let lastError: unknown;
 
-        for (const item of batch) {
-          const userUsdcAta = getAssociatedTokenAddressSync(
-            usdcMint,
-            item.claim.user,
-            false,
-            TOKEN_2022_PROGRAM_ID,
-            ASSOCIATED_TOKEN_PROGRAM_ID
-          );
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          const tx = new Transaction();
+          const remainingAccounts: AccountMetaLike[] = [];
 
-          tx.add(
-            createAssociatedTokenAccountIdempotentInstruction(
-              publicKey,
-              userUsdcAta,
-              item.claim.user,
+          for (const item of batch) {
+            const claimUser = new PublicKey(item.claim.user);
+            const claimPubkey = new PublicKey(item.claim.pubkey);
+            const userUsdcAta = getAssociatedTokenAddressSync(
               usdcMint,
+              claimUser,
+              false,
               TOKEN_2022_PROGRAM_ID,
               ASSOCIATED_TOKEN_PROGRAM_ID
-            )
-          );
+            );
 
-          remainingAccounts.push(
-            { pubkey: item.claim.pubkey, isSigner: false, isWritable: true },
-            { pubkey: userUsdcAta, isSigner: false, isWritable: true }
-          );
+            tx.add(
+              createAssociatedTokenAccountIdempotentInstruction(
+                publicKey,
+                userUsdcAta,
+                claimUser,
+                usdcMint,
+                TOKEN_2022_PROGRAM_ID,
+                ASSOCIATED_TOKEN_PROGRAM_ID
+              )
+            );
+
+            remainingAccounts.push(
+              { pubkey: claimPubkey, isSigner: false, isWritable: true },
+              { pubkey: userUsdcAta, isSigner: false, isWritable: true }
+            );
+          }
+
+          const settleIx = await ((program.methods as unknown as { settleClaims: (claimIndices: Buffer) => InstructionBuilder })
+            .settleClaims(Buffer.alloc(0))
+            .accounts({
+              pool: poolPda,
+              poolUsdc: payoutVault,
+              supportedUsdcConfig: supportedUsdcConfigPda,
+              usdcMint,
+              masterWallet: publicKey,
+              tokenProgram: TOKEN_2022_PROGRAM_ID,
+            })
+            .remainingAccounts(remainingAccounts)
+            .instruction());
+
+          tx.add(settleIx);
+
+          return await (program.provider as ProviderLike).sendAndConfirm(tx);
+        } catch (e: unknown) {
+          lastError = e;
+          if (!isBlockhashNotFoundError(e) || attempt === 3) {
+            throw e;
+          }
+          console.warn(`settle_claims: blockhash expired, retrying (${attempt}/3)`);
+          await sleep(500 * attempt);
         }
+      }
 
-        const settleIx = await ((program.methods as unknown as { settleClaims: (claimIndices: Buffer) => InstructionBuilder })
-          .settleClaims(Buffer.alloc(0))
-          .accounts({
-            pool: poolPda,
-            poolUsdc: payoutVault,
-            usdcMint,
-            masterWallet: publicKey,
-            tokenProgram: TOKEN_2022_PROGRAM_ID,
-          })
-          .remainingAccounts(remainingAccounts)
-          .instruction());
+      throw lastError;
+    };
 
-        tx.add(settleIx);
-
-        const sig = await (program.provider as ProviderLike).sendAndConfirm(tx);
+    for (const batch of batches) {
+      try {
+        const sig = await sendSettlementBatch(batch);
         succeeded.push(sig);
         settledClaims += batch.length;
         setProgress((prev) => ({ current: prev.current + batch.length, total: prev.total }));
@@ -314,8 +364,8 @@ export function SettlementCard() {
     }
     setResults({ settledClaims, failedClaims, signatures: succeeded });
     setSettling(false);
-    await Promise.all([refreshClaims(), refreshVault()]);
-  }, [canBatchSafely, connection, exceedsSingleTransactionLimit, payoutVault, program, publicKey, refreshClaims, refreshVault, settlementPlan, usdcMint, poolPda]);
+    await Promise.all([refreshClaims(), refreshVault(), fetchPoolPendingClaims()]);
+  }, [canBatchSafely, connection, exceedsSingleTransactionLimit, fetchPoolPendingClaims, payoutVault, program, publicKey, refreshClaims, refreshVault, settlementPlan, usdcMint, poolPda, supportedUsdcConfigPda]);
 
   const loading = claimsLoading || vaultLoading;
   const canSettle =
@@ -341,6 +391,7 @@ export function SettlementCard() {
           onClick={() => {
             refreshClaims();
             refreshVault();
+            void fetchPoolPendingClaims();
           }}
           disabled={loading}
           className="inline-flex items-center gap-2 rounded-lg border border-neutral-800/60 px-3 py-2 text-sm text-neutral-300 transition hover:border-neutral-700 hover:text-white disabled:opacity-50"
@@ -512,7 +563,7 @@ export function SettlementCard() {
                 </tr>
               ) : (
                 claims.map((claim) => {
-                  const plannedItem = settlementPlan.find((item) => item.claim.pubkey.equals(claim.pubkey));
+                  const plannedItem = settlementPlan.find((item) => item.claim.pubkey === claim.pubkey);
                   const plannedPayout = plannedItem?.payout ?? BigInt(0);
 
                   return (

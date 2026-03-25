@@ -8,15 +8,18 @@ import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentIn
 import {
   getBunkercashMintPda,
   getPoolPda,
+  getPurchaseLimitConfigPda,
+  getSupportedUsdcConfigPda,
   getProgram,
   type ProgramWallet,
   PROGRAM_ID,
 } from "@/lib/program";
 import { countFractionalDigits, parseUiAmountToBaseUnits } from "@/lib/amounts";
-import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
+import { getClusterFromEndpoint } from "@/lib/constants";
 import { ArrowDown, AlertCircle } from "lucide-react";
 import { BN } from '@coral-xyz/anchor'
 import { useToast } from "@/components/ui/ToastContext";
+import { useSupportedUsdcMint } from "@/hooks/useSupportedUsdcMint";
 
 const USDC_DECIMALS = 6
 const USDC_SCALE = 10n ** BigInt(USDC_DECIMALS)
@@ -51,6 +54,11 @@ interface PoolAccount {
   totalBrentSupply: Stringable;
 }
 
+interface PurchaseLimitConfigAccount {
+  purchaseLimitUsdc: Stringable;
+  totalDepositedUsdc: Stringable;
+}
+
 interface BuyPrimaryMethods {
   depositUsdc: (amount: BN) => {
     accounts: (accounts: {
@@ -59,6 +67,8 @@ interface BuyPrimaryMethods {
       userBrent: PublicKey;
       poolUsdc: PublicKey;
       brentMint: PublicKey;
+      supportedUsdcConfig: PublicKey;
+      purchaseLimitConfig: PublicKey;
       usdcMint: PublicKey;
       user: PublicKey;
       tokenProgram: PublicKey;
@@ -85,6 +95,8 @@ export function BuyPrimaryInterface() {
     masterWallet: PublicKey;
     nav: bigint;
     totalBrentSupply: bigint;
+    purchaseLimitUsdc: bigint;
+    totalDepositedUsdc: bigint;
   } | null>(null);
   const [poolError, setPoolError] = useState<string | null>(null);
 
@@ -101,15 +113,19 @@ export function BuyPrimaryInterface() {
   );
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), []);
   const bunkercashMintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), []);
+  const purchaseLimitConfigPda = useMemo(
+    () => getPurchaseLimitConfigPda(PROGRAM_ID),
+    []
+  );
+  const supportedUsdcConfigPda = useMemo(
+    () => getSupportedUsdcConfigPda(PROGRAM_ID),
+    []
+  );
   const currentCluster = useMemo(
     () => getClusterFromEndpoint(connection.rpcEndpoint ?? ""),
     [connection],
   );
-
-  const usdcMint = useMemo(() => {
-    if (!connection) return null;
-    return getUsdcMintForCluster(currentCluster);
-  }, [connection, currentCluster]);
+  const { usdcMint } = useSupportedUsdcMint();
 
   useEffect(() => {
     if (!connection || !usdcMint) {
@@ -134,19 +150,40 @@ export function BuyPrimaryInterface() {
     try {
       const accountApi = (program as Program<Idl>).account as {
         pool: { fetch: (key: PublicKey) => Promise<PoolAccount> };
+        purchaseLimitConfig?: {
+          fetch: (key: PublicKey) => Promise<PurchaseLimitConfigAccount>;
+        };
       }
       const state = await accountApi.pool.fetch(poolPda);
+      let purchaseLimitUsdc = BigInt(0);
+      let totalDepositedUsdc = BigInt(0);
+
+      if (accountApi.purchaseLimitConfig) {
+        try {
+          const purchaseLimitConfig = await accountApi.purchaseLimitConfig.fetch(
+            purchaseLimitConfigPda
+          );
+          purchaseLimitUsdc = BigInt(purchaseLimitConfig.purchaseLimitUsdc.toString());
+          totalDepositedUsdc = BigInt(purchaseLimitConfig.totalDepositedUsdc.toString());
+        } catch {
+          purchaseLimitUsdc = BigInt(0);
+          totalDepositedUsdc = BigInt(0);
+        }
+      }
+
       setPoolState({
         masterWallet: state.masterWallet,
         nav: BigInt(state.nav.toString()),
         totalBrentSupply: BigInt(state.totalBrentSupply.toString()),
+        purchaseLimitUsdc,
+        totalDepositedUsdc,
       });
       setPoolError(null);
     } catch {
       setPoolError("not_initialized");
       setPoolState(null);
     }
-  }, [program, poolPda, connection]);
+  }, [program, poolPda, connection, purchaseLimitConfigPda]);
 
   useEffect(() => {
     void fetchPoolState();
@@ -221,6 +258,14 @@ export function BuyPrimaryInterface() {
   const tokenAmountUi =
     tokenAmountRaw != null ? toUi(tokenAmountRaw, USDC_DECIMALS) : "";
 
+  const remainingPurchaseCapacityRaw = useMemo(() => {
+    if (!poolState) return null;
+    if (poolState.purchaseLimitUsdc === BigInt(0)) return null;
+    return poolState.purchaseLimitUsdc > poolState.totalDepositedUsdc
+      ? poolState.purchaseLimitUsdc - poolState.totalDepositedUsdc
+      : BigInt(0);
+  }, [poolState]);
+
   // Input validation
   const inputError = useMemo(() => {
     if (!usdcAmount) return null;
@@ -228,11 +273,19 @@ export function BuyPrimaryInterface() {
     if (usdcAmountRaw == null) return "Enter a valid number";
     if (usdcAmountRaw < MIN_USDC_AMOUNT_RAW) return "Minimum amount is 0.01 USDC";
     if (usdcAmountRaw > MAX_USDC_AMOUNT_RAW) return "Maximum per transaction is 1M USDC";
+    if (
+      remainingPurchaseCapacityRaw != null &&
+      usdcAmountRaw > remainingPurchaseCapacityRaw
+    ) {
+      return remainingPurchaseCapacityRaw === BigInt(0)
+        ? "Global purchase cap reached"
+        : `Only ${toUi(remainingPurchaseCapacityRaw, USDC_DECIMALS)} USDC of purchase capacity remains`;
+    }
     if (usdcBalanceRaw != null && usdcAmountRaw > usdcBalanceRaw) {
       return "Insufficient USDC balance";
     }
     return null;
-  }, [usdcAmount, usdcAmountRaw, usdcBalanceRaw]);
+  }, [usdcAmount, usdcAmountRaw, usdcBalanceRaw, remainingPurchaseCapacityRaw]);
 
   const handleBuy = async () => {
     if (!usdcMint) {
@@ -324,6 +377,14 @@ export function BuyPrimaryInterface() {
           TOKEN_2022_PROGRAM_ID,
           ASSOCIATED_TOKEN_PROGRAM_ID,
         );
+      const poolUsdcVaultInfo = await connection.getAccountInfo(poolUsdcVault);
+      if (!poolUsdcVaultInfo) {
+        const msg =
+          "The pool USDC vault is not initialized on this cluster yet. Ask the admin to run pool initialization before accepting deposits.";
+        setError(msg);
+        showToast(msg, "error");
+        return;
+      }
 
       const methodsApi = (program as Program<Idl>).methods as unknown as BuyPrimaryMethods
       const depositUsdcIx = await methodsApi
@@ -334,6 +395,8 @@ export function BuyPrimaryInterface() {
           userBrent: userBunkercash,
           poolUsdc: poolUsdcVault,
           brentMint: bunkercashMintPda,
+          supportedUsdcConfig: supportedUsdcConfigPda,
+          purchaseLimitConfig: purchaseLimitConfigPda,
           usdcMint,
           user: publicKey,
           tokenProgram: TOKEN_2022_PROGRAM_ID,

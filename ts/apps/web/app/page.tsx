@@ -6,8 +6,7 @@ import { StatCard } from "@/components/ui/StatCard";
 import { PROGRAM_ID } from "@/lib/program";
 
 export default function Home() {
-  const cluster =
-    process.env.NEXT_PUBLIC_SOLANA_CLUSTER ?? "devnet";
+  const cluster = process.env.NEXT_PUBLIC_SOLANA_CLUSTER ?? "devnet";
 
   return (
     <Layout>
@@ -27,7 +26,6 @@ export default function Home() {
             </p>
           </div>
 
-          {/* Stats */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
             <StatCard label="Protocol Status" value="Active" />
             <StatCard
