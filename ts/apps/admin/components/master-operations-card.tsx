@@ -673,12 +673,10 @@ export function MasterOperationsCard() {
             className="mb-4 h-10 w-full rounded-lg border border-neutral-700/60 bg-neutral-800/60 px-3 text-sm text-white focus:border-[#00FFB2]/50 focus:outline-none focus:ring-1 focus:ring-[#00FFB2]/50"
           >
             <option value="">Select withdrawal</option>
-            {withdrawals.map((item) => (
+            {activeWithdrawals.map((item) => (
               <option key={item.id} value={item.id}>
                 #{item.id} - ${formatUsdc(item.amount)} withdrawn
-                {BigInt(item.remaining) > BigInt(0)
-                  ? ` ($${formatUsdc(item.remaining)} remaining)`
-                  : " (fully repaid)"}
+                {` ($${formatUsdc(item.remaining)} remaining)`}
               </option>
             ))}
           </select>

@@ -268,7 +268,9 @@ pub mod bunkercash {
         let purchase_limit_config = &mut ctx.accounts.purchase_limit_config;
         let user = ctx.accounts.user.key();
 
-        purchase_limit_config.bump = ctx.bumps.purchase_limit_config;
+        if purchase_limit_config.bump == 0 {
+            purchase_limit_config.bump = ctx.bumps.purchase_limit_config;
+        }
         validate_purchase_limit(purchase_limit_config, usdc_amount)?;
 
         let brent_to_mint = if pool.total_brent_supply == 0 {
@@ -370,7 +372,23 @@ pub mod bunkercash {
         );
 
         purchase_limit_config.purchase_limit_usdc = purchase_limit_usdc;
-        purchase_limit_config.bump = ctx.bumps.purchase_limit_config;
+        if purchase_limit_config.bump == 0 {
+            purchase_limit_config.bump = ctx.bumps.purchase_limit_config;
+        }
+
+        Ok(())
+    }
+
+    pub fn reset_purchase_counter(ctx: Context<SetPurchaseLimit>) -> Result<()> {
+        let pool = &ctx.accounts.pool;
+        let purchase_limit_config = &mut ctx.accounts.purchase_limit_config;
+
+        require!(
+            ctx.accounts.admin.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+
+        purchase_limit_config.total_deposited_usdc = 0;
 
         Ok(())
     }
@@ -883,6 +901,7 @@ pub mod bunkercash {
             ctx.accounts.master_wallet.key() == pool.master_wallet,
             ErrorCode::Unauthorized
         );
+        validate_open_withdrawal(withdrawal)?;
 
         if amount > 0 {
             anchor_spl::token_2022::transfer_checked(
@@ -1490,6 +1509,7 @@ pub struct Withdrawal {
 #[derive(InitSpace)]
 pub struct PurchaseLimitConfig {
     pub purchase_limit_usdc: u64,
+    /// Monotonic field tracking total USDC deposited; reset only via `reset_purchase_counter`
     pub total_deposited_usdc: u64,
     pub bump: u8,
 }
