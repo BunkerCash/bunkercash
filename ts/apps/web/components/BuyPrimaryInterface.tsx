@@ -41,7 +41,7 @@ function derivePrice(navRaw: bigint, supplyRaw: bigint): number {
 /** Detect wallet rejection errors */
 function isWalletRejection(e: unknown): boolean {
   const msg = e instanceof Error ? e.message.toLowerCase() : String(e ?? '').toLowerCase()
-  return msg.includes('user rejected') || msg.includes('user denied') || msg.includes('rejected the request') || msg.includes('transaction was not confirmed')
+  return msg.includes('user rejected') || msg.includes('user denied') || msg.includes('rejected the request')
 }
 
 interface Stringable {

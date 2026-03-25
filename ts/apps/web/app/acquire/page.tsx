@@ -28,7 +28,7 @@ export default function AcquireTokens() {
   const navDisplay =
     stats.navUsdc != null ? `$${stats.navUsdc} USDC` : "—";
   const liquidDisplay =
-    stats.treasuryUsdc != null ? `$${stats.treasuryUsdc} USDC` : "$0 USDC";
+    stats.treasuryUsdc != null ? `$${stats.treasuryUsdc} USDC` : "—";
 
   return (
     <Layout>

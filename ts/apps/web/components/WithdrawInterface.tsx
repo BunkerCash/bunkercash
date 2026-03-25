@@ -32,8 +32,7 @@ function isWalletRejection(e: unknown): boolean {
   return (
     msg.includes("user rejected") ||
     msg.includes("user denied") ||
-    msg.includes("rejected the request") ||
-    msg.includes("transaction was not confirmed")
+    msg.includes("rejected the request")
   );
 }
 
