@@ -804,6 +804,7 @@ pub mod bunkercash {
         )?;
 
         apply_master_profit(pool, amount);
+        apply_master_cancellation(withdrawal, amount)?;
 
         emit!(MasterProfitEvent {
             withdrawal_id: withdrawal.id,
@@ -862,7 +863,7 @@ pub mod bunkercash {
             timestamp: Clock::get()?.unix_timestamp,
         });
 
-        msg!("Master cancelled {} USDC from withdrawal #{}. Remaining: {}, New NAV: {}",
+        msg!("Master cancelled {} USDC from withdrawal #{}. Remaining: {}, NAV unchanged: {}",
             amount, withdrawal.id, withdrawal.remaining, pool.nav);
         Ok(())
     }

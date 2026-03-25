@@ -45,25 +45,21 @@ export default function Home() {
             />
             <StatCard
               label="Last Update"
-              value={new Date().toLocaleDateString("en-US", {
-                year: "numeric",
-                month: "short",
-                day: "numeric",
-              })}
+              value="—"
             />
           </div>
 
           {/* Disclaimers */}
           <div className="glass-card p-6 mb-8 space-y-2 text-sm text-muted-foreground">
-            <p>Kein öffentlicher Market Price.</p>
-            <p>Kein TVL derived.</p>
-            <p>Kein NAV derived.</p>
+            <p>No public market price exists for this protocol token.</p>
+            <p>Total value locked is not publicly disclosed.</p>
+            <p>Net asset value is determined by the protocol administrator and is not independently verifiable.</p>
           </div>
 
           {/* Primary CTAs */}
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link
-              href="/blocked"
+              href="/acquire"
               className="inline-flex items-center justify-center rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
             >
               Check Access
