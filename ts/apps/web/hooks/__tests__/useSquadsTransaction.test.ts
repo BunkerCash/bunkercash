@@ -203,11 +203,13 @@ describe("useSquadsTransaction", () => {
     setupHappyPathMocks()
 
     const callOrder: string[] = []
+    mockSendTransaction.mockReset()
     mockSendTransaction.mockImplementation(async () => {
       const idx = callOrder.filter((c) => c === "send").length
       callOrder.push("send")
       return idx === 0 ? SIG1 : SIG2
     })
+    mockConfirmTransaction.mockReset()
     mockConfirmTransaction.mockImplementation(async () => {
       callOrder.push("confirm")
       return { value: {} }
@@ -269,12 +271,17 @@ describe("useSquadsTransaction", () => {
 
     const { result } = renderHook(() => useSquadsTransaction())
 
-    await expect(
-      act(async () => {
+    let submitError: unknown
+    await act(async () => {
+      try {
         await result.current.submit([dummyInstruction])
-      }),
-    ).rejects.toThrow("not a member")
+      } catch (error) {
+        submitError = error
+      }
+    })
 
+    expect(submitError).toBeInstanceOf(Error)
+    expect((submitError as Error).message).toContain("not a member")
     expect(result.current.error).toContain("not a member")
     expect(mockSignAllTransactions).not.toHaveBeenCalled()
   })
@@ -340,12 +347,17 @@ describe("useSquadsTransaction", () => {
 
     const { result } = renderHook(() => useSquadsTransaction())
 
-    await expect(
-      act(async () => {
+    let submitError: unknown
+    await act(async () => {
+      try {
         await result.current.submit([dummyInstruction])
-      }),
-    ).rejects.toThrow("Network congestion")
+      } catch (error) {
+        submitError = error
+      }
+    })
 
+    expect(submitError).toBeInstanceOf(Error)
+    expect((submitError as Error).message).toBe("Network congestion")
     expect(result.current.error).toBe("Network congestion")
     expect(result.current.isSubmitting).toBe(false)
   })
@@ -360,12 +372,17 @@ describe("useSquadsTransaction", () => {
 
     const { result } = renderHook(() => useSquadsTransaction())
 
-    await expect(
-      act(async () => {
+    let submitError: unknown
+    await act(async () => {
+      try {
         await result.current.submit([dummyInstruction])
-      }),
-    ).rejects.toThrow("Transaction expired")
+      } catch (error) {
+        submitError = error
+      }
+    })
 
+    expect(submitError).toBeInstanceOf(Error)
+    expect((submitError as Error).message).toBe("Transaction expired")
     expect(result.current.error).toBe("Transaction expired")
     // TX2 should never have been sent
     expect(mockSendTransaction).toHaveBeenCalledTimes(1)
