@@ -107,6 +107,7 @@ fn apply_master_cancellation(
     withdrawal: &mut Withdrawal,
     amount: u64,
 ) -> Result<()> {
+    validate_open_withdrawal(withdrawal)?;
     // Cancellation is a principal return on an open master withdrawal.
     // NAV already includes the outstanding balance because `master_withdraw`
     // records the receivable without reducing NAV, so returning principal here
@@ -855,6 +856,7 @@ pub mod bunkercash {
             ctx.accounts.master_wallet.key() == pool.master_wallet,
             ErrorCode::Unauthorized
         );
+        validate_open_withdrawal(withdrawal)?;
 
         anchor_spl::token_2022::transfer_checked(
             CpiContext::new(
@@ -1886,6 +1888,33 @@ mod tests {
         assert_eq!(err, ErrorCode::RepaymentExceedsWithdrawal.into());
         assert_eq!(pool.nav, 7_500_000);
         assert_eq!(withdrawal.remaining, 1_250_000);
+    }
+
+    #[test]
+    fn cancellation_rejects_already_closed_withdrawals() {
+        let pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 7_500_000,
+            total_brent_supply: 7_500_000,
+            total_pending_claims: 0,
+            claim_counter: 0,
+            withdrawal_counter: 1,
+            bump: 255,
+        };
+        let mut withdrawal = Withdrawal {
+            id: 0,
+            amount: 1_250_000,
+            remaining: 0,
+            metadata_hash: [0; 32],
+            timestamp: 0,
+            bump: 0,
+        };
+
+        let err = apply_master_cancellation(&mut withdrawal, 400_000).unwrap_err();
+
+        assert_eq!(err, ErrorCode::WithdrawalAlreadyClosed.into());
+        assert_eq!(pool.nav, 7_500_000);
+        assert_eq!(withdrawal.remaining, 0);
     }
 
     #[test]
