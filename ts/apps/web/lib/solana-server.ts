@@ -124,7 +124,16 @@ export async function fetchPoolData(): Promise<PoolDataResponse> {
   let treasuryUsdcRaw: number | null = null;
   try {
     const poolSignerPda = getPoolSignerPda(poolPda, PROGRAM_ID);
-    const usdcMint = await fetchConfiguredUsdcMint(connection);
+    let usdcMint: PublicKey | null = null;
+    try {
+      usdcMint = await fetchConfiguredUsdcMint(connection);
+    } catch {
+      // Ignore initial fetch errors, handled by fallback
+    }
+    
+    if (!usdcMint && process.env.NEXT_PUBLIC_USDC_MINT) {
+      usdcMint = new PublicKey(process.env.NEXT_PUBLIC_USDC_MINT);
+    }
 
     if (usdcMint) {
       const payoutVault = getAssociatedTokenAddressSync(

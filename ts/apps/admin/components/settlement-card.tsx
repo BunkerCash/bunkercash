@@ -176,43 +176,27 @@ export function SettlementCard() {
   const canBatchSafely =
     (poolPendingClaims !== null ? vaultRaw >= poolPendingClaims : vaultRaw >= totalRequested);
 
-  const fetchPoolPendingClaims = useCallback(async () => {
+  const fetchPoolPendingClaims = useCallback(async (signal?: AbortSignal) => {
     try {
       setPoolStateError(null);
       const accountApi = readonlyProgram.account as {
         pool: { fetch: (pubkey: typeof poolPda) => Promise<PoolAccountLike> };
       };
       const poolState = await accountApi.pool.fetch(poolPda);
+      if (signal?.aborted) return;
       setPoolPendingClaims(BigInt(poolState.totalPendingClaims.toString()));
     } catch (e: unknown) {
+      if (signal?.aborted) return;
       setPoolPendingClaims(null);
       setPoolStateError(e instanceof Error ? e.message : "Failed to fetch pool state");
     }
   }, [poolPda, readonlyProgram]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        const accountApi = readonlyProgram.account as {
-          pool: { fetch: (pubkey: typeof poolPda) => Promise<PoolAccountLike> };
-        };
-        setPoolStateError(null);
-        const poolState = await accountApi.pool.fetch(poolPda);
-        if (cancelled) return;
-        setPoolPendingClaims(BigInt(poolState.totalPendingClaims.toString()));
-      } catch (e: unknown) {
-        if (cancelled) return;
-        setPoolPendingClaims(null);
-        setPoolStateError(e instanceof Error ? e.message : "Failed to fetch pool state");
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [fetchPoolPendingClaims, poolPda, readonlyProgram]);
+    const controller = new AbortController();
+    void fetchPoolPendingClaims(controller.signal);
+    return () => controller.abort();
+  }, [fetchPoolPendingClaims]);
 
   const settlementPlan = useMemo((): SettlementItem[] => {
     if (claims.length === 0 || totalRequested === BigInt(0) || vaultRaw === BigInt(0)) return [];
