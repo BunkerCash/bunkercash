@@ -5,6 +5,22 @@ import type { ClaimsResponse, SerializedClaim } from "@/lib/solana-server"
 
 export type OpenClaim = SerializedClaim
 
+function normalizeClaims(data: ClaimsResponse) {
+  const reopenedClosed = data.open.filter(
+    (claim) => claim.processed || BigInt(claim.remainingUsdc) === BigInt(0)
+  )
+  const open = data.open.filter(
+    (claim) => !claim.processed && BigInt(claim.remainingUsdc) > BigInt(0)
+  )
+  const closed = [...data.closed, ...reopenedClosed]
+  const totalRequested = open.reduce(
+    (sum, claim) => sum + BigInt(claim.remainingUsdc),
+    BigInt(0)
+  )
+
+  return { open, closed, totalRequested }
+}
+
 export function useAllOpenClaims() {
   const [claims, setClaims] = useState<OpenClaim[]>([])
   const [closedClaims, setClosedClaims] = useState<OpenClaim[]>([])
@@ -19,10 +35,11 @@ export function useAllOpenClaims() {
       const res = await fetch("/api/claims")
       if (!res.ok) throw new Error(`claims: ${res.status}`)
       const data: ClaimsResponse = await res.json()
+      const normalized = normalizeClaims(data)
 
-      setClaims(data.open)
-      setClosedClaims(data.closed)
-      setTotalRequested(BigInt(data.totalRequestedUsdc))
+      setClaims(normalized.open)
+      setClosedClaims(normalized.closed)
+      setTotalRequested(normalized.totalRequested)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to fetch open claims")
     } finally {

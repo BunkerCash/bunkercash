@@ -1,5 +1,9 @@
 const USDC_DECIMALS = 6;
 
+interface ParseUsdcInputOptions {
+  allowZero?: boolean;
+}
+
 export function formatUsdc(raw: string | bigint): string {
   const value = typeof raw === "string" ? BigInt(raw) : raw;
   const whole = value / BigInt(10 ** USDC_DECIMALS);
@@ -7,7 +11,10 @@ export function formatUsdc(raw: string | bigint): string {
   return `${whole.toString()}.${frac.toString().padStart(USDC_DECIMALS, "0").slice(0, 2)}`;
 }
 
-export function parseUsdcInput(value: string): bigint | null {
+export function parseUsdcInput(
+  value: string,
+  options: ParseUsdcInputOptions = {},
+): bigint | null {
   const trimmed = value.trim();
   const match = /^(\d+)(?:\.(\d{0,6}))?$/.exec(trimmed);
   if (!match) return null;
@@ -16,7 +23,8 @@ export function parseUsdcInput(value: string): bigint | null {
   const fracStr = (match[2] ?? "").padEnd(USDC_DECIMALS, "0").slice(0, USDC_DECIMALS);
   const result = whole * BigInt(10 ** USDC_DECIMALS) + BigInt(fracStr);
 
-  return result > BigInt(0) ? result : null;
+  if (result > BigInt(0)) return result;
+  return options.allowZero ? result : null;
 }
 
 export function metadataBytesToHex(bytes: Iterable<number>): string {

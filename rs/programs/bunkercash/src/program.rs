@@ -16,7 +16,7 @@ use mpl_token_metadata::types::DataV2;
 use mpl_token_metadata::ID as TOKEN_METADATA_PROGRAM_ID;
 use spl_token_2022::state::Mint as Token2022Mint;
 
-declare_id!("CGk5t3huzEvgTizUP7iRFnDLZGsZT9EPNm72csfxoM76");
+declare_id!("Buc53Fvrx6TwHaNrkFPb4EzdUv6r8X8y8MrUC6cgJ9M2");
 
 const POOL_SEED: &[u8] = b"pool";
 const BRENT_MINT_SEED: &[u8] = b"bunkercash_mint";
@@ -89,6 +89,54 @@ fn apply_master_repayment(pool: &mut Pool, withdrawal: &mut Withdrawal, amount: 
 
     withdrawal.remaining = withdrawal.remaining.checked_sub(principal_returned).unwrap();
     pool.nav = pool.nav.checked_add(nav_growth).unwrap();
+}
+
+fn apply_master_profit(pool: &mut Pool, amount: u64) {
+    pool.nav = pool.nav.checked_add(amount).unwrap();
+}
+
+fn validate_open_withdrawal(withdrawal: &Withdrawal) -> Result<()> {
+    require!(
+        withdrawal.remaining > 0,
+        ErrorCode::WithdrawalAlreadyClosed
+    );
+    Ok(())
+}
+
+fn apply_master_cancellation(
+    withdrawal: &mut Withdrawal,
+    amount: u64,
+) -> Result<()> {
+    validate_open_withdrawal(withdrawal)?;
+    // Cancellation is a principal return on an open master withdrawal.
+    // NAV already includes the outstanding balance because `master_withdraw`
+    // records the receivable without reducing NAV, so returning principal here
+    // only shrinks the remaining receivable and must not change NAV.
+    require!(
+        amount <= withdrawal.remaining,
+        ErrorCode::RepaymentExceedsWithdrawal
+    );
+    withdrawal.remaining = withdrawal.remaining.checked_sub(amount).unwrap();
+    Ok(())
+}
+
+fn apply_master_close_withdrawal(
+    pool: &mut Pool,
+    withdrawal: &mut Withdrawal,
+    amount: u64,
+) -> Result<()> {
+    validate_open_withdrawal(withdrawal)?;
+    let remaining = withdrawal.remaining;
+    if amount >= remaining {
+        let nav_growth = amount.checked_sub(remaining).unwrap();
+        pool.nav = pool.nav.checked_add(nav_growth).unwrap();
+    } else {
+        let loss = remaining.checked_sub(amount).unwrap();
+        pool.nav = pool.nav.checked_sub(loss).ok_or(ErrorCode::InvalidNAV)?;
+    }
+
+    withdrawal.remaining = 0;
+    Ok(())
 }
 
 fn validate_purchase_limit(
@@ -221,6 +269,9 @@ pub mod bunkercash {
         let purchase_limit_config = &mut ctx.accounts.purchase_limit_config;
         let user = ctx.accounts.user.key();
 
+        if purchase_limit_config.bump == 0 {
+            purchase_limit_config.bump = ctx.bumps.purchase_limit_config;
+        }
         validate_purchase_limit(purchase_limit_config, usdc_amount)?;
 
         let brent_to_mint = if pool.total_brent_supply == 0 {
@@ -322,7 +373,9 @@ pub mod bunkercash {
         );
 
         purchase_limit_config.purchase_limit_usdc = purchase_limit_usdc;
-        purchase_limit_config.bump = ctx.bumps.purchase_limit_config;
+        if purchase_limit_config.bump == 0 {
+            purchase_limit_config.bump = ctx.bumps.purchase_limit_config;
+        }
 
         Ok(())
     }
@@ -736,6 +789,55 @@ pub mod bunkercash {
         Ok(())
     }
 
+    pub fn master_profit(
+        ctx: Context<MasterRepay>,
+        amount: u64,
+    ) -> Result<()> {
+        validate_supported_usdc_mint(
+            &ctx.accounts.supported_usdc_config,
+            &ctx.accounts.usdc_mint.key(),
+        )?;
+        validate_non_zero_amount(amount)?;
+
+        let pool = &mut ctx.accounts.pool;
+        let withdrawal = &mut ctx.accounts.withdrawal;
+
+        require!(
+            ctx.accounts.master_wallet.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+        validate_open_withdrawal(withdrawal)?;
+
+        anchor_spl::token_2022::transfer_checked(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                anchor_spl::token_2022::TransferChecked {
+                    from: ctx.accounts.master_usdc.to_account_info(),
+                    to: ctx.accounts.pool_usdc.to_account_info(),
+                    authority: ctx.accounts.master_wallet.to_account_info(),
+                    mint: ctx.accounts.usdc_mint.to_account_info(),
+                },
+            ),
+            amount,
+            ctx.accounts.usdc_mint.decimals,
+        )?;
+
+        apply_master_profit(pool, amount);
+
+        emit!(MasterProfitEvent {
+            withdrawal_id: withdrawal.id,
+            master_wallet: ctx.accounts.master_wallet.key(),
+            amount,
+            remaining: withdrawal.remaining,
+            new_nav: pool.nav,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+
+        msg!("Master booked {} USDC profit against withdrawal #{}. Remaining: {}, New NAV: {}",
+            amount, withdrawal.id, withdrawal.remaining, pool.nav);
+        Ok(())
+    }
+
     pub fn master_cancel_withdrawal(
         ctx: Context<MasterRepay>,
         amount: u64,
@@ -753,6 +855,7 @@ pub mod bunkercash {
             ctx.accounts.master_wallet.key() == pool.master_wallet,
             ErrorCode::Unauthorized
         );
+        validate_open_withdrawal(withdrawal)?;
 
         anchor_spl::token_2022::transfer_checked(
             CpiContext::new(
@@ -768,9 +871,7 @@ pub mod bunkercash {
             ctx.accounts.usdc_mint.decimals,
         )?;
 
-        // Cancellation can return more than the outstanding balance. Only the
-        // excess above principal counts as NAV growth.
-        apply_master_repayment(pool, withdrawal, amount);
+        apply_master_cancellation(withdrawal, amount)?;
 
         emit!(MasterCancelWithdrawalEvent {
             withdrawal_id: withdrawal.id,
@@ -781,8 +882,58 @@ pub mod bunkercash {
             timestamp: Clock::get()?.unix_timestamp,
         });
 
-        msg!("Master cancelled {} USDC from withdrawal #{}. Remaining: {}, NAV unchanged: {}",
+        msg!("Master cancelled {} USDC from withdrawal #{}. Remaining: {}, New NAV: {}",
             amount, withdrawal.id, withdrawal.remaining, pool.nav);
+        Ok(())
+    }
+
+    pub fn master_close_withdrawal(
+        ctx: Context<MasterRepay>,
+        amount: u64,
+    ) -> Result<()> {
+        validate_supported_usdc_mint(
+            &ctx.accounts.supported_usdc_config,
+            &ctx.accounts.usdc_mint.key(),
+        )?;
+
+        let pool = &mut ctx.accounts.pool;
+        let withdrawal = &mut ctx.accounts.withdrawal;
+
+        require!(
+            ctx.accounts.master_wallet.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+        validate_open_withdrawal(withdrawal)?;
+
+        if amount > 0 {
+            anchor_spl::token_2022::transfer_checked(
+                CpiContext::new(
+                    ctx.accounts.token_program.to_account_info(),
+                    anchor_spl::token_2022::TransferChecked {
+                        from: ctx.accounts.master_usdc.to_account_info(),
+                        to: ctx.accounts.pool_usdc.to_account_info(),
+                        authority: ctx.accounts.master_wallet.to_account_info(),
+                        mint: ctx.accounts.usdc_mint.to_account_info(),
+                    },
+                ),
+                amount,
+                ctx.accounts.usdc_mint.decimals,
+            )?;
+        }
+
+        apply_master_close_withdrawal(pool, withdrawal, amount)?;
+
+        emit!(MasterCloseWithdrawalEvent {
+            withdrawal_id: withdrawal.id,
+            master_wallet: ctx.accounts.master_wallet.key(),
+            amount,
+            remaining: withdrawal.remaining,
+            new_nav: pool.nav,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+
+        msg!("Master closed withdrawal #{} with {} USDC returned. Remaining: {}, New NAV: {}",
+            withdrawal.id, amount, withdrawal.remaining, pool.nav);
         Ok(())
     }
 
@@ -982,9 +1133,11 @@ pub struct DepositUsdc<'info> {
     pub supported_usdc_config: Account<'info, SupportedUsdcConfig>,
 
     #[account(
-        mut,
+        init_if_needed,
+        payer = user,
+        space = 8 + PurchaseLimitConfig::INIT_SPACE,
         seeds = [PURCHASE_LIMIT_SEED],
-        bump = purchase_limit_config.bump
+        bump
     )]
     pub purchase_limit_config: Account<'info, PurchaseLimitConfig>,
 
@@ -1354,16 +1507,11 @@ pub struct Withdrawal {
     pub bump: u8,
 }
 
-/// Global deposit cap configuration.
-///
-/// **`total_deposited_usdc` is monotonic** — it tracks cumulative lifetime
-/// inflow and is never decremented on redemption.  This makes the limit a
-/// lifetime fundraising cap, not a current-pool-size cap.  To re-open
-/// deposits after redemptions, the admin must raise `purchase_limit_usdc`.
 #[account]
 #[derive(InitSpace)]
 pub struct PurchaseLimitConfig {
     pub purchase_limit_usdc: u64,
+    /// Monotonic field tracking total USDC deposited; reset only via `reset_purchase_counter`
     pub total_deposited_usdc: u64,
     pub bump: u8,
 }
@@ -1460,12 +1608,32 @@ pub struct MasterRepaymentEvent {
 }
 
 #[event]
+pub struct MasterProfitEvent {
+    pub withdrawal_id: u64,
+    pub master_wallet: Pubkey,
+    pub amount: u64,
+    pub remaining: u64,
+    pub new_nav: u64,
+    pub timestamp: i64,
+}
+
+#[event]
 pub struct MasterCancelWithdrawalEvent {
     pub withdrawal_id: u64,
     pub master_wallet: Pubkey,
     pub amount: u64,
     pub remaining: u64,
     pub nav: u64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct MasterCloseWithdrawalEvent {
+    pub withdrawal_id: u64,
+    pub master_wallet: Pubkey,
+    pub amount: u64,
+    pub remaining: u64,
+    pub new_nav: u64,
     pub timestamp: i64,
 }
 
@@ -1523,14 +1691,18 @@ pub enum ErrorCode {
     PurchaseLimitExceeded,
     #[msg("Amount must be greater than zero")]
     InvalidAmount,
+    #[msg("Withdrawal is already closed")]
+    WithdrawalAlreadyClosed,
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
+        apply_master_cancellation, apply_master_close_withdrawal, apply_master_profit,
         apply_master_repayment, calculate_claim_usdc_value, record_master_withdrawal,
-        validate_purchase_limit, validate_settlement_pending_claims, ErrorCode, Pool,
-        PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal, validate_supported_usdc_mint,
+        validate_open_withdrawal, validate_purchase_limit, validate_settlement_pending_claims,
+        ErrorCode, Pool, PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal,
+        validate_supported_usdc_mint,
     };
     use anchor_lang::prelude::Pubkey;
 
@@ -1639,7 +1811,7 @@ mod tests {
     }
 
     #[test]
-    fn cancellation_of_outstanding_principal_does_not_change_nav() {
+    fn master_profit_always_increases_nav_without_touching_remaining() {
         let mut pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 7_500_000,
@@ -1649,7 +1821,32 @@ mod tests {
             withdrawal_counter: 1,
             bump: 255,
         };
-        let original_nav = pool.nav;
+        let withdrawal = Withdrawal {
+            id: 0,
+            amount: 1_250_000,
+            remaining: 400_000,
+            metadata_hash: [0; 32],
+            timestamp: 0,
+            bump: 0,
+        };
+
+        apply_master_profit(&mut pool, 225_000);
+
+        assert_eq!(pool.nav, 7_725_000);
+        assert_eq!(withdrawal.remaining, 400_000);
+    }
+
+    #[test]
+    fn cancellation_reduces_remaining_without_changing_nav() {
+        let pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 7_500_000,
+            total_brent_supply: 7_500_000,
+            total_pending_claims: 0,
+            claim_counter: 0,
+            withdrawal_counter: 1,
+            bump: 255,
+        };
         let mut withdrawal = Withdrawal {
             id: 0,
             amount: 1_250_000,
@@ -1659,14 +1856,162 @@ mod tests {
             bump: 0,
         };
 
-        apply_master_repayment(&mut pool, &mut withdrawal, 1_250_000);
+        apply_master_cancellation(&mut withdrawal, 1_250_000).unwrap();
 
-        assert_eq!(pool.nav, original_nav);
+        assert_eq!(pool.nav, 7_500_000);
         assert_eq!(withdrawal.remaining, 0);
     }
 
     #[test]
-    fn cancellation_only_adds_profit_to_nav() {
+    fn cancellation_rejects_amounts_above_remaining() {
+        let pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 7_500_000,
+            total_brent_supply: 7_500_000,
+            total_pending_claims: 0,
+            claim_counter: 0,
+            withdrawal_counter: 1,
+            bump: 255,
+        };
+        let mut withdrawal = Withdrawal {
+            id: 0,
+            amount: 1_250_000,
+            remaining: 1_250_000,
+            metadata_hash: [0; 32],
+            timestamp: 0,
+            bump: 0,
+        };
+
+        let err = apply_master_cancellation(&mut withdrawal, 1_400_000).unwrap_err();
+
+        assert_eq!(err, ErrorCode::RepaymentExceedsWithdrawal.into());
+        assert_eq!(pool.nav, 7_500_000);
+        assert_eq!(withdrawal.remaining, 1_250_000);
+    }
+
+    #[test]
+    fn cancellation_rejects_already_closed_withdrawals() {
+        let pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 7_500_000,
+            total_brent_supply: 7_500_000,
+            total_pending_claims: 0,
+            claim_counter: 0,
+            withdrawal_counter: 1,
+            bump: 255,
+        };
+        let mut withdrawal = Withdrawal {
+            id: 0,
+            amount: 1_250_000,
+            remaining: 0,
+            metadata_hash: [0; 32],
+            timestamp: 0,
+            bump: 0,
+        };
+
+        let err = apply_master_cancellation(&mut withdrawal, 400_000).unwrap_err();
+
+        assert_eq!(err, ErrorCode::WithdrawalAlreadyClosed.into());
+        assert_eq!(pool.nav, 7_500_000);
+        assert_eq!(withdrawal.remaining, 0);
+    }
+
+    #[test]
+    fn validate_open_withdrawal_rejects_closed_withdrawals() {
+        let withdrawal = Withdrawal {
+            id: 0,
+            amount: 1_250_000,
+            remaining: 0,
+            metadata_hash: [0; 32],
+            timestamp: 0,
+            bump: 0,
+        };
+
+        let err = validate_open_withdrawal(&withdrawal).unwrap_err();
+
+        assert_eq!(err, ErrorCode::WithdrawalAlreadyClosed.into());
+    }
+
+    #[test]
+    fn close_withdrawal_with_profit_zeroes_remaining_and_increases_nav() {
+        let mut pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 7_500_000,
+            total_brent_supply: 7_500_000,
+            total_pending_claims: 0,
+            claim_counter: 0,
+            withdrawal_counter: 1,
+            bump: 255,
+        };
+        let mut withdrawal = Withdrawal {
+            id: 0,
+            amount: 1_250_000,
+            remaining: 400_000,
+            metadata_hash: [0; 32],
+            timestamp: 0,
+            bump: 0,
+        };
+
+        apply_master_close_withdrawal(&mut pool, &mut withdrawal, 525_000).unwrap();
+
+        assert_eq!(pool.nav, 7_625_000);
+        assert_eq!(withdrawal.remaining, 0);
+    }
+
+    #[test]
+    fn close_withdrawal_with_loss_zeroes_remaining_and_reduces_nav() {
+        let mut pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 7_500_000,
+            total_brent_supply: 7_500_000,
+            total_pending_claims: 0,
+            claim_counter: 0,
+            withdrawal_counter: 1,
+            bump: 255,
+        };
+        let mut withdrawal = Withdrawal {
+            id: 0,
+            amount: 1_250_000,
+            remaining: 400_000,
+            metadata_hash: [0; 32],
+            timestamp: 0,
+            bump: 0,
+        };
+
+        apply_master_close_withdrawal(&mut pool, &mut withdrawal, 250_000).unwrap();
+
+        assert_eq!(pool.nav, 7_350_000);
+        assert_eq!(withdrawal.remaining, 0);
+    }
+
+    #[test]
+    fn close_withdrawal_at_full_loss_allows_zero_return() {
+        let mut pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 7_500_000,
+            total_brent_supply: 7_500_000,
+            total_pending_claims: 0,
+            claim_counter: 0,
+            withdrawal_counter: 1,
+            bump: 255,
+        };
+        let mut withdrawal = Withdrawal {
+            id: 0,
+            amount: 1_250_000,
+            remaining: 400_000,
+            metadata_hash: [0; 32],
+            timestamp: 0,
+            bump: 0,
+        };
+
+        apply_master_close_withdrawal(&mut pool, &mut withdrawal, 0).unwrap();
+
+        assert_eq!(pool.nav, 7_100_000);
+        assert_eq!(withdrawal.remaining, 0);
+    }
+
+    #[test]
+    fn cancellation_then_close_only_realizes_pnl_on_still_outstanding_balance() {
         let mut pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 7_500_000,
@@ -1685,9 +2030,43 @@ mod tests {
             bump: 0,
         };
 
-        apply_master_repayment(&mut pool, &mut withdrawal, 1_400_000);
+        apply_master_cancellation(&mut withdrawal, 400_000).unwrap();
 
-        assert_eq!(pool.nav, 7_650_000);
+        assert_eq!(pool.nav, 7_500_000);
+        assert_eq!(withdrawal.remaining, 850_000);
+
+        apply_master_close_withdrawal(&mut pool, &mut withdrawal, 700_000).unwrap();
+
+        // Total returned capital is 1,100,000 (400,000 cancelled + 700,000 on close),
+        // so the final realized loss against the original 1,250,000 withdrawal is 150,000.
+        assert_eq!(pool.nav, 7_350_000);
+        assert_eq!(withdrawal.remaining, 0);
+    }
+
+    #[test]
+    fn close_withdrawal_rejects_already_closed_withdrawals() {
+        let mut pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 7_500_000,
+            total_brent_supply: 7_500_000,
+            total_pending_claims: 0,
+            claim_counter: 0,
+            withdrawal_counter: 1,
+            bump: 255,
+        };
+        let mut withdrawal = Withdrawal {
+            id: 0,
+            amount: 1_250_000,
+            remaining: 0,
+            metadata_hash: [0; 32],
+            timestamp: 0,
+            bump: 0,
+        };
+
+        let err = apply_master_close_withdrawal(&mut pool, &mut withdrawal, 525_000).unwrap_err();
+
+        assert_eq!(err, ErrorCode::WithdrawalAlreadyClosed.into());
+        assert_eq!(pool.nav, 7_500_000);
         assert_eq!(withdrawal.remaining, 0);
     }
 

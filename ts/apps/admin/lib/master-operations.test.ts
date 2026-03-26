@@ -16,6 +16,7 @@ describe("master-operations utilities", () => {
   it("parses valid USDC input into base units", () => {
     expect(parseUsdcInput("1.25")).toBe(BigInt(1250000));
     expect(parseUsdcInput("9999999.123456")).toBe(BigInt("9999999123456"));
+    expect(parseUsdcInput("0", { allowZero: true })).toBe(BigInt(0));
     expect(parseUsdcInput("7.1234567")).toBeNull();
     expect(parseUsdcInput("0")).toBeNull();
     expect(parseUsdcInput("-4")).toBeNull();

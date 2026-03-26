@@ -18,9 +18,9 @@ import {
   getPoolPda,
   getBunkercashMintPda,
   getPoolSignerPda,
+  fetchConfiguredUsdcMint,
   PROGRAM_ID,
 } from "@/lib/program";
-import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
 import { fetchDecodedClaimAccounts } from "@/lib/claim-accounts";
 import type { DecodedClaimAccount } from "@/lib/claim-accounts";
 
@@ -124,9 +124,16 @@ export async function fetchPoolData(): Promise<PoolDataResponse> {
   let treasuryUsdcRaw: number | null = null;
   try {
     const poolSignerPda = getPoolSignerPda(poolPda, PROGRAM_ID);
-    const endpoint = (connection as { rpcEndpoint?: string }).rpcEndpoint ?? "";
-    const cluster = getClusterFromEndpoint(endpoint);
-    const usdcMint = getUsdcMintForCluster(cluster);
+    let usdcMint: PublicKey | null = null;
+    try {
+      usdcMint = await fetchConfiguredUsdcMint(connection);
+    } catch {
+      // Ignore initial fetch errors, handled by fallback
+    }
+    
+    if (!usdcMint && process.env.NEXT_PUBLIC_USDC_MINT) {
+      usdcMint = new PublicKey(process.env.NEXT_PUBLIC_USDC_MINT);
+    }
 
     if (usdcMint) {
       const payoutVault = getAssociatedTokenAddressSync(
@@ -166,11 +173,12 @@ export async function fetchAllClaims(): Promise<ClaimsResponse> {
 
   for (const claim of allClaims) {
     const serialized = serializeClaim(claim);
-    if (claim.processed) {
+    const remainingUsdc = BigInt(claim.remainingUsdc);
+    if (claim.processed || remainingUsdc === BigInt(0)) {
       closed.push(serialized);
     } else {
       open.push(serialized);
-      totalRequested += BigInt(claim.remainingUsdc);
+      totalRequested += remainingUsdc;
     }
   }
 
@@ -178,7 +186,7 @@ export async function fetchAllClaims(): Promise<ClaimsResponse> {
     open,
     closed,
     totalRequestedUsdc: totalRequested.toString(),
-    openCount: open.filter((c) => BigInt(c.remainingUsdc) > BigInt(0)).length,
+    openCount: open.length,
     ts: Date.now(),
   };
 }
@@ -362,4 +370,3 @@ export async function fetchTokenBalance(wallet: string): Promise<BalanceResponse
     return { balance: "0", ts: Date.now() };
   }
 }
-
