@@ -125,7 +125,7 @@ export function BuyPrimaryInterface() {
     () => getClusterFromEndpoint(connection.rpcEndpoint ?? ""),
     [connection],
   );
-  const { usdcMint, usdcTokenProgram } = useSupportedUsdcMint();
+  const { usdcMint, usdcTokenProgram, error: usdcMintError } = useSupportedUsdcMint();
 
   const fetchPoolState = useCallback(async () => {
     if (!program || !connection) return;
@@ -276,6 +276,11 @@ export function BuyPrimaryInterface() {
       const msg = `Unsupported network: no configured USDC mint for ${currentCluster}.`;
       setError(msg);
       showToast(msg, "error");
+      return;
+    }
+    if (usdcMintError) {
+      setError(usdcMintError);
+      showToast(usdcMintError, "error");
       return;
     }
     if (
@@ -572,7 +577,12 @@ export function BuyPrimaryInterface() {
           {error}
         </div>
       )}
-      {!supportsUsdcDeposits && usdcBalance && (
+      {usdcMintError && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          Failed to load configured USDC mint details: {usdcMintError}
+        </div>
+      )}
+      {!usdcMintError && !supportsUsdcDeposits && usdcBalance && (
         <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-400">
           Detected {usdcBalance} USDC in your wallet, but the configured mint is unsupported for this deployment. Ask the team to verify the selected USDC mint.
         </div>

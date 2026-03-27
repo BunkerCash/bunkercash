@@ -17,6 +17,7 @@ export function useSupportedUsdcMint() {
   const [usdcMint, setUsdcMint] = useState<PublicKey | null>(fallbackMint);
   const [usdcTokenProgram, setUsdcTokenProgram] = useState<PublicKey | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const isMountedRef = useRef(true);
   const requestIdRef = useRef(0);
 
@@ -33,9 +34,10 @@ export function useSupportedUsdcMint() {
     if (isMountedRef.current) {
       setLoading(true);
     }
+    let nextMint = fallbackMint;
     try {
       const configuredMint = await fetchConfiguredUsdcMint(connection);
-      const nextMint = configuredMint ?? fallbackMint;
+      nextMint = configuredMint ?? fallbackMint;
       const nextTokenProgram = nextMint
         ? await fetchMintTokenProgram(connection, nextMint)
         : null;
@@ -45,6 +47,16 @@ export function useSupportedUsdcMint() {
       ) {
         setUsdcMint(nextMint);
         setUsdcTokenProgram(nextTokenProgram);
+        setError(null);
+      }
+    } catch (error: unknown) {
+      if (
+        isMountedRef.current &&
+        requestIdRef.current === requestId
+      ) {
+        setUsdcMint(nextMint);
+        setUsdcTokenProgram(null);
+        setError(error instanceof Error ? error.message : "Failed to load configured USDC mint details");
       }
     } finally {
       if (
@@ -60,5 +72,5 @@ export function useSupportedUsdcMint() {
     void refresh();
   }, [refresh]);
 
-  return { usdcMint, usdcTokenProgram, loading, refresh };
+  return { usdcMint, usdcTokenProgram, loading, error, refresh };
 }

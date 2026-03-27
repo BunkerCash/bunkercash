@@ -114,15 +114,11 @@ export async function fetchMintTokenProgram(
   connection: Connection,
   mint: PublicKey,
 ): Promise<PublicKey | null> {
-  try {
-    const mintInfo = await connection.getAccountInfo(mint)
-    const owner = mintInfo?.owner ?? null
-    if (!owner) return null
-    if (owner.equals(TOKEN_PROGRAM_ID) || owner.equals(TOKEN_2022_PROGRAM_ID)) {
-      return owner
-    }
-    return null
-  } catch {
-    return null
+  const mintInfo = await connection.getAccountInfo(mint)
+  const owner = mintInfo?.owner ?? null
+  if (!owner) return null
+  if (owner.equals(TOKEN_PROGRAM_ID) || owner.equals(TOKEN_2022_PROGRAM_ID)) {
+    return owner
   }
+  return null
 }
