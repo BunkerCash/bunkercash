@@ -12,9 +12,9 @@ import {
   getPoolPda,
   getPurchaseLimitConfigPda,
   getSupportedUsdcConfigPda,
+  fetchMintTokenProgram,
   PROGRAM_ID,
 } from "@/lib/program";
-import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { formatUsdc, parseUsdcInput, shortPk } from "@/lib/master-operations";
 
 interface Stringable {
@@ -63,7 +63,7 @@ interface SetSupportedUsdcMintMethods {
       supportedUsdcConfig: PublicKey;
       usdcMint: PublicKey;
       admin: PublicKey;
-      tokenProgram: PublicKey;
+      usdcTokenProgram: PublicKey;
       systemProgram: PublicKey;
     }) => {
       instruction: () => Promise<Transaction["instructions"][number]>;
@@ -276,6 +276,10 @@ export function PurchaseLimitsCard() {
     setTxSuccess(null);
 
     try {
+      const usdcTokenProgram = await fetchMintTokenProgram(connection, parsedMint);
+      if (!usdcTokenProgram) {
+        throw new Error("Selected mint is not owned by the SPL Token Program or Token-2022.");
+      }
       const ix = await (program.methods as unknown as SetSupportedUsdcMintMethods)
         .setSupportedUsdcMint()
         .accounts({
@@ -283,7 +287,7 @@ export function PurchaseLimitsCard() {
           supportedUsdcConfig: supportedUsdcConfigPda,
           usdcMint: parsedMint,
           admin: wallet.publicKey,
-          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          usdcTokenProgram,
           systemProgram: SystemProgram.programId,
         })
         .instruction();
@@ -497,7 +501,7 @@ export function PurchaseLimitsCard() {
         {state && (
           <div className="mt-6 border-t border-neutral-800/60 pt-6">
             <label className="mb-2 block text-xs text-neutral-400">
-              Supported Token-2022 USDC Mint
+              Supported USDC Mint
             </label>
             <input
               type="text"

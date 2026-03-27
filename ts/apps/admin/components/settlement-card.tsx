@@ -6,7 +6,6 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey, SendTransactionError, Transaction, type TransactionInstruction } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
-  TOKEN_2022_PROGRAM_ID,
   createAssociatedTokenAccountIdempotentInstruction,
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
@@ -33,7 +32,7 @@ interface InstructionBuilder {
     supportedUsdcConfig: PublicKey;
     usdcMint: PublicKey;
     masterWallet: PublicKey;
-    tokenProgram: PublicKey;
+    usdcTokenProgram: PublicKey;
   }) => {
     remainingAccounts: (accounts: AccountMetaLike[]) => {
       instruction: () => Promise<TransactionInstruction>;
@@ -149,21 +148,21 @@ export function SettlementCard() {
     [connection, publicKey, signTransaction, signAllTransactions]
   );
   const readonlyProgram = useMemo(() => getReadonlyProgram(connection), [connection]);
-  const { usdcMint } = useSupportedUsdcMint();
+  const { usdcMint, usdcTokenProgram } = useSupportedUsdcMint();
   const supportedUsdcConfigPda = useMemo(
     () => getSupportedUsdcConfigPda(PROGRAM_ID),
     []
   );
   const payoutVault = useMemo(() => {
-    if (!usdcMint) return null;
+    if (!usdcMint || !usdcTokenProgram) return null;
     return getAssociatedTokenAddressSync(
       usdcMint,
       poolSignerPda,
       true,
-      TOKEN_2022_PROGRAM_ID,
+      usdcTokenProgram,
       ASSOCIATED_TOKEN_PROGRAM_ID
     );
-  }, [poolSignerPda, usdcMint]);
+  }, [poolSignerPda, usdcMint, usdcTokenProgram]);
 
   const vaultRaw = useMemo(() => parseUiUsdc(vaultBalance), [vaultBalance]);
   const pendingClaimsMismatch = poolPendingClaims !== null && poolPendingClaims !== totalRequested;
@@ -234,7 +233,7 @@ export function SettlementCard() {
     : 0;
 
   const handleSettleAll = useCallback(async () => {
-    if (!program || !publicKey || !usdcMint || !payoutVault || settlementPlan.length === 0) return;
+    if (!program || !publicKey || !usdcMint || !usdcTokenProgram || !payoutVault || settlementPlan.length === 0) return;
     if (exceedsSingleTransactionLimit) {
       setTxError(
         `This underfunded settlement run must include all open claims in one transaction, and ${settlementPlan.length} claims exceeds the current safe limit of ${CLAIMS_PER_TX}. Add more vault liquidity or settle after a program upgrade.`
@@ -270,7 +269,7 @@ export function SettlementCard() {
               usdcMint,
               claimUser,
               false,
-              TOKEN_2022_PROGRAM_ID,
+              usdcTokenProgram,
               ASSOCIATED_TOKEN_PROGRAM_ID
             );
 
@@ -280,7 +279,7 @@ export function SettlementCard() {
                 userUsdcAta,
                 claimUser,
                 usdcMint,
-                TOKEN_2022_PROGRAM_ID,
+                usdcTokenProgram,
                 ASSOCIATED_TOKEN_PROGRAM_ID
               )
             );
@@ -299,7 +298,7 @@ export function SettlementCard() {
               supportedUsdcConfig: supportedUsdcConfigPda,
               usdcMint,
               masterWallet: publicKey,
-              tokenProgram: TOKEN_2022_PROGRAM_ID,
+              usdcTokenProgram,
             })
             .remainingAccounts(remainingAccounts)
             .instruction());
@@ -349,7 +348,7 @@ export function SettlementCard() {
     setResults({ settledClaims, failedClaims, signatures: succeeded });
     setSettling(false);
     await Promise.all([refreshClaims(), refreshVault(), fetchPoolPendingClaims()]);
-  }, [canBatchSafely, connection, exceedsSingleTransactionLimit, fetchPoolPendingClaims, payoutVault, program, publicKey, refreshClaims, refreshVault, settlementPlan, usdcMint, poolPda, supportedUsdcConfigPda]);
+  }, [canBatchSafely, connection, exceedsSingleTransactionLimit, fetchPoolPendingClaims, payoutVault, program, publicKey, refreshClaims, refreshVault, settlementPlan, usdcMint, usdcTokenProgram, poolPda, supportedUsdcConfigPda]);
 
   const loading = claimsLoading || vaultLoading;
   const canSettle =
@@ -389,7 +388,7 @@ export function SettlementCard() {
         <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-5">
           <div className="text-[11px] uppercase tracking-wider text-neutral-500">Vault Balance</div>
           <p className="mt-2 font-mono text-lg font-semibold text-white">${vaultBalance ?? "0"}</p>
-          <p className="mt-1 text-xs text-neutral-500">Token-2022 USDC in the pool vault</p>
+          <p className="mt-1 text-xs text-neutral-500">USDC in the pool vault</p>
         </div>
         <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-5">
           <div className="text-[11px] uppercase tracking-wider text-neutral-500">Open Claims</div>

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import { getClusterFromEndpoint, getUsdcMintForCluster } from "@/lib/constants";
-import { fetchConfiguredUsdcMint } from "@/lib/program";
+import { fetchConfiguredUsdcMint, fetchMintTokenProgram } from "@/lib/program";
 
 export function useSupportedUsdcMint() {
   const { connection } = useConnection();
@@ -15,6 +15,7 @@ export function useSupportedUsdcMint() {
   }, [connection]);
 
   const [usdcMint, setUsdcMint] = useState<PublicKey | null>(fallbackMint);
+  const [usdcTokenProgram, setUsdcTokenProgram] = useState<PublicKey | null>(null);
   const [loading, setLoading] = useState(true);
   const isMountedRef = useRef(true);
   const requestIdRef = useRef(0);
@@ -34,11 +35,16 @@ export function useSupportedUsdcMint() {
     }
     try {
       const configuredMint = await fetchConfiguredUsdcMint(connection);
+      const nextMint = configuredMint ?? fallbackMint;
+      const nextTokenProgram = nextMint
+        ? await fetchMintTokenProgram(connection, nextMint)
+        : null;
       if (
         isMountedRef.current &&
         requestIdRef.current === requestId
       ) {
-        setUsdcMint(configuredMint ?? fallbackMint);
+        setUsdcMint(nextMint);
+        setUsdcTokenProgram(nextTokenProgram);
       }
     } finally {
       if (
@@ -54,5 +60,5 @@ export function useSupportedUsdcMint() {
     void refresh();
   }, [refresh]);
 
-  return { usdcMint, loading, refresh };
+  return { usdcMint, usdcTokenProgram, loading, refresh };
 }

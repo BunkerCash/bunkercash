@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import type { Idl, Program } from '@coral-xyz/anchor'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { PublicKey, SendTransactionError, SystemProgram, Transaction, type TransactionInstruction } from '@solana/web3.js'
-import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
+import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import {
   getBunkercashMintPda,
   getPoolPda,
@@ -71,6 +71,7 @@ interface BuyPrimaryMethods {
       purchaseLimitConfig: PublicKey;
       usdcMint: PublicKey;
       user: PublicKey;
+      usdcTokenProgram: PublicKey;
       tokenProgram: PublicKey;
       systemProgram: PublicKey;
     }) => {
@@ -89,7 +90,6 @@ export function BuyPrimaryInterface() {
   const [error, setError] = useState<string | null>(null);
   const [txSig, setTxSig] = useState<string | null>(null);
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
-  const [usdcTokenProgram, setUsdcTokenProgram] = useState<PublicKey | null>(null);
   const txInFlight = useRef(false);
   const [poolState, setPoolState] = useState<{
     masterWallet: PublicKey;
@@ -125,25 +125,7 @@ export function BuyPrimaryInterface() {
     () => getClusterFromEndpoint(connection.rpcEndpoint ?? ""),
     [connection],
   );
-  const { usdcMint } = useSupportedUsdcMint();
-
-  useEffect(() => {
-    if (!connection || !usdcMint) {
-      setUsdcTokenProgram(null)
-      return
-    }
-
-    const detectMintProgram = async () => {
-      try {
-        const mintInfo = await connection.getAccountInfo(usdcMint)
-        setUsdcTokenProgram(mintInfo?.owner ?? null)
-      } catch {
-        setUsdcTokenProgram(null)
-      }
-    }
-
-    void detectMintProgram()
-  }, [connection, usdcMint])
+  const { usdcMint, usdcTokenProgram } = useSupportedUsdcMint();
 
   const fetchPoolState = useCallback(async () => {
     if (!program || !connection) return;
@@ -236,7 +218,9 @@ export function BuyPrimaryInterface() {
     ? derivePrice(poolState.nav, poolState.totalBrentSupply)
     : null;
   const supportsUsdcDeposits =
-    !!usdcTokenProgram && usdcTokenProgram.equals(TOKEN_2022_PROGRAM_ID)
+    !!usdcTokenProgram &&
+    (usdcTokenProgram.equals(TOKEN_PROGRAM_ID) ||
+      usdcTokenProgram.equals(TOKEN_2022_PROGRAM_ID))
 
   const usdcAmountRaw = useMemo(() => {
     return parseUiAmountToBaseUnits(usdcAmount, USDC_DECIMALS)
@@ -289,7 +273,7 @@ export function BuyPrimaryInterface() {
 
   const handleBuy = async () => {
     if (!usdcMint) {
-      const msg = `Unsupported network: no configured Token-2022 USDC mint for ${currentCluster}.`;
+      const msg = `Unsupported network: no configured USDC mint for ${currentCluster}.`;
       setError(msg);
       showToast(msg, "error");
       return;
@@ -323,7 +307,7 @@ export function BuyPrimaryInterface() {
     try {
       if (!supportsUsdcDeposits) {
         const msg =
-          "Detected legacy SPL USDC for this wallet. The current contract only accepts Token-2022 USDC.";
+          "Configured USDC mint is not supported by this deployment.";
         setError(msg);
         showToast(msg, "error");
         return;
@@ -333,14 +317,14 @@ export function BuyPrimaryInterface() {
         usdcMint,
         publicKey,
         false,
-        TOKEN_2022_PROGRAM_ID,
+        usdcTokenProgram,
         ASSOCIATED_TOKEN_PROGRAM_ID,
       );
       const poolUsdcVault = getAssociatedTokenAddressSync(
         usdcMint,
         poolPda,
         true,
-        TOKEN_2022_PROGRAM_ID,
+        usdcTokenProgram,
         ASSOCIATED_TOKEN_PROGRAM_ID,
       );
       const brentMintInfo = await connection.getAccountInfo(bunkercashMintPda);
@@ -365,7 +349,7 @@ export function BuyPrimaryInterface() {
           userUsdc,
           publicKey,
           usdcMint,
-          TOKEN_2022_PROGRAM_ID,
+          usdcTokenProgram,
           ASSOCIATED_TOKEN_PROGRAM_ID,
         );
       const createUserBunkercashAtaIx =
@@ -399,6 +383,7 @@ export function BuyPrimaryInterface() {
           purchaseLimitConfig: purchaseLimitConfigPda,
           usdcMint,
           user: publicKey,
+          usdcTokenProgram,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
@@ -495,9 +480,9 @@ export function BuyPrimaryInterface() {
             Unsupported Network
           </h3>
           <p className="text-neutral-400 max-w-md">
-            This deployment currently supports the Token-2022 USDC mint on
+            This deployment currently supports a configured USDC mint on
             devnet/testnet only. Set `NEXT_PUBLIC_USDC_MINT` if you are using a
-            different supported Token-2022 USDC mint.
+            different supported USDC mint.
           </p>
         </div>
       </div>
@@ -589,7 +574,7 @@ export function BuyPrimaryInterface() {
       )}
       {!supportsUsdcDeposits && usdcBalance && (
         <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-400">
-          Detected {usdcBalance} USDC in your wallet, but it is on the legacy SPL token program. This contract currently accepts Token-2022 USDC only.
+          Detected {usdcBalance} USDC in your wallet, but the configured mint is unsupported for this deployment. Ask the team to verify the selected USDC mint.
         </div>
       )}
       {txSig && (
