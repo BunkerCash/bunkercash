@@ -12,10 +12,11 @@ import WalletButton from "@/components/wallet/WalletButton";
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { label: "Buy Token", path: "/" },
-  { label: "Sell Registration", path: "/sell" },
+  { label: "Overview", path: "/" },
+  { label: "Acquire Tokens", path: "/acquire" },
+  { label: "Submit Request", path: "/sell" },
   { label: "Pool Status", path: "/pool" },
-  { label: "My Position", path: "/position" },
+  { label: "My Activity", path: "/position" },
   { label: "Information", path: "/information" },
 ];
 

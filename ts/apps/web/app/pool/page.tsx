@@ -37,7 +37,7 @@ const PoolStatus = () => {
       return null;
     return [
       { name: "Treasury USDC", value: stats.treasuryUsdcRaw },
-      { name: "Pending Claims", value: stats.pendingClaimsUsdcRaw },
+      { name: "Open Requests", value: stats.pendingClaimsUsdcRaw },
     ];
   }, [stats.treasuryUsdcRaw, stats.pendingClaimsUsdcRaw]);
 
@@ -51,7 +51,7 @@ const PoolStatus = () => {
     return [
       { name: "NAV", value: stats.navUsdcRaw },
       { name: "Treasury", value: stats.treasuryUsdcRaw },
-      { name: "Pending", value: stats.pendingClaimsUsdcRaw },
+      { name: "Open Requests", value: stats.pendingClaimsUsdcRaw },
     ];
   }, [stats.navUsdcRaw, stats.treasuryUsdcRaw, stats.pendingClaimsUsdcRaw]);
 
@@ -88,11 +88,11 @@ const PoolStatus = () => {
           {/* Header */}
           <div className="text-center mb-10">
             <h1 className="text-3xl font-bold text-foreground mb-4">
-              Liquidity Pool Status
+              Pool Status
             </h1>
             <p className="text-muted-foreground max-w-2xl mx-auto">
-              Real-time transparency into the pool, supply metrics, and active
-              claims. This page is read-only.
+              Read-only protocol transparency for supply, treasury, and open
+              request metrics.
             </p>
           </div>
 
@@ -103,10 +103,10 @@ const PoolStatus = () => {
             </div>
           )}
 
-          {/* Top row: Price + Treasury */}
+          {/* Top row: Reference Rate + Treasury */}
           <div className="grid sm:grid-cols-2 gap-6 mb-6">
             <StatCard
-              label="Token Price"
+              label="Reference Rate"
               value={
                 loading
                   ? renderLoading
@@ -116,11 +116,11 @@ const PoolStatus = () => {
                     </span>
                   )
               }
-              note="Derived from pool NAV and current supply"
+              note="Interface reference metric"
               className="glow-primary h-full"
             />
             <StatCard
-              label="Treasury USDC"
+              label="Treasury Balance"
               value={
                 loading
                   ? renderLoading
@@ -130,7 +130,7 @@ const PoolStatus = () => {
                     </span>
                   )
               }
-              note="Payout vault balance"
+              note="Protocol treasury balance"
               className="glass-card h-full"
             />
           </div>
@@ -148,11 +148,11 @@ const PoolStatus = () => {
                     </span>
                   )
               }
-              note="Current bRENT supply"
+              note="Current token supply"
               className="glass-card h-full"
             />
             <StatCard
-              label="Pending Claims"
+              label="Open Requests"
               value={
                 loading
                   ? renderLoading
@@ -162,7 +162,7 @@ const PoolStatus = () => {
                     </span>
                   )
               }
-              note="Outstanding claimant obligations"
+              note="Pending settlement requests"
               className="glass-card h-full"
             />
             <StatCard
@@ -176,7 +176,7 @@ const PoolStatus = () => {
                     </span>
                   )
               }
-              note="Claims burn tokens instead of locking them"
+              note="Requests reduce circulating supply"
               className="glow-primary h-full"
             />
           </div>
@@ -184,9 +184,9 @@ const PoolStatus = () => {
           {/* Charts row */}
           {!loading && supplyPieData && barData && (
             <div className="grid md:grid-cols-2 gap-6 mb-8">
-              {/* Donut: Treasury vs Pending claims */}
+              {/* Donut: Treasury vs Open Requests */}
               <div className="glass-card p-6">
-                <p className="stat-label mb-4">USDC Breakdown</p>
+                <p className="stat-label mb-4">Treasury Breakdown</p>
                 <ResponsiveContainer width="100%" height={240}>
                   <PieChart>
                     <Pie
@@ -217,9 +217,9 @@ const PoolStatus = () => {
                 </ResponsiveContainer>
               </div>
 
-              {/* Bar: NAV vs treasury vs pending claims */}
+              {/* Bar: NAV vs treasury vs open requests */}
               <div className="glass-card p-6">
-                <p className="stat-label mb-4">Pool USDC Metrics</p>
+                <p className="stat-label mb-4">Protocol Liquidity Metrics</p>
                 <ResponsiveContainer width="100%" height={240}>
                   <BarChart
                     data={barData}
@@ -266,16 +266,15 @@ const PoolStatus = () => {
             </div>
           )}
 
-          {/* Refresh + Info */}
+          {/* Info + Refresh */}
           <div className="glass-card p-6 mb-8">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/30 flex-1">
                 <Info className="h-4 w-4 text-muted-foreground flex-shrink-0 mt-0.5" />
                 <p className="text-xs text-muted-foreground">
-                  All values are read directly from the Solana blockchain.
-                  &quot;Treasury USDC&quot; is the payout vault balance. Token
-                  price is NAV-derived, and claim filings reduce supply by
-                  burning bRENT rather than locking it in escrow.
+                  All values are read from on-chain data and related protocol
+                  state. Displayed metrics are informational only and do not
+                  represent guarantees of liquidity, settlement, or value.
                 </p>
               </div>
             </div>

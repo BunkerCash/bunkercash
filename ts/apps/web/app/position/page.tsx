@@ -28,7 +28,7 @@ function getClaimProgress(claim: Claim) {
   return { requestedRaw, paidRaw: cappedPaidRaw, progressPct };
 }
 
-const MyPosition = () => {
+const MyActivity = () => {
   const { connected } = useWallet();
   const {
     balance: tokenBalance,
@@ -37,11 +37,8 @@ const MyPosition = () => {
   } = useTokenBalance();
   const { claims, loading: isLoadingClaims, error: claimsError } = useMyClaims();
 
-  const pendingClaims = useMemo(
-    () =>
-      claims
-        .filter((c) => !c.processed)
-        .length,
+  const openRequests = useMemo(
+    () => claims.filter((c) => !c.processed).length,
     [claims]
   );
 
@@ -50,12 +47,31 @@ const MyPosition = () => {
     [claims]
   );
 
-  const totalUsdcPaid = useMemo(
+  const totalSettledUsdc = useMemo(
     () => claims.reduce((acc, c) => acc + Number(c.paidUsdc) / 10 ** USDC_DECIMALS, 0),
     [claims]
   );
 
-  const totalClaims = claims.length;
+  const totalRequests = claims.length;
+
+  if (!connected) {
+    return (
+      <Layout>
+        <div className="container mx-auto px-4 py-12">
+          <div className="max-w-4xl mx-auto">
+            <div className="text-center mb-10">
+              <h1 className="text-3xl font-bold text-foreground mb-4">
+                My Activity
+              </h1>
+            </div>
+            <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-8 text-center text-neutral-500">
+              Complete access check and connect wallet to view your activity.
+            </div>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>
@@ -64,91 +80,68 @@ const MyPosition = () => {
           {/* Header */}
           <div className="text-center mb-10">
             <h1 className="text-3xl font-bold text-foreground mb-4">
-              My Position
+              My Activity
             </h1>
-            {!connected && (
-              <p className="text-muted-foreground text-sm">
-                Connect wallet to see your real balance
-              </p>
-            )}
           </div>
 
           {/* Stats Grid */}
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <div>
-              <StatCard
-                label={
-                  isLoadingBalance
-                    ? "Loading..."
-                    : fetchError
-                      ? "Error"
-                      : "Token Balance"
-                }
-                value={
-                  !connected
-                    ? "-"
-                    : isLoadingBalance
-                      ? "..."
-                      : fetchError
-                        ? "N/A"
-                        : `${tokenBalance} BNKR`
-                }
-                note={
-                  fetchError ? (
-                    <span className="text-destructive">Network Error</span>
-                  ) : connected ? (
-                    "Current wallet balance"
-                  ) : (
-                    "Connect wallet"
-                  )
-                }
-              />
-            </div>
-            <div>
-              <StatCard
-                label="Pending Claims"
-                value={
-                  !connected ? "-" : pendingClaims.toString()
-                }
-                note="Awaiting settlement"
-              />
-            </div>
-            <div>
-              <StatCard
-                label="Requested USDC"
-                value={
-                  !connected ? (
-                    "-"
-                  ) : (
-                    <span className="text-primary">
-                      ${totalRequestedUsdc.toLocaleString()}
-                    </span>
-                  )
-                }
-                note="Total sell requests"
-              />
-            </div>
-            <div>
-              <StatCard
-                label="Total USDC Paid"
-                value={!connected ? "-" : `$${totalUsdcPaid.toLocaleString()}`}
-                note="Settlements received"
-              />
-            </div>
-            <div>
-              <StatCard
-                label="Total Claims"
-                value={!connected ? "-" : totalClaims.toString()}
-                note="Filed redemptions"
-              />
-            </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+            <StatCard
+              label={
+                isLoadingBalance
+                  ? "Loading..."
+                  : fetchError
+                    ? "Error"
+                    : "Token Balance"
+              }
+              value={
+                isLoadingBalance
+                  ? "..."
+                  : fetchError
+                    ? "N/A"
+                    : `${tokenBalance} BNKR`
+              }
+              note={
+                fetchError ? (
+                  <span className="text-destructive">Network Error</span>
+                ) : (
+                  "Current wallet balance"
+                )
+              }
+            />
+            <StatCard
+              label="Open Requests"
+              value={openRequests.toString()}
+              note="Awaiting settlement"
+            />
+            <StatCard
+              label="Requested Amount"
+              value={
+                <span className="text-primary">
+                  ${totalRequestedUsdc.toLocaleString()}
+                </span>
+              }
+              note="Total submitted requests"
+            />
+          </div>
+          <div className="grid sm:grid-cols-2 gap-4 mb-8">
+            <StatCard
+              label="Settled Amount"
+              value={`$${totalSettledUsdc.toLocaleString()}`}
+              note="Total completed settlements"
+            />
+            <StatCard
+              label="Total Requests"
+              value={totalRequests.toString()}
+              note="Submitted requests"
+            />
           </div>
 
-          {/* Claims History */}
+          {/* Request History */}
           <div className="glass-card p-6">
             <div className="flex items-center gap-2 mb-6">
               <Clock className="h-5 w-5 text-muted-foreground" />
-              <h2 className="text-lg font-semibold">Registered Sells</h2>
+              <h2 className="text-lg font-semibold">Request History</h2>
             </div>
 
             {claimsError ? (
@@ -157,7 +150,7 @@ const MyPosition = () => {
               </div>
             ) : isLoadingClaims ? (
               <div className="py-12 text-center text-sm text-muted-foreground">
-                Loading claims...
+                Loading requests...
               </div>
             ) : claims.length > 0 ? (
               <div className="overflow-x-auto">
@@ -171,7 +164,7 @@ const MyPosition = () => {
                         Requested
                       </th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                        Paid
+                        Settled
                       </th>
                       <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
                         Progress
@@ -184,7 +177,7 @@ const MyPosition = () => {
                   <tbody>
                     {claims.map((claim) => {
                       const { requestedRaw, paidRaw, progressPct } = getClaimProgress(claim);
-                      const isPartiallyPaid = !claim.processed && paidRaw > BigInt(0);
+                      const isPartiallysettled = !claim.processed && paidRaw > BigInt(0);
 
                       return (
                         <tr
@@ -229,7 +222,7 @@ const MyPosition = () => {
                               className={
                                 claim.processed
                                   ? "bg-secondary/20 text-secondary hover:bg-secondary/30"
-                                  : isPartiallyPaid
+                                  : isPartiallysettled
                                     ? "bg-primary/20 text-primary hover:bg-primary/30"
                                     : "bg-muted text-muted-foreground hover:bg-muted"
                               }
@@ -240,9 +233,9 @@ const MyPosition = () => {
                                 <AlertCircle className="mr-1 h-3 w-3" />
                               )}
                               {claim.processed
-                                ? "Processed"
-                                : isPartiallyPaid
-                                  ? "Partially Paid"
+                                ? "Settled"
+                                : isPartiallysettled
+                                  ? "Partially Settled"
                                   : "Pending"}
                             </Badge>
                           </td>
@@ -256,9 +249,7 @@ const MyPosition = () => {
               <div className="text-center py-12">
                 <Wallet className="h-12 w-12 text-muted-foreground/50 mx-auto mb-4" />
                 <p className="text-muted-foreground">
-                  {!connected
-                    ? "Connect wallet to view claims"
-                    : "No registered sells found"}
+                  No requests found
                 </p>
               </div>
             )}
@@ -269,4 +260,4 @@ const MyPosition = () => {
   );
 };
 
-export default MyPosition;
+export default MyActivity;

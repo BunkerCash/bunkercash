@@ -1,6 +1,6 @@
 import { Layout } from "@/components/layout/Layout";
 import { WarningBox } from "@/components/ui/WarningBox";
-import { Shield, AlertTriangle, Info, FileText, BookOpen } from "lucide-react";
+import { Shield, AlertTriangle, Info, FileText, BookOpen, Scale, Globe, Code } from "lucide-react";
 
 const Information = () => {
   return (
@@ -10,10 +10,10 @@ const Information = () => {
           {/* Header */}
           <div className="text-center mb-10">
             <h1 className="text-4xl font-bold text-foreground mb-4">
-              Information & Whitepaper
+              Documentation
             </h1>
             <p className="text-muted-foreground text-lg">
-              Complete documentation and risk disclosure for Bunkercoin Cash
+              Documentation, restrictions, and risk disclosures for Bunker Cash.
             </p>
           </div>
 
@@ -21,270 +21,236 @@ const Information = () => {
           <div className="mb-8">
             <WarningBox title="Please Read Carefully">
               <p>
-                This page contains critical information about the nature of
-                Bunkercoin Cash tokens and associated risks. Reading and
-                understanding this information is essential before any
-                interaction with this platform.
+                This page contains important information about protocol
+                restrictions, token limitations, and associated risks.
               </p>
             </WarningBox>
           </div>
 
           {/* Information Sections */}
           <div className="space-y-8">
-            {/* Whitepaper Section */}
+            {/* 1. Overview */}
             <div className="glass-card p-8">
               <div className="flex items-center gap-3 mb-6">
                 <div className="p-2 rounded-lg bg-primary/10">
                   <BookOpen className="h-6 w-6 text-primary" />
                 </div>
-                <h2 className="text-2xl font-bold">Whitepaper</h2>
+                <h2 className="text-2xl font-bold">1. Overview</h2>
               </div>
-
-              <div className="space-y-6 text-muted-foreground">
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground mb-3">
-                    Overview
-                  </h3>
-                  <p className="leading-relaxed">
-                    Bunkercoin Cash is a freely tradable digital token designed
-                    to support long-term system activity through an optional
-                    liquidity-based mechanism. It does not represent ownership,
-                    equity, debt, or a claim on any specific asset.
-                  </p>
-                </div>
-
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground mb-3">
-                    Protocol Mechanics
-                  </h3>
-                  <p className="leading-relaxed mb-3">
-                    The protocol facilitates optional liquidity-based token
-                    buybacks funded by external business activities. These
-                    buybacks depend solely on available liquidity and are not
-                    guaranteed, scheduled, or obligated.
-                  </p>
-                  <p className="leading-relaxed">
-                    Tokens registered for sell are permanently locked and cannot
-                    be traded or transferred again. Once registered, tokens
-                    await potential buyback based on liquidity availability,
-                    which may occur at any time or not at all.
-                  </p>
-                </div>
-
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground mb-3">
-                    Key Principles
-                  </h3>
-                  <ul className="space-y-2 ml-4">
-                    <li className="flex items-start gap-2">
-                      <span className="text-primary mt-1">•</span>
-                      <span>
-                        <strong className="text-foreground">
-                          No Guarantees:
-                        </strong>{" "}
-                        No guarantees of value, liquidity, or buyback execution
-                      </span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-primary mt-1">•</span>
-                      <span>
-                        <strong className="text-foreground">
-                          Liquidity-Based:
-                        </strong>{" "}
-                        All mechanisms depend on discretionary liquidity
-                        provision
-                      </span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-primary mt-1">•</span>
-                      <span>
-                        <strong className="text-foreground">
-                          No Ownership:
-                        </strong>{" "}
-                        Tokens do not confer ownership rights or entitlements
-                      </span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-primary mt-1">•</span>
-                      <span>
-                        <strong className="text-foreground">
-                          Permanent Lock:
-                        </strong>{" "}
-                        Registered tokens are irreversibly locked from trading
-                      </span>
-                    </li>
-                  </ul>
-                </div>
-
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground mb-3">
-                    Tokenomics
-                  </h3>
-                  <p className="leading-relaxed">
-                    Token value is determined solely by market forces of supply
-                    and demand. There is no intrinsic value, no backing by
-                    assets, and no guaranteed price floor. The buyback mechanism
-                    provides optional exit liquidity when and if external
-                    business activities generate sufficient funds.
-                  </p>
-                </div>
+              <div className="space-y-4 text-muted-foreground">
+                <p className="leading-relaxed">
+                  Bunker Cash is an access-restricted digital token protocol.
+                  The protocol does not provide ownership in assets, rights to
+                  revenue, guaranteed liquidity, or guaranteed future value.
+                </p>
+                <p className="leading-relaxed">
+                  Protocol functions are available only in eligible
+                  jurisdictions and subject to applicable restrictions. Access
+                  may be limited, suspended, or unavailable at any time without
+                  notice.
+                </p>
               </div>
             </div>
 
-            {/* Token Nature */}
-            <div className="glass-card p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 rounded-lg bg-secondary/10">
-                  <Info className="h-5 w-5 text-secondary" />
-                </div>
-                <h2 className="text-xl font-semibold">Token Nature</h2>
-              </div>
-              <p className="text-muted-foreground leading-relaxed">
-                Bunkercoin Cash is a digital token with no ownership rights, no
-                claims, and no linkage to specific assets. The token does not
-                represent any share, equity, debt, or other financial
-                instrument. Holding tokens does not create any contractual
-                relationship or entitlement to any benefits, profits, or
-                distributions.
-              </p>
-            </div>
-
-            {/* Asset Separation */}
-            <div className="glass-card p-6">
-              <div className="flex items-center gap-3 mb-4">
+            {/* 2. Protocol Mechanics */}
+            <div className="glass-card p-8">
+              <div className="flex items-center gap-3 mb-6">
                 <div className="p-2 rounded-lg bg-primary/10">
-                  <Shield className="h-5 w-5 text-primary" />
+                  <Info className="h-6 w-6 text-primary" />
                 </div>
-                <h2 className="text-xl font-semibold">
-                  Real-World Asset Separation
-                </h2>
+                <h2 className="text-2xl font-bold">2. Protocol Mechanics</h2>
               </div>
-              <p className="text-muted-foreground leading-relaxed">
-                Real-world activities, including real-world assets, are not
-                tokenized and are not represented on-chain. There is no direct
-                or indirect connection between token holdings and any physical
-                or financial assets. The token exists solely as a digital
-                instrument on the blockchain, completely separate from any
-                off-chain business operations.
-              </p>
+              <div className="space-y-4 text-muted-foreground">
+                <p className="leading-relaxed">
+                  The protocol enables eligible users to acquire tokens through
+                  a defined interface, subject to protocol-defined parameters
+                  and access restrictions. Token pricing is determined by
+                  protocol-defined reference rates derived from on-chain state.
+                </p>
+                <p className="leading-relaxed">
+                  Users may submit settlement requests to remove tokens from
+                  circulation. Submitted tokens are permanently removed and
+                  cannot be recovered, traded, or transferred. Settlement of
+                  requests depends entirely on available protocol liquidity and
+                  is not guaranteed in timing or amount.
+                </p>
+                <p className="leading-relaxed">
+                  Protocol interactions may be unavailable or delayed due to
+                  network conditions, maintenance, or other factors outside user
+                  control.
+                </p>
+              </div>
             </div>
 
-            {/* Liquidity Notice */}
-            <div className="glass-card p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 rounded-lg bg-muted">
-                  <FileText className="h-5 w-5 text-muted-foreground" />
+            {/* 3. Token Limitations */}
+            <div className="glass-card p-8">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 rounded-lg bg-secondary/10">
+                  <Shield className="h-6 w-6 text-secondary" />
                 </div>
-                <h2 className="text-xl font-semibold">Liquidity Provision</h2>
+                <h2 className="text-2xl font-bold">3. Token Limitations</h2>
               </div>
-              <p className="text-muted-foreground leading-relaxed">
-                Any liquidity made available for optional token buybacks is
-                entirely discretionary and depends on external business
-                decisions and available funds. There is no guarantee that
-                liquidity will be provided at any time, in any amount, or at any
-                particular price. Liquidity availability may change without
-                notice and may be insufficient to fulfill all pending
-                registrations. No timeline or schedule for buybacks exists or is
-                implied.
-              </p>
+              <div className="space-y-4 text-muted-foreground">
+                <p className="leading-relaxed">
+                  Bunker Cash tokens are digital protocol tokens only. They do
+                  not represent any share, equity, debt, security, or other
+                  financial instrument. Holding tokens does not create any
+                  contractual relationship or entitlement to benefits, profits,
+                  or distributions of any kind.
+                </p>
+                <p className="leading-relaxed">
+                  There is no guarantee of future value. Token value may
+                  decrease substantially or become zero with no guarantee of
+                  recovery. Displayed interface values are informational only.
+                </p>
+              </div>
             </div>
 
-            {/* Risk Disclosure */}
-            <div className="glass-card p-6 border-destructive/30">
-              <div className="flex items-center gap-3 mb-4">
+            {/* 4. No Ownership / No Revenue Rights */}
+            <div className="glass-card p-8">
+              <div className="flex items-center gap-3 mb-6">
                 <div className="p-2 rounded-lg bg-destructive/10">
-                  <AlertTriangle className="h-5 w-5 text-destructive" />
+                  <FileText className="h-6 w-6 text-destructive" />
                 </div>
-                <h2 className="text-xl font-semibold text-destructive">
-                  Risk Notice & Disclosure
+                <h2 className="text-2xl font-bold">
+                  4. No Ownership / No Revenue Rights
                 </h2>
               </div>
               <div className="space-y-4 text-muted-foreground">
                 <p className="leading-relaxed font-semibold text-foreground">
-                  Participation involves market risk, liquidity risk, and
-                  potential total loss. This website is provided for
-                  informational purposes only.
+                  Tokens confer no ownership in real estate or other assets, no
+                  equity rights, and no revenue rights.
                 </p>
                 <p className="leading-relaxed">
-                  Token participation involves significant risks including but
-                  not limited to:
+                  Real-world activities, including real-world assets, are not
+                  tokenized and are not represented on-chain. There is no direct
+                  or indirect connection between token holdings and any
+                  physical, financial, or business assets. The token exists
+                  solely as a digital instrument on the blockchain, completely
+                  separate from any off-chain operations.
                 </p>
-                <ul className="list-disc list-inside space-y-2 ml-4">
-                  <li>
-                    <strong className="text-foreground">Market Risk:</strong>{" "}
-                    Token value may decrease substantially or become zero with
-                    no guarantee of recovery
-                  </li>
-                  <li>
-                    <strong className="text-foreground">Liquidity Risk:</strong>{" "}
-                    You may not be able to sell or convert tokens at any price
-                    or at all
-                  </li>
-                  <li>
-                    <strong className="text-foreground">Technical Risk:</strong>{" "}
-                    Smart contracts may contain bugs, vulnerabilities, or
-                    exploits
-                  </li>
-                  <li>
-                    <strong className="text-foreground">
-                      Regulatory Risk:
-                    </strong>{" "}
-                    Legal status may change in your jurisdiction, potentially
-                    restricting access
-                  </li>
-                  <li>
-                    <strong className="text-foreground">
-                      Counterparty Risk:
-                    </strong>{" "}
-                    No guarantees exist regarding platform operation or
-                    continuity
-                  </li>
-                  <li>
-                    <strong className="text-foreground">Total Loss:</strong> You
-                    may lose your entire participation amount without recourse
-                  </li>
-                </ul>
-                <p className="leading-relaxed text-sm pt-2">
-                  Only participate with funds you can afford to lose completely.
-                  Past performance is not indicative of future results.
+                <p className="leading-relaxed">
+                  No content on this interface or in protocol documentation
+                  implies or creates any ownership interest, profit-sharing
+                  arrangement, or revenue entitlement.
                 </p>
               </div>
             </div>
 
-            {/* No Financial Advice */}
-            <div className="glass-card p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 rounded-lg bg-muted">
-                  <Info className="h-5 w-5 text-muted-foreground" />
+            {/* 5. Settlement and Liquidity Risks */}
+            <div className="glass-card p-8">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 rounded-lg bg-destructive/10">
+                  <AlertTriangle className="h-6 w-6 text-destructive" />
                 </div>
-                <h2 className="text-xl font-semibold">No Financial Advice</h2>
+                <h2 className="text-2xl font-bold">
+                  5. Settlement and Liquidity Risks
+                </h2>
               </div>
-              <p className="text-muted-foreground leading-relaxed">
-                This website does not provide financial, investment, legal, or
-                tax advice. Nothing on this website should be construed as a
-                recommendation to purchase, sell, or hold any token. All
-                information is provided "as is" without warranties of any kind.
-                You should consult with qualified professional advisors before
-                making any decisions related to digital tokens.
-              </p>
+              <div className="space-y-4 text-muted-foreground">
+                <p className="leading-relaxed font-semibold text-foreground">
+                  There is no guaranteed liquidity and no guaranteed settlement
+                  timing.
+                </p>
+                <p className="leading-relaxed">
+                  Settlement of requests depends entirely on available protocol
+                  liquidity, which is discretionary and may change without
+                  notice. Liquidity may be insufficient to fulfill all pending
+                  requests. No timeline or schedule for settlements exists or is
+                  implied.
+                </p>
+                <p className="leading-relaxed">
+                  You may not be able to convert tokens at any price or at all.
+                  Only interact with the protocol using amounts you can afford
+                  to lose completely.
+                </p>
+              </div>
             </div>
-          </div>
 
-          {/* Footer Disclaimer */}
-          <div className="mt-12 p-6 glass-card">
-            <h3 className="text-sm font-semibold text-foreground mb-3 text-center">
-              Legal Disclaimer
-            </h3>
-            <p className="text-xs text-muted-foreground leading-relaxed text-center">
-              This interface is informational only and does not constitute
-              financial advice, an offer to sell, or a solicitation to purchase
-              any security or financial instrument. This page serves as
-              conceptual and technical visualization of token mechanics and risk
-              disclosure. By using this platform, you acknowledge that you have
-              read, understood, and accepted all risks and disclaimers. No
-              content on this website creates any contractual obligation or
-              liability.
-            </p>
+            {/* 6. Technical Risks */}
+            <div className="glass-card p-8">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 rounded-lg bg-muted">
+                  <Code className="h-6 w-6 text-muted-foreground" />
+                </div>
+                <h2 className="text-2xl font-bold">6. Technical Risks</h2>
+              </div>
+              <div className="space-y-4 text-muted-foreground">
+                <p className="leading-relaxed">
+                  Smart contracts may contain bugs, vulnerabilities, or
+                  exploits. The underlying blockchain network may experience
+                  congestion, outages, or other disruptions that affect protocol
+                  availability.
+                </p>
+                <p className="leading-relaxed">
+                  Protocol interactions may be unavailable or delayed due to
+                  network conditions, smart contract state, or infrastructure
+                  issues. No guarantees exist regarding platform operation,
+                  uptime, or continuity. You may lose your entire participation
+                  amount without recourse due to technical failures.
+                </p>
+              </div>
+            </div>
+
+            {/* 7. Regulatory and Jurisdictional Restrictions */}
+            <div className="glass-card p-8">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 rounded-lg bg-muted">
+                  <Globe className="h-6 w-6 text-muted-foreground" />
+                </div>
+                <h2 className="text-2xl font-bold">
+                  7. Regulatory and Jurisdictional Restrictions
+                </h2>
+              </div>
+              <div className="space-y-4 text-muted-foreground">
+                <p className="leading-relaxed font-semibold text-foreground">
+                  Access is restricted by jurisdiction.
+                </p>
+                <p className="leading-relaxed">
+                  Protocol access is not available in all jurisdictions. Users
+                  are responsible for ensuring compliance with all applicable
+                  local laws and regulations. The legal status of digital tokens
+                  may change in your jurisdiction, potentially restricting or
+                  prohibiting access without notice.
+                </p>
+                <p className="leading-relaxed">
+                  The protocol operator reserves the right to restrict, suspend,
+                  or terminate access for any user or jurisdiction at any time
+                  and for any reason.
+                </p>
+              </div>
+            </div>
+
+            {/* 8. Legal Disclaimer */}
+            <div className="glass-card p-8 border-destructive/30">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 rounded-lg bg-destructive/10">
+                  <Scale className="h-6 w-6 text-destructive" />
+                </div>
+                <h2 className="text-2xl font-bold">8. Legal Disclaimer</h2>
+              </div>
+              <div className="space-y-4 text-muted-foreground">
+                <p className="leading-relaxed">
+                  This interface is informational only and does not constitute
+                  financial advice, an offer to sell, or a solicitation to
+                  purchase any security or financial instrument. Nothing on this
+                  interface should be construed as a recommendation to acquire,
+                  sell, or hold any token.
+                </p>
+                <p className="leading-relaxed">
+                  All information is provided &ldquo;as is&rdquo; without
+                  warranties of any kind. You should consult with qualified
+                  professional advisors before making any decisions related to
+                  digital tokens.
+                </p>
+                <p className="leading-relaxed">
+                  By using this protocol, you acknowledge that you have read,
+                  understood, and accepted all restrictions, risks, and
+                  disclaimers described on this page. No content on this
+                  interface creates any contractual obligation or liability.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </div>

@@ -1,72 +1,75 @@
 "use client";
 
+import Link from "next/link";
 import { Layout } from "@/components/layout/Layout";
 import { StatCard } from "@/components/ui/StatCard";
-import { TradeInterface } from "@/components/TradeInterface";
-import { usePoolStats } from "@/hooks/usePoolStats";
+import { PROGRAM_ID } from "@/lib/program";
 
 export default function Home() {
-  const { stats, loading, error } = usePoolStats();
+  const cluster = process.env.NEXT_PUBLIC_SOLANA_CLUSTER ?? "devnet";
 
   return (
     <Layout>
       <div className="container mx-auto px-4 py-12">
-        <div className="max-w-2xl mx-auto">
-          {/* Header */}
-          <div className="text-center mb-10">
-            <h1 className="text-3xl font-bold text-foreground mb-4">
-              Buy Token
+        <div className="max-w-3xl mx-auto">
+          {/* Hero */}
+          <div className="text-center mb-12">
+            <h1 className="text-3xl sm:text-4xl font-bold text-foreground mb-6">
+              Overview
             </h1>
-            <p className="text-muted-foreground max-w-xl mx-auto">
-              Review the live pool metrics before purchasing Bunker Cash.
+            <p className="text-muted-foreground leading-relaxed max-w-2xl mx-auto">
+              Bunker Cash is an access-restricted digital token protocol. The
+              protocol does not provide ownership in assets, rights to revenue,
+              guaranteed liquidity, or guaranteed future value. Protocol
+              functions are available only in eligible jurisdictions and subject
+              to applicable restrictions.
             </p>
           </div>
 
-          <div className="mb-8 grid gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+            <StatCard label="Protocol Status" value="Active" />
             <StatCard
-              label="Current Pool NAV"
-              value={
-                loading ? (
-                  <span className="text-muted-foreground animate-pulse">
-                    Loading...
-                  </span>
-                ) : error ? (
-                  <span className="text-destructive text-sm">
-                    Error loading stats
-                  </span>
-                ) : (
-                  <span className="text-primary">
-                    ${stats.navUsdc ?? "0.00"} USDC
-                  </span>
-                )
-              }
-              note="Read directly from the on-chain pool account."
-              className="glow-primary"
+              label="Network"
+              value={cluster.charAt(0).toUpperCase() + cluster.slice(1)}
             />
             <StatCard
-              label="Liquid Size"
+              label="Token Identifier"
               value={
-                loading ? (
-                  <span className="text-muted-foreground animate-pulse">
-                    Loading...
-                  </span>
-                ) : error ? (
-                  <span className="text-destructive text-sm">
-                    Error loading stats
-                  </span>
-                ) : (
-                  <span className="text-primary">
-                    ${stats.treasuryUsdc ?? "0.00"} USDC
-                  </span>
-                )
+                <span
+                  className="text-sm break-all"
+                  title={PROGRAM_ID.toBase58()}
+                >
+                  {PROGRAM_ID.toBase58()}
+                </span>
               }
-              note="Current USDC balance available in the payout vault."
+            />
+            <StatCard
+              label="Last Update"
+              value="—"
             />
           </div>
 
-          {/* Trade Interface */}
-          <div>
-            <TradeInterface hiddenTabs={["withdraw"]} />
+          {/* Disclaimers */}
+          <div className="glass-card p-6 mb-8 space-y-2 text-sm text-muted-foreground">
+            <p>No public market price exists for this protocol token.</p>
+            <p>Total value locked is not publicly disclosed.</p>
+            <p>Net asset value is determined by the protocol administrator and is not independently verifiable.</p>
+          </div>
+
+          {/* Primary CTAs */}
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Link
+              href="/acquire"
+              className="inline-flex items-center justify-center rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              Check Access
+            </Link>
+            <Link
+              href="/information"
+              className="inline-flex items-center justify-center rounded-lg border border-border px-6 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-muted/50"
+            >
+              View Mechanics
+            </Link>
           </div>
         </div>
       </div>

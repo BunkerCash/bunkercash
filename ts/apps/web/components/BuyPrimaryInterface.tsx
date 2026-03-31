@@ -41,7 +41,7 @@ function derivePrice(navRaw: bigint, supplyRaw: bigint): number {
 /** Detect wallet rejection errors */
 function isWalletRejection(e: unknown): boolean {
   const msg = e instanceof Error ? e.message.toLowerCase() : String(e ?? '').toLowerCase()
-  return msg.includes('user rejected') || msg.includes('user denied') || msg.includes('rejected the request') || msg.includes('transaction was not confirmed')
+  return msg.includes('user rejected') || msg.includes('user denied') || msg.includes('rejected the request')
 }
 
 interface Stringable {
@@ -256,7 +256,7 @@ export function BuyPrimaryInterface() {
     if (countFractionalDigits(usdcAmount) > USDC_DECIMALS) return "Max 6 decimal places";
     if (usdcAmountRaw == null) return "Enter a valid number";
     if (usdcAmountRaw < MIN_USDC_AMOUNT_RAW) return "Minimum amount is 0.01 USDC";
-    if (usdcAmountRaw > MAX_USDC_AMOUNT_RAW) return "Maximum specific limit is 1M USDC";
+    if (usdcAmountRaw > MAX_USDC_AMOUNT_RAW) return "Maximum per transaction is 1M USDC";
     if (
       remainingPurchaseCapacityRaw != null &&
       usdcAmountRaw > remainingPurchaseCapacityRaw
@@ -407,7 +407,7 @@ export function BuyPrimaryInterface() {
 
       setTxSig(sig);
       setUsdcAmount("");
-      showToast(`Deposit successful! Tx: ${sig.slice(0, 8)}…`, "success");
+      showToast(`Transaction submitted. Tx: ${sig.slice(0, 8)}…`, "success");
       void fetchPoolState();
       // Invalidate transactions cache so Transactions tab fetches fresh data
       const { invalidateTransactionCache } =
@@ -439,7 +439,7 @@ export function BuyPrimaryInterface() {
   if (!publicKey) {
     return (
       <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-8 text-center text-neutral-500">
-        Connect your wallet to view the current Bunker Cash price.
+        Complete access check and connect your wallet to continue.
       </div>
     )
   }
@@ -500,7 +500,7 @@ export function BuyPrimaryInterface() {
         <div className="grid grid-cols-2 gap-6">
           <div>
             <div className="mb-2 text-xs uppercase tracking-wider text-neutral-500">
-              Current price
+              Reference Rate
             </div>
             <div className="text-2xl font-bold text-[#00FFB2]">
               ${pricePerToken != null ? pricePerToken.toFixed(2) : "—"} per
@@ -509,13 +509,9 @@ export function BuyPrimaryInterface() {
           </div>
           <div>
             <div className="mb-2 text-xs uppercase tracking-wider text-neutral-500">
-              Remaining purchase capacity
+              Pricing Method
             </div>
-            <div className="text-2xl font-bold">
-              {remainingPurchaseCapacityRaw == null
-                ? "Unlimited"
-                : `$${toUi(remainingPurchaseCapacityRaw, USDC_DECIMALS)}`}
-            </div>
+            <div className="text-2xl font-bold">Protocol-defined</div>
           </div>
         </div>
       </div>
@@ -524,10 +520,7 @@ export function BuyPrimaryInterface() {
         <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
           <div className="mb-4 flex items-center justify-between">
             <span className="text-xs uppercase tracking-wider text-neutral-500">
-              You pay
-              <span className="ml-2 font-normal text-neutral-600 normal-case tracking-normal">
-                (Max 1M USDC)
-              </span>
+              You provide
             </span>
             <span className="text-xs uppercase tracking-wider text-neutral-500">
               Balance: {usdcBalance ?? "—"}
@@ -611,12 +604,13 @@ export function BuyPrimaryInterface() {
         }
         className="w-full rounded-xl bg-[#00FFB2] py-5 text-lg font-semibold text-black transition-all hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600"
       >
-        {loading ? "Processing…" : "Deposit USDC"}
+        {loading ? "Processing…" : "Acquire Tokens"}
       </button>
 
       <div className="text-center text-xs text-neutral-600 space-y-1">
         <div>
-          Pool purchase limits are enforced on-chain
+          Displayed values are interface values only and do not constitute a
+          guarantee of value, liquidity, or future settlement.
         </div>
         <div className="opacity-50">
           Network:{" "}
