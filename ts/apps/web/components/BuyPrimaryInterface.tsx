@@ -366,14 +366,15 @@ export function BuyPrimaryInterface() {
           TOKEN_2022_PROGRAM_ID,
           ASSOCIATED_TOKEN_PROGRAM_ID,
         );
-      const poolUsdcVaultInfo = await connection.getAccountInfo(poolUsdcVault);
-      if (!poolUsdcVaultInfo) {
-        const msg =
-          "The pool USDC vault is not initialized on this cluster yet. Ask the admin to run pool initialization before accepting deposits.";
-        setError(msg);
-        showToast(msg, "error");
-        return;
-      }
+      const createPoolUsdcVaultIx =
+        createAssociatedTokenAccountIdempotentInstruction(
+          publicKey,
+          poolUsdcVault,
+          poolPda,
+          usdcMint,
+          usdcTokenProgram,
+          ASSOCIATED_TOKEN_PROGRAM_ID,
+        );
 
       const methodsApi = (program as Program<Idl>).methods as unknown as BuyPrimaryMethods
       const depositUsdcIx = await methodsApi
@@ -397,6 +398,7 @@ export function BuyPrimaryInterface() {
       const tx = new Transaction().add(
         createUserUsdcAtaIx,
         createUserBunkercashAtaIx,
+        createPoolUsdcVaultIx,
         depositUsdcIx,
       );
       const sig = await (

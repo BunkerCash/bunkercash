@@ -206,6 +206,16 @@ export function WithdrawInterface() {
       if (isWalletRejection(e)) {
         setError("Transaction was rejected in your wallet.");
         showToast("Transaction rejected by wallet", "warning");
+      } else if (msg.includes("already been processed")) {
+        setError(null);
+        setTxSig(null);
+        await fetchTokenBalance();
+        await fetchClaims();
+        const { invalidateTransactionCache } =
+          await import("@/hooks/useMyTransactions");
+        invalidateTransactionCache();
+        setActiveView("history");
+        showToast("Sell request was already processed. Check History.", "success");
       } else if (e instanceof SendTransactionError) {
         const logs = await e.getLogs(connection);
         if (logs?.length) {
