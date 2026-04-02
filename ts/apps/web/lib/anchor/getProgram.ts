@@ -2,7 +2,7 @@ import * as anchor from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 import idl from "./idl/bunker_cash.json";
 
-export const PROGRAM_ID = new PublicKey("Buc53Fvrx6TwHaNrkFPb4EzdUv6r8X8y8MrUC6cgJ9M2");
+export const PROGRAM_ID = new PublicKey("8f9dGXF3i3BdF41p7jiVKJyFcMToVyS2SyFSHbjaywLQ");
 
 /**
  * Get Anchor program instance
@@ -10,8 +10,11 @@ export const PROGRAM_ID = new PublicKey("Buc53Fvrx6TwHaNrkFPb4EzdUv6r8X8y8MrUC6c
  * @returns Configured Anchor program
  */
 export function getProgram(wallet: anchor.Wallet) {
+  const endpoint =
+    process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
+    anchor.web3.clusterApiUrl("testnet");
   const connection = new anchor.web3.Connection(
-    anchor.web3.clusterApiUrl("devnet"),
+    endpoint,
     "confirmed",
   );
 

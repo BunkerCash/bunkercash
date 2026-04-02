@@ -12,9 +12,9 @@
  *
  * Run:
  * cd rs
- * export ANCHOR_PROVIDER_URL=https://api.devnet.solana.com
+ * export ANCHOR_PROVIDER_URL=https://api.testnet.solana.com
  * export ANCHOR_WALLET=~/.config/solana/id.json
- * export USDC_MINT=<your usdc mint>   # optional; defaults to Circle devnet USDC
+ * export USDC_MINT=<your usdc mint>   # optional; defaults to the configured test mint
  * npx ts-node -P tsconfig.json scripts/check-pool-balances.ts
  */
 import * as anchor from "@coral-xyz/anchor";
@@ -33,11 +33,10 @@ const idlJson = require("../../ts/apps/web/lib/bunkercash.fixed.idl.json") as {
 } & Idl;
 
 const PROGRAM_ID = new PublicKey(idlJson.address);
-const POOL_SEED = "bunkercash_pool";
+const POOL_SEED = "pool";
 const MINT_SEED = "bunkercash_mint";
-const POOL_SIGNER_SEED = "bunkercash_pool_signer";
-const DEFAULT_DEVNET_USDC_MINT = new PublicKey(
-  "Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx"
+const DEFAULT_TESTNET_USDC_MINT = new PublicKey(
+  "DCM1oDQRSv9dn4xpZrXuX23yvivoFHSKKF1mjuCEcjdQ"
 );
 
 async function balanceOrMissing(
@@ -66,12 +65,9 @@ async function main() {
     [Buffer.from(MINT_SEED)],
     program.programId
   );
-  const [poolSignerPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from(POOL_SIGNER_SEED), poolPda.toBuffer()],
-    program.programId
-  );
+  const poolSignerPda = poolPda;
 
-  const usdcMint = new PublicKey(process.env.USDC_MINT ?? DEFAULT_DEVNET_USDC_MINT);
+  const usdcMint = new PublicKey(process.env.USDC_MINT ?? DEFAULT_TESTNET_USDC_MINT);
 
   const userUsdcAta = getAssociatedTokenAddressSync(
     usdcMint,
@@ -113,11 +109,14 @@ async function main() {
 
   // Pool state
   try {
-    const pool = await (program.account as any).poolState.fetch(poolPda);
+    const pool = await (program.account as any).pool.fetch(poolPda);
     console.log("PoolState:", {
-      admin: (pool.admin as PublicKey).toBase58(),
-      priceUsdcPerToken: pool.priceUsdcPerToken?.toString?.() ?? String(pool.priceUsdcPerToken),
+      admin: (pool.masterWallet as PublicKey).toBase58(),
+      nav: pool.nav?.toString?.() ?? String(pool.nav),
+      totalBrentSupply: pool.totalBrentSupply?.toString?.() ?? String(pool.totalBrentSupply),
+      totalPendingClaims: pool.totalPendingClaims?.toString?.() ?? String(pool.totalPendingClaims),
       claimCounter: pool.claimCounter?.toString?.() ?? String(pool.claimCounter),
+      withdrawalCounter: pool.withdrawalCounter?.toString?.() ?? String(pool.withdrawalCounter),
       bump: pool.bump,
     });
   } catch (e) {
@@ -134,4 +133,3 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
-

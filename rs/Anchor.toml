@@ -7,16 +7,19 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-bunkercash = "Buc53Fvrx6TwHaNrkFPb4EzdUv6r8X8y8MrUC6cgJ9M2"
+bunkercash = "8f9dGXF3i3BdF41p7jiVKJyFcMToVyS2SyFSHbjaywLQ"
+
+[programs.testnet]
+bunkercash = "8f9dGXF3i3BdF41p7jiVKJyFcMToVyS2SyFSHbjaywLQ"
 
 [programs.localnet]
-bunkercash = "Buc53Fvrx6TwHaNrkFPb4EzdUv6r8X8y8MrUC6cgJ9M2"
+bunkercash = "8f9dGXF3i3BdF41p7jiVKJyFcMToVyS2SyFSHbjaywLQ"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "devnet"
+cluster = "testnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]

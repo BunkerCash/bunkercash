@@ -3,7 +3,6 @@ import type { Idl } from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
-  TOKEN_2022_PROGRAM_ID,
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
 
@@ -19,12 +18,24 @@ const MASTER_WALLET = new PublicKey(
 const USDC_MINT = new PublicKey(
   process.env.USDC_MINT ?? "Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx"
 );
+const USDC_TOKEN_PROGRAM = process.env.USDC_TOKEN_PROGRAM
+  ? new PublicKey(process.env.USDC_TOKEN_PROGRAM)
+  : null;
+const SKIP_EXISTENCE_CHECK = process.env.SKIP_EXISTENCE_CHECK === "true";
 
 async function main() {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
   const program = new anchor.Program(idlJson as unknown as Idl, provider);
+  let usdcTokenProgram = USDC_TOKEN_PROGRAM;
+  if (!usdcTokenProgram) {
+    const mintInfo = await provider.connection.getAccountInfo(USDC_MINT, "confirmed");
+    usdcTokenProgram = mintInfo?.owner ?? null;
+  }
+  if (!usdcTokenProgram) {
+    throw new Error(`Unable to load mint owner for ${USDC_MINT.toBase58()}`);
+  }
   const [poolPda] = PublicKey.findProgramAddressSync([Buffer.from("pool")], PROGRAM_ID);
   const [supportedUsdcConfigPda] = PublicKey.findProgramAddressSync(
     [SUPPORTED_USDC_CONFIG_SEED],
@@ -34,14 +45,16 @@ async function main() {
     USDC_MINT,
     poolPda,
     true,
-    TOKEN_2022_PROGRAM_ID,
+    usdcTokenProgram,
     ASSOCIATED_TOKEN_PROGRAM_ID,
   );
 
-  const existing = await provider.connection.getAccountInfo(poolPda, "confirmed");
-  if (existing) {
-    console.log("Pool already exists:", poolPda.toBase58());
-    return;
+  if (!SKIP_EXISTENCE_CHECK) {
+    const existing = await provider.connection.getAccountInfo(poolPda, "confirmed");
+    if (existing) {
+      console.log("Pool already exists:", poolPda.toBase58());
+      return;
+    }
   }
 
   const signature = await (program.methods as any)
@@ -52,7 +65,7 @@ async function main() {
       poolUsdc,
       supportedUsdcConfig: supportedUsdcConfigPda,
       payer: provider.wallet.publicKey,
-      tokenProgram: TOKEN_2022_PROGRAM_ID,
+      usdcTokenProgram,
       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
     })

@@ -31,8 +31,14 @@ export async function GET() {
     });
   } catch (e: unknown) {
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Failed to fetch events" },
-      { status: 500 },
+      { events: [], ts: Date.now() } satisfies EventsResponse,
+      {
+        headers: {
+          "Cache-Control": "no-store",
+          "X-Cache": "FALLBACK",
+          "X-Error": e instanceof Error ? e.message : "Failed to fetch events",
+        },
+      },
     );
   }
 }
