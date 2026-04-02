@@ -10,7 +10,7 @@ use anchor_spl::associated_token::{
 };
 use anchor_spl::token_2022::Token2022;
 use anchor_spl::token::accessor;
-use anchor_spl::token_interface::{Mint, TokenAccount};
+use anchor_spl::token_interface::{self, Mint, TokenAccount, TokenInterface};
 use mpl_token_metadata::instructions::{CreateMetadataAccountV3CpiBuilder, UpdateMetadataAccountV2CpiBuilder};
 use mpl_token_metadata::types::DataV2;
 use mpl_token_metadata::ID as TOKEN_METADATA_PROGRAM_ID;
@@ -91,8 +91,12 @@ fn apply_master_repayment(pool: &mut Pool, withdrawal: &mut Withdrawal, amount: 
     pool.nav = pool.nav.checked_add(nav_growth).unwrap();
 }
 
-fn apply_master_profit(pool: &mut Pool, amount: u64) {
+fn apply_master_profit(pool: &mut Pool, withdrawal: &Withdrawal, amount: u64) -> Result<()> {
+    validate_open_withdrawal(withdrawal)?;
+    // Profit is additive value on top of any still-outstanding principal.
+    // It increases NAV, but it must not reduce the withdrawal receivable.
     pool.nav = pool.nav.checked_add(amount).unwrap();
+    Ok(())
 }
 
 fn validate_open_withdrawal(withdrawal: &Withdrawal) -> Result<()> {
@@ -173,7 +177,7 @@ fn validate_settlement_pending_claims(
 
 fn validate_settlement_accounts<'info>(
     program_id: &Pubkey,
-    token_program: &Pubkey,
+    usdc_token_program: &Pubkey,
     usdc_mint: &Pubkey,
     remaining_accounts: &[AccountInfo<'info>],
 ) -> Result<()> {
@@ -193,7 +197,7 @@ fn validate_settlement_accounts<'info>(
         );
         require_keys_eq!(
             *user_usdc.owner,
-            *token_program,
+            *usdc_token_program,
             ErrorCode::InvalidClaimDestination
         );
 
@@ -285,10 +289,10 @@ pub mod bunkercash {
                 .unwrap() as u64
         };
 
-        anchor_spl::token_2022::transfer_checked(
+        token_interface::transfer_checked(
             CpiContext::new(
-                ctx.accounts.token_program.to_account_info(),
-                anchor_spl::token_2022::TransferChecked {
+                ctx.accounts.usdc_token_program.to_account_info(),
+                token_interface::TransferChecked {
                     from: ctx.accounts.user_usdc.to_account_info(),
                     to: ctx.accounts.pool_usdc.to_account_info(),
                     authority: ctx.accounts.user.to_account_info(),
@@ -535,7 +539,7 @@ pub mod bunkercash {
 
         validate_settlement_accounts(
             ctx.program_id,
-            &ctx.accounts.token_program.key(),
+            &ctx.accounts.usdc_token_program.key(),
             &ctx.accounts.usdc_mint.key(),
             ctx.remaining_accounts,
         )?;
@@ -619,10 +623,10 @@ pub mod bunkercash {
 
                     let user_usdc = &ctx.remaining_accounts[idx + 1];
 
-                    anchor_spl::token_2022::transfer_checked(
+                    token_interface::transfer_checked(
                         CpiContext::new_with_signer(
-                            ctx.accounts.token_program.to_account_info(),
-                            anchor_spl::token_2022::TransferChecked {
+                            ctx.accounts.usdc_token_program.to_account_info(),
+                            token_interface::TransferChecked {
                                 from: ctx.accounts.pool_usdc.to_account_info(),
                                 to: user_usdc.to_account_info(),
                                 authority: pool.to_account_info(),
@@ -702,10 +706,10 @@ pub mod bunkercash {
         ];
         let signer = &[&seeds[..]];
 
-        anchor_spl::token_2022::transfer_checked(
+        token_interface::transfer_checked(
             CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                anchor_spl::token_2022::TransferChecked {
+                ctx.accounts.usdc_token_program.to_account_info(),
+                token_interface::TransferChecked {
                     from: ctx.accounts.pool_usdc.to_account_info(),
                     to: ctx.accounts.master_usdc.to_account_info(),
                     authority: pool.to_account_info(),
@@ -759,10 +763,10 @@ pub mod bunkercash {
             ErrorCode::Unauthorized
         );
 
-        anchor_spl::token_2022::transfer_checked(
+        token_interface::transfer_checked(
             CpiContext::new(
-                ctx.accounts.token_program.to_account_info(),
-                anchor_spl::token_2022::TransferChecked {
+                ctx.accounts.usdc_token_program.to_account_info(),
+                token_interface::TransferChecked {
                     from: ctx.accounts.master_usdc.to_account_info(),
                     to: ctx.accounts.pool_usdc.to_account_info(),
                     authority: ctx.accounts.master_wallet.to_account_info(),
@@ -806,12 +810,10 @@ pub mod bunkercash {
             ctx.accounts.master_wallet.key() == pool.master_wallet,
             ErrorCode::Unauthorized
         );
-        validate_open_withdrawal(withdrawal)?;
-
-        anchor_spl::token_2022::transfer_checked(
+        token_interface::transfer_checked(
             CpiContext::new(
-                ctx.accounts.token_program.to_account_info(),
-                anchor_spl::token_2022::TransferChecked {
+                ctx.accounts.usdc_token_program.to_account_info(),
+                token_interface::TransferChecked {
                     from: ctx.accounts.master_usdc.to_account_info(),
                     to: ctx.accounts.pool_usdc.to_account_info(),
                     authority: ctx.accounts.master_wallet.to_account_info(),
@@ -822,7 +824,7 @@ pub mod bunkercash {
             ctx.accounts.usdc_mint.decimals,
         )?;
 
-        apply_master_profit(pool, amount);
+        apply_master_profit(pool, withdrawal, amount)?;
 
         emit!(MasterProfitEvent {
             withdrawal_id: withdrawal.id,
@@ -857,10 +859,10 @@ pub mod bunkercash {
         );
         validate_open_withdrawal(withdrawal)?;
 
-        anchor_spl::token_2022::transfer_checked(
+        token_interface::transfer_checked(
             CpiContext::new(
-                ctx.accounts.token_program.to_account_info(),
-                anchor_spl::token_2022::TransferChecked {
+                ctx.accounts.usdc_token_program.to_account_info(),
+                token_interface::TransferChecked {
                     from: ctx.accounts.master_usdc.to_account_info(),
                     to: ctx.accounts.pool_usdc.to_account_info(),
                     authority: ctx.accounts.master_wallet.to_account_info(),
@@ -882,7 +884,7 @@ pub mod bunkercash {
             timestamp: Clock::get()?.unix_timestamp,
         });
 
-        msg!("Master cancelled {} USDC from withdrawal #{}. Remaining: {}, New NAV: {}",
+        msg!("Master cancelled {} USDC from withdrawal #{}. Remaining: {}, NAV unchanged: {}",
             amount, withdrawal.id, withdrawal.remaining, pool.nav);
         Ok(())
     }
@@ -906,10 +908,10 @@ pub mod bunkercash {
         validate_open_withdrawal(withdrawal)?;
 
         if amount > 0 {
-            anchor_spl::token_2022::transfer_checked(
+            token_interface::transfer_checked(
                 CpiContext::new(
-                    ctx.accounts.token_program.to_account_info(),
-                    anchor_spl::token_2022::TransferChecked {
+                    ctx.accounts.usdc_token_program.to_account_info(),
+                    token_interface::TransferChecked {
                         from: ctx.accounts.master_usdc.to_account_info(),
                         to: ctx.accounts.pool_usdc.to_account_info(),
                         authority: ctx.accounts.master_wallet.to_account_info(),
@@ -1051,7 +1053,7 @@ pub struct Initialize<'info> {
 
     #[account(
         mint::decimals = TOKEN_DECIMALS,
-        mint::token_program = token_program
+        mint::token_program = usdc_token_program
     )]
     pub usdc_mint: InterfaceAccount<'info, Mint>,
 
@@ -1060,7 +1062,7 @@ pub struct Initialize<'info> {
         payer = payer,
         associated_token::mint = usdc_mint,
         associated_token::authority = pool,
-        associated_token::token_program = token_program
+        associated_token::token_program = usdc_token_program
     )]
     pub pool_usdc: InterfaceAccount<'info, TokenAccount>,
 
@@ -1076,7 +1078,7 @@ pub struct Initialize<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    pub token_program: Program<'info, Token2022>,
+    pub usdc_token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }
@@ -1094,7 +1096,7 @@ pub struct DepositUsdc<'info> {
         mut,
         token::mint = usdc_mint,
         token::authority = user,
-        token::token_program = token_program
+        token::token_program = usdc_token_program
     )]
     pub user_usdc: InterfaceAccount<'info, TokenAccount>,
 
@@ -1110,8 +1112,8 @@ pub struct DepositUsdc<'info> {
         mut,
         token::mint = usdc_mint,
         token::authority = pool,
-        token::token_program = token_program,
-        address = canonical_pool_usdc_vault(pool.key(), usdc_mint.key(), token_program.key()) @ ErrorCode::InvalidPoolUsdcVault
+        token::token_program = usdc_token_program,
+        address = canonical_pool_usdc_vault(pool.key(), usdc_mint.key(), usdc_token_program.key()) @ ErrorCode::InvalidPoolUsdcVault
     )]
     pub pool_usdc: InterfaceAccount<'info, TokenAccount>,
 
@@ -1143,13 +1145,14 @@ pub struct DepositUsdc<'info> {
 
     #[account(
         mint::decimals = TOKEN_DECIMALS,
-        mint::token_program = token_program
+        mint::token_program = usdc_token_program
     )]
     pub usdc_mint: InterfaceAccount<'info, Mint>,
 
     #[account(mut)]
     pub user: Signer<'info>,
 
+    pub usdc_token_program: Interface<'info, TokenInterface>,
     pub token_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
 }
@@ -1196,14 +1199,14 @@ pub struct SetSupportedUsdcMint<'info> {
 
     #[account(
         mint::decimals = TOKEN_DECIMALS,
-        mint::token_program = token_program
+        mint::token_program = usdc_token_program
     )]
     pub usdc_mint: InterfaceAccount<'info, Mint>,
 
     #[account(mut)]
     pub admin: Signer<'info>,
 
-    pub token_program: Program<'info, Token2022>,
+    pub usdc_token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
 
@@ -1287,8 +1290,8 @@ pub struct SettleClaims<'info> {
         mut,
         token::mint = usdc_mint,
         token::authority = pool,
-        token::token_program = token_program,
-        address = canonical_pool_usdc_vault(pool.key(), usdc_mint.key(), token_program.key()) @ ErrorCode::InvalidPoolUsdcVault
+        token::token_program = usdc_token_program,
+        address = canonical_pool_usdc_vault(pool.key(), usdc_mint.key(), usdc_token_program.key()) @ ErrorCode::InvalidPoolUsdcVault
     )]
     pub pool_usdc: InterfaceAccount<'info, TokenAccount>,
 
@@ -1300,13 +1303,13 @@ pub struct SettleClaims<'info> {
 
     #[account(
         mint::decimals = TOKEN_DECIMALS,
-        mint::token_program = token_program
+        mint::token_program = usdc_token_program
     )]
     pub usdc_mint: InterfaceAccount<'info, Mint>,
 
     pub master_wallet: Signer<'info>,
 
-    pub token_program: Program<'info, Token2022>,
+    pub usdc_token_program: Interface<'info, TokenInterface>,
 }
 
 #[derive(Accounts)]
@@ -1331,8 +1334,8 @@ pub struct MasterWithdraw<'info> {
         mut,
         token::mint = usdc_mint,
         token::authority = pool,
-        token::token_program = token_program,
-        address = canonical_pool_usdc_vault(pool.key(), usdc_mint.key(), token_program.key()) @ ErrorCode::InvalidPoolUsdcVault
+        token::token_program = usdc_token_program,
+        address = canonical_pool_usdc_vault(pool.key(), usdc_mint.key(), usdc_token_program.key()) @ ErrorCode::InvalidPoolUsdcVault
     )]
     pub pool_usdc: InterfaceAccount<'info, TokenAccount>,
 
@@ -1340,7 +1343,7 @@ pub struct MasterWithdraw<'info> {
         mut,
         token::mint = usdc_mint,
         token::authority = master_wallet,
-        token::token_program = token_program
+        token::token_program = usdc_token_program
     )]
     pub master_usdc: InterfaceAccount<'info, TokenAccount>,
 
@@ -1352,14 +1355,14 @@ pub struct MasterWithdraw<'info> {
 
     #[account(
         mint::decimals = TOKEN_DECIMALS,
-        mint::token_program = token_program
+        mint::token_program = usdc_token_program
     )]
     pub usdc_mint: InterfaceAccount<'info, Mint>,
 
     #[account(mut)]
     pub master_wallet: Signer<'info>,
 
-    pub token_program: Program<'info, Token2022>,
+    pub usdc_token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
 
@@ -1383,7 +1386,7 @@ pub struct MasterRepay<'info> {
         mut,
         token::mint = usdc_mint,
         token::authority = master_wallet,
-        token::token_program = token_program
+        token::token_program = usdc_token_program
     )]
     pub master_usdc: InterfaceAccount<'info, TokenAccount>,
 
@@ -1391,8 +1394,8 @@ pub struct MasterRepay<'info> {
         mut,
         token::mint = usdc_mint,
         token::authority = pool,
-        token::token_program = token_program,
-        address = canonical_pool_usdc_vault(pool.key(), usdc_mint.key(), token_program.key()) @ ErrorCode::InvalidPoolUsdcVault
+        token::token_program = usdc_token_program,
+        address = canonical_pool_usdc_vault(pool.key(), usdc_mint.key(), usdc_token_program.key()) @ ErrorCode::InvalidPoolUsdcVault
     )]
     pub pool_usdc: InterfaceAccount<'info, TokenAccount>,
 
@@ -1404,13 +1407,13 @@ pub struct MasterRepay<'info> {
 
     #[account(
         mint::decimals = TOKEN_DECIMALS,
-        mint::token_program = token_program
+        mint::token_program = usdc_token_program
     )]
     pub usdc_mint: InterfaceAccount<'info, Mint>,
 
     pub master_wallet: Signer<'info>,
 
-    pub token_program: Program<'info, Token2022>,
+    pub usdc_token_program: Interface<'info, TokenInterface>,
 }
 
 #[derive(Accounts)]
@@ -1811,7 +1814,7 @@ mod tests {
     }
 
     #[test]
-    fn master_profit_always_increases_nav_without_touching_remaining() {
+    fn master_profit_increases_nav_without_touching_remaining() {
         let mut pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 7_500_000,
@@ -1830,7 +1833,7 @@ mod tests {
             bump: 0,
         };
 
-        apply_master_profit(&mut pool, 225_000);
+        apply_master_profit(&mut pool, &withdrawal, 225_000).unwrap();
 
         assert_eq!(pool.nav, 7_725_000);
         assert_eq!(withdrawal.remaining, 400_000);

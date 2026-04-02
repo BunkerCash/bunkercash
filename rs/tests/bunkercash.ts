@@ -17,7 +17,6 @@ import type { Idl } from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
-  TOKEN_2022_PROGRAM_ID,
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
 import { createRequire } from "node:module";
@@ -43,6 +42,11 @@ describe("bunkercash", () => {
   const wallet = provider.wallet.publicKey;
 
   it("initializes the pool (or skips if already initialized)", async () => {
+    const mintInfo = await provider.connection.getAccountInfo(USDC_MINT, "confirmed");
+    const usdcTokenProgram = mintInfo?.owner;
+    if (!usdcTokenProgram) {
+      throw new Error(`Unable to load mint owner for ${USDC_MINT.toBase58()}`);
+    }
     const [poolPda] = PublicKey.findProgramAddressSync(
       [Buffer.from(POOL_SEED)],
       program.programId
@@ -55,7 +59,7 @@ describe("bunkercash", () => {
       USDC_MINT,
       poolPda,
       true,
-      TOKEN_2022_PROGRAM_ID,
+      usdcTokenProgram,
       ASSOCIATED_TOKEN_PROGRAM_ID
     );
 
@@ -69,7 +73,7 @@ describe("bunkercash", () => {
           poolUsdc,
           supportedUsdcConfig: supportedUsdcConfigPda,
           payer: wallet,
-          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          usdcTokenProgram,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })

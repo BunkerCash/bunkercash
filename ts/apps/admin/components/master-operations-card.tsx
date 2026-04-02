@@ -6,7 +6,6 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey, SendTransactionError, Transaction } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
-  TOKEN_2022_PROGRAM_ID,
   createAssociatedTokenAccountIdempotentInstruction,
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
@@ -51,7 +50,7 @@ interface MasterWithdrawAccounts {
   supportedUsdcConfig: PublicKey;
   usdcMint: PublicKey;
   masterWallet: PublicKey;
-  tokenProgram: PublicKey;
+  usdcTokenProgram: PublicKey;
 }
 
 type MasterAdjustAccounts = MasterWithdrawAccounts;
@@ -148,7 +147,7 @@ export function MasterOperationsCard() {
     () => getClusterFromEndpoint(connection.rpcEndpoint ?? ""),
     [connection],
   );
-  const { usdcMint } = useSupportedUsdcMint();
+  const { usdcMint, usdcTokenProgram } = useSupportedUsdcMint();
   const supportedUsdcConfigPda = useMemo(
     () => getSupportedUsdcConfigPda(MASTER_PROGRAM_ID),
     []
@@ -200,20 +199,20 @@ export function MasterOperationsCard() {
   };
 
   const buildAtaInstructions = () => {
-    if (!wallet.publicKey || !usdcMint) return null;
+    if (!wallet.publicKey || !usdcMint || !usdcTokenProgram) return null;
 
     const payoutUsdcVault = getAssociatedTokenAddressSync(
       usdcMint,
       poolSignerPda,
       true,
-      TOKEN_2022_PROGRAM_ID,
+      usdcTokenProgram,
       ASSOCIATED_TOKEN_PROGRAM_ID,
     );
     const adminUsdcAta = getAssociatedTokenAddressSync(
       usdcMint,
       wallet.publicKey,
       false,
-      TOKEN_2022_PROGRAM_ID,
+      usdcTokenProgram,
       ASSOCIATED_TOKEN_PROGRAM_ID,
     );
 
@@ -223,7 +222,7 @@ export function MasterOperationsCard() {
         payoutUsdcVault,
         poolSignerPda,
         usdcMint,
-        TOKEN_2022_PROGRAM_ID,
+        usdcTokenProgram,
         ASSOCIATED_TOKEN_PROGRAM_ID,
       );
     const ensureAdminAtaIx = createAssociatedTokenAccountIdempotentInstruction(
@@ -231,7 +230,7 @@ export function MasterOperationsCard() {
       adminUsdcAta,
       wallet.publicKey,
       usdcMint,
-      TOKEN_2022_PROGRAM_ID,
+      usdcTokenProgram,
       ASSOCIATED_TOKEN_PROGRAM_ID,
     );
 
@@ -252,7 +251,7 @@ export function MasterOperationsCard() {
       const available = BigInt(balance.value.amount);
       if (available < amount) {
         setTxError(
-          `Insufficient Token-2022 USDC in the admin wallet ATA. Available: $${formatUsdc(available)}, requested: $${formatUsdc(amount)}.`,
+          `Insufficient USDC in the admin wallet ATA. Available: $${formatUsdc(available)}, requested: $${formatUsdc(amount)}.`,
         );
         return false;
       }
@@ -261,7 +260,7 @@ export function MasterOperationsCard() {
       const message = e instanceof Error ? e.message : "Failed to fetch balance";
       if (message.includes("could not find account")) {
         setTxError(
-          `Admin Token-2022 USDC ATA does not exist. Fund ${adminUsdcAta.toBase58()} first.`,
+          `Admin USDC ATA does not exist. Fund ${adminUsdcAta.toBase58()} first.`,
         );
         return false;
       }
@@ -306,7 +305,7 @@ export function MasterOperationsCard() {
           supportedUsdcConfig: supportedUsdcConfigPda,
           usdcMint,
           masterWallet: wallet.publicKey,
-          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          usdcTokenProgram,
         })
         .instruction();
 
@@ -374,7 +373,7 @@ export function MasterOperationsCard() {
           supportedUsdcConfig: supportedUsdcConfigPda,
           usdcMint,
           masterWallet: wallet.publicKey,
-          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          usdcTokenProgram,
         })
         .instruction();
 
@@ -443,7 +442,7 @@ export function MasterOperationsCard() {
           supportedUsdcConfig: supportedUsdcConfigPda,
           usdcMint,
           masterWallet: wallet.publicKey,
-          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          usdcTokenProgram,
         })
         .instruction();
 
@@ -507,7 +506,7 @@ export function MasterOperationsCard() {
           supportedUsdcConfig: supportedUsdcConfigPda,
           usdcMint,
           masterWallet: wallet.publicKey,
-          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          usdcTokenProgram,
         })
         .instruction();
 

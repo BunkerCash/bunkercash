@@ -32,8 +32,7 @@ function isWalletRejection(e: unknown): boolean {
   return (
     msg.includes("user rejected") ||
     msg.includes("user denied") ||
-    msg.includes("rejected the request") ||
-    msg.includes("transaction was not confirmed")
+    msg.includes("rejected the request")
   );
 }
 
@@ -196,7 +195,7 @@ export function WithdrawInterface() {
       setConfirmed(false);
       await fetchTokenBalance();
       await fetchClaims();
-      showToast(`Claim filed. Tx: ${sig.slice(0, 8)}…`, "success");
+      showToast(`Request submitted. Tx: ${sig.slice(0, 8)}…`, "success");
       // Invalidate transactions cache so Transactions tab fetches fresh data
       const { invalidateTransactionCache } =
         await import("@/hooks/useMyTransactions");
@@ -241,7 +240,7 @@ export function WithdrawInterface() {
               : "text-neutral-500 hover:text-white"
           }`}
         >
-          File Claim
+          Submit Request
         </button>
         <button
           onClick={() => setActiveView("history")}
@@ -259,11 +258,12 @@ export function WithdrawInterface() {
         <div className="space-y-6">
           <div className="bg-neutral-900/50 rounded-xl p-4 border border-neutral-800">
             <p className="text-sm text-neutral-300 font-semibold mb-1">
-              Irreversible burn
+              Irreversible action
             </p>
             <p className="text-xs text-neutral-500">
-              Filing a claim burns your bRENT and creates a USDC redemption
-              request at the current pool NAV.
+              Submitting a request removes the selected token amount from
+              circulation and creates a pending settlement request, subject to
+              available protocol liquidity.
             </p>
           </div>
 
@@ -314,9 +314,9 @@ export function WithdrawInterface() {
               className="text-sm text-neutral-400 cursor-pointer select-none"
             >
               I understand that this action is{" "}
-              <span className="text-red-400 font-semibold">irreversible</span>.
-              The submitted bRENT will be burned and converted into a pending
-              USDC claim.
+              <span className="text-red-400 font-semibold">irreversible</span>{" "}
+              and that settlement is not guaranteed in timing or amount beyond
+              available protocol liquidity.
             </label>
           </div>
 
@@ -327,7 +327,7 @@ export function WithdrawInterface() {
           )}
           {txSig && (
             <div className="rounded-xl border border-[#00FFB2]/30 bg-[#00FFB2]/10 px-4 py-3 text-sm text-[#00FFB2]">
-              Claim filed. Tx: {txSig.slice(0, 8)}…{txSig.slice(-8)}
+              Request submitted. Tx: {txSig.slice(0, 8)}…{txSig.slice(-8)}
             </div>
           )}
 
@@ -338,28 +338,25 @@ export function WithdrawInterface() {
             }
             className="w-full bg-[#00FFB2] hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600 text-black font-semibold py-5 rounded-xl transition-all text-lg"
           >
-            {submitting ? "Filing Claim…" : "File Claim"}
+            {submitting ? "Submitting…" : "Submit Request"}
           </button>
         </div>
       ) : (
         <div className="space-y-3">
           {!publicKey ? (
             <div className="text-center py-12 text-neutral-600">
-              Connect your wallet to view claims
+              Connect your wallet to view requests
             </div>
           ) : claims.length === 0 ? (
             <div className="text-center py-12 text-neutral-600">
-              No claims yet
+              No requests yet
             </div>
           ) : (
             claims.map((c) => (
               <div key={c.pubkey} className="bg-neutral-900 rounded-xl p-5 border border-neutral-800">
                 <div className="flex justify-between items-start mb-3">
                   <div>
-                    <div className="text-lg font-semibold">Claim #{c.id}</div>
-                    <div className="text-sm text-neutral-500">
-                      Requested: {Number(c.requestedUsdc) / 1e6} USDC
-                    </div>
+                    <div className="text-lg font-semibold">Request #{c.id}</div>
                   </div>
                   <div
                     className={`px-3 py-1 rounded-full text-xs font-medium ${
@@ -370,25 +367,31 @@ export function WithdrawInterface() {
                           : "bg-neutral-800 text-neutral-400"
                     }`}
                   >
-                    {c.processed ? "processed" : Number(c.paidUsdc) > 0 ? "partially paid" : "pending"}
+                    {c.processed ? "settled" : Number(c.paidUsdc) > 0 ? "partially settled" : "pending"}
                   </div>
                 </div>
                 <div className="mt-2 flex justify-between text-sm">
-                  <span className="text-neutral-500">USDC paid</span>
+                  <span className="text-neutral-500">Requested Amount</span>
+                  <span className="text-neutral-300">
+                    {Number(c.requestedUsdc) / 1e6} USDC
+                  </span>
+                </div>
+                <div className="mt-1 flex justify-between text-sm">
+                  <span className="text-neutral-500">Settled Amount</span>
                   <span className="text-neutral-300">
                     {Number(c.paidUsdc) / 1e6} USDC
                   </span>
                 </div>
                 {!c.processed && (
                   <div className="mt-1 flex justify-between text-sm">
-                    <span className="text-neutral-500">USDC remaining</span>
+                    <span className="text-neutral-500">Remaining Amount</span>
                     <span className="text-neutral-300">
                       {Number(c.remainingUsdc) / 1e6} USDC
                     </span>
                   </div>
                 )}
                 <div className="mt-1 flex justify-between text-sm">
-                  <span className="text-neutral-500">Claim account</span>
+                  <span className="text-neutral-500">Request Account</span>
                   <span className="text-neutral-500 font-mono">
                     {c.pubkey.slice(0, 4)}…
                     {c.pubkey.slice(-4)}

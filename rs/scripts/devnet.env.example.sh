@@ -12,7 +12,7 @@ export ANCHOR_PROVIDER_URL="$RPC"
 export ANCHOR_WALLET="${ANCHOR_WALLET:-$HOME/.config/solana/id.json}"
 
 # Choose the USDC mint your pool uses.
-# - Token-2022 USDC supported by the current devnet deployment: Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx
+# - USDC supported by the current devnet deployment: Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx
 # - Circle devnet USDC (alternative): 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
 # - Or set to your own devnet test mint.
 export USDC_MINT="${USDC_MINT:-Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx}"
@@ -24,4 +24,3 @@ echo "RPC=$RPC"
 echo "ANCHOR_WALLET=$ANCHOR_WALLET"
 echo "USDC_MINT=$USDC_MINT"
 [ -n "${ADMIN_PUBKEY:-}" ] && echo "ADMIN_PUBKEY=$ADMIN_PUBKEY"
-

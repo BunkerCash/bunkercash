@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import type { Idl, Program } from '@coral-xyz/anchor'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { PublicKey, SendTransactionError, SystemProgram, Transaction, type TransactionInstruction } from '@solana/web3.js'
-import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
+import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import {
   getBunkercashMintPda,
   getPoolPda,
@@ -41,7 +41,7 @@ function derivePrice(navRaw: bigint, supplyRaw: bigint): number {
 /** Detect wallet rejection errors */
 function isWalletRejection(e: unknown): boolean {
   const msg = e instanceof Error ? e.message.toLowerCase() : String(e ?? '').toLowerCase()
-  return msg.includes('user rejected') || msg.includes('user denied') || msg.includes('rejected the request') || msg.includes('transaction was not confirmed')
+  return msg.includes('user rejected') || msg.includes('user denied') || msg.includes('rejected the request')
 }
 
 interface Stringable {
@@ -71,6 +71,7 @@ interface BuyPrimaryMethods {
       purchaseLimitConfig: PublicKey;
       usdcMint: PublicKey;
       user: PublicKey;
+      usdcTokenProgram: PublicKey;
       tokenProgram: PublicKey;
       systemProgram: PublicKey;
     }) => {
@@ -89,7 +90,6 @@ export function BuyPrimaryInterface() {
   const [error, setError] = useState<string | null>(null);
   const [txSig, setTxSig] = useState<string | null>(null);
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
-  const [usdcTokenProgram, setUsdcTokenProgram] = useState<PublicKey | null>(null);
   const txInFlight = useRef(false);
   const [poolState, setPoolState] = useState<{
     masterWallet: PublicKey;
@@ -125,25 +125,7 @@ export function BuyPrimaryInterface() {
     () => getClusterFromEndpoint(connection.rpcEndpoint ?? ""),
     [connection],
   );
-  const { usdcMint } = useSupportedUsdcMint();
-
-  useEffect(() => {
-    if (!connection || !usdcMint) {
-      setUsdcTokenProgram(null)
-      return
-    }
-
-    const detectMintProgram = async () => {
-      try {
-        const mintInfo = await connection.getAccountInfo(usdcMint)
-        setUsdcTokenProgram(mintInfo?.owner ?? null)
-      } catch {
-        setUsdcTokenProgram(null)
-      }
-    }
-
-    void detectMintProgram()
-  }, [connection, usdcMint])
+  const { usdcMint, usdcTokenProgram, error: usdcMintError } = useSupportedUsdcMint();
 
   const fetchPoolState = useCallback(async () => {
     if (!program || !connection) return;
@@ -236,7 +218,9 @@ export function BuyPrimaryInterface() {
     ? derivePrice(poolState.nav, poolState.totalBrentSupply)
     : null;
   const supportsUsdcDeposits =
-    !!usdcTokenProgram && usdcTokenProgram.equals(TOKEN_2022_PROGRAM_ID)
+    !!usdcTokenProgram &&
+    (usdcTokenProgram.equals(TOKEN_PROGRAM_ID) ||
+      usdcTokenProgram.equals(TOKEN_2022_PROGRAM_ID))
 
   const usdcAmountRaw = useMemo(() => {
     return parseUiAmountToBaseUnits(usdcAmount, USDC_DECIMALS)
@@ -272,7 +256,7 @@ export function BuyPrimaryInterface() {
     if (countFractionalDigits(usdcAmount) > USDC_DECIMALS) return "Max 6 decimal places";
     if (usdcAmountRaw == null) return "Enter a valid number";
     if (usdcAmountRaw < MIN_USDC_AMOUNT_RAW) return "Minimum amount is 0.01 USDC";
-    if (usdcAmountRaw > MAX_USDC_AMOUNT_RAW) return "Maximum specific limit is 1M USDC";
+    if (usdcAmountRaw > MAX_USDC_AMOUNT_RAW) return "Maximum per transaction is 1M USDC";
     if (
       remainingPurchaseCapacityRaw != null &&
       usdcAmountRaw > remainingPurchaseCapacityRaw
@@ -289,9 +273,14 @@ export function BuyPrimaryInterface() {
 
   const handleBuy = async () => {
     if (!usdcMint) {
-      const msg = `Unsupported network: no configured Token-2022 USDC mint for ${currentCluster}.`;
+      const msg = `Unsupported network: no configured USDC mint for ${currentCluster}.`;
       setError(msg);
       showToast(msg, "error");
+      return;
+    }
+    if (usdcMintError) {
+      setError(usdcMintError);
+      showToast(usdcMintError, "error");
       return;
     }
     if (
@@ -323,7 +312,7 @@ export function BuyPrimaryInterface() {
     try {
       if (!supportsUsdcDeposits) {
         const msg =
-          "Detected legacy SPL USDC for this wallet. The current contract only accepts Token-2022 USDC.";
+          "Configured USDC mint is not supported by this deployment.";
         setError(msg);
         showToast(msg, "error");
         return;
@@ -333,14 +322,14 @@ export function BuyPrimaryInterface() {
         usdcMint,
         publicKey,
         false,
-        TOKEN_2022_PROGRAM_ID,
+        usdcTokenProgram,
         ASSOCIATED_TOKEN_PROGRAM_ID,
       );
       const poolUsdcVault = getAssociatedTokenAddressSync(
         usdcMint,
         poolPda,
         true,
-        TOKEN_2022_PROGRAM_ID,
+        usdcTokenProgram,
         ASSOCIATED_TOKEN_PROGRAM_ID,
       );
       const brentMintInfo = await connection.getAccountInfo(bunkercashMintPda);
@@ -365,7 +354,7 @@ export function BuyPrimaryInterface() {
           userUsdc,
           publicKey,
           usdcMint,
-          TOKEN_2022_PROGRAM_ID,
+          usdcTokenProgram,
           ASSOCIATED_TOKEN_PROGRAM_ID,
         );
       const createUserBunkercashAtaIx =
@@ -399,6 +388,7 @@ export function BuyPrimaryInterface() {
           purchaseLimitConfig: purchaseLimitConfigPda,
           usdcMint,
           user: publicKey,
+          usdcTokenProgram,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
@@ -417,7 +407,7 @@ export function BuyPrimaryInterface() {
 
       setTxSig(sig);
       setUsdcAmount("");
-      showToast(`Deposit successful! Tx: ${sig.slice(0, 8)}…`, "success");
+      showToast(`Transaction submitted. Tx: ${sig.slice(0, 8)}…`, "success");
       void fetchPoolState();
       // Invalidate transactions cache so Transactions tab fetches fresh data
       const { invalidateTransactionCache } =
@@ -449,7 +439,7 @@ export function BuyPrimaryInterface() {
   if (!publicKey) {
     return (
       <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-8 text-center text-neutral-500">
-        Connect your wallet to view the current Bunker Cash price.
+        Complete access check and connect your wallet to continue.
       </div>
     )
   }
@@ -495,9 +485,9 @@ export function BuyPrimaryInterface() {
             Unsupported Network
           </h3>
           <p className="text-neutral-400 max-w-md">
-            This deployment currently supports the Token-2022 USDC mint on
+            This deployment currently supports a configured USDC mint on
             devnet/testnet only. Set `NEXT_PUBLIC_USDC_MINT` if you are using a
-            different supported Token-2022 USDC mint.
+            different supported USDC mint.
           </p>
         </div>
       </div>
@@ -510,7 +500,7 @@ export function BuyPrimaryInterface() {
         <div className="grid grid-cols-2 gap-6">
           <div>
             <div className="mb-2 text-xs uppercase tracking-wider text-neutral-500">
-              Current price
+              Reference Rate
             </div>
             <div className="text-2xl font-bold text-[#00FFB2]">
               ${pricePerToken != null ? pricePerToken.toFixed(2) : "—"} per
@@ -519,13 +509,9 @@ export function BuyPrimaryInterface() {
           </div>
           <div>
             <div className="mb-2 text-xs uppercase tracking-wider text-neutral-500">
-              Remaining purchase capacity
+              Pricing Method
             </div>
-            <div className="text-2xl font-bold">
-              {remainingPurchaseCapacityRaw == null
-                ? "Unlimited"
-                : `$${toUi(remainingPurchaseCapacityRaw, USDC_DECIMALS)}`}
-            </div>
+            <div className="text-2xl font-bold">Protocol-defined</div>
           </div>
         </div>
       </div>
@@ -534,10 +520,7 @@ export function BuyPrimaryInterface() {
         <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
           <div className="mb-4 flex items-center justify-between">
             <span className="text-xs uppercase tracking-wider text-neutral-500">
-              You pay
-              <span className="ml-2 font-normal text-neutral-600 normal-case tracking-normal">
-                (Max 1M USDC)
-              </span>
+              You provide
             </span>
             <span className="text-xs uppercase tracking-wider text-neutral-500">
               Balance: {usdcBalance ?? "—"}
@@ -587,9 +570,14 @@ export function BuyPrimaryInterface() {
           {error}
         </div>
       )}
-      {!supportsUsdcDeposits && usdcBalance && (
+      {usdcMintError && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          Failed to load configured USDC mint details: {usdcMintError}
+        </div>
+      )}
+      {!usdcMintError && !supportsUsdcDeposits && usdcBalance && (
         <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-400">
-          Detected {usdcBalance} USDC in your wallet, but it is on the legacy SPL token program. This contract currently accepts Token-2022 USDC only.
+          Detected {usdcBalance} USDC in your wallet, but the configured mint is unsupported for this deployment. Ask the team to verify the selected USDC mint.
         </div>
       )}
       {txSig && (
@@ -616,12 +604,13 @@ export function BuyPrimaryInterface() {
         }
         className="w-full rounded-xl bg-[#00FFB2] py-5 text-lg font-semibold text-black transition-all hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600"
       >
-        {loading ? "Processing…" : "Deposit USDC"}
+        {loading ? "Processing…" : "Acquire Tokens"}
       </button>
 
       <div className="text-center text-xs text-neutral-600 space-y-1">
         <div>
-          Pool purchase limits are enforced on-chain
+          Displayed values are interface values only and do not constitute a
+          guarantee of value, liquidity, or future settlement.
         </div>
         <div className="opacity-50">
           Network:{" "}
