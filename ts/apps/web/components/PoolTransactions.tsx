@@ -7,6 +7,11 @@ import { getClusterFromEndpoint } from "@/lib/constants";
 import type { Transaction } from "@/types";
 import { ArrowUpIcon, ArrowRightIcon } from "@heroicons/react/24/outline";
 
+const TX_LABEL: Record<Transaction["type"], string> = {
+  investment: "Acquire",
+  withdrawal: "Request",
+};
+
 export function PoolTransactions() {
   const { transactions, loading, error, refresh } = useMyTransactions();
   const { publicKey } = useWallet();
@@ -50,7 +55,7 @@ export function PoolTransactions() {
   if (!publicKey) {
     return (
       <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-8 text-center text-neutral-500">
-        Connect your wallet to view your transactions.
+        Complete access check and connect your wallet to view transactions.
       </div>
     );
   }
@@ -102,8 +107,7 @@ export function PoolTransactions() {
 
       {transactions.length === 0 ? (
         <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-8 text-center text-neutral-500">
-          No transactions found. Buy or sell Bunker Cash to see your activity
-          here.
+          No transactions found.
         </div>
       ) : (
         <div className="space-y-3">
@@ -121,8 +125,8 @@ export function PoolTransactions() {
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="font-semibold capitalize">
-                        {tx.type}
+                      <span className="font-semibold">
+                        {TX_LABEL[tx.type]}
                       </span>
                       {tx.txSignature && (
                         <a
@@ -139,7 +143,7 @@ export function PoolTransactions() {
                     </div>
                     {tx.tokenAmount != null && tx.tokenAmount > 0 && (
                       <div className="text-sm text-neutral-400">
-                        {tx.type === "investment" ? "Received" : "Locked"}{" "}
+                        {tx.type === "investment" ? "Received" : "Submitted"}{" "}
                         {tx.tokenAmount.toLocaleString(undefined, {
                           maximumFractionDigits: 4,
                         })}{" "}

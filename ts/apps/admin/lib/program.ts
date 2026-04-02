@@ -1,6 +1,7 @@
 import { Program, AnchorProvider, type Idl } from '@coral-xyz/anchor'
 import { Connection, PublicKey, Transaction, VersionedTransaction } from '@solana/web3.js'
 import type { WalletContextState } from '@solana/wallet-adapter-react'
+import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token'
 import idlJson from './bunkercash.fixed.idl.json'
 
 type IdlWithAddress = Idl & { address: string }
@@ -118,4 +119,17 @@ export async function fetchConfiguredUsdcMint(
   } catch {
     return null
   }
+}
+
+export async function fetchMintTokenProgram(
+  connection: Connection,
+  mint: PublicKey,
+): Promise<PublicKey | null> {
+  const mintInfo = await connection.getAccountInfo(mint)
+  const owner = mintInfo?.owner ?? null
+  if (!owner) return null
+  if (owner.equals(TOKEN_PROGRAM_ID) || owner.equals(TOKEN_2022_PROGRAM_ID)) {
+    return owner
+  }
+  return null
 }

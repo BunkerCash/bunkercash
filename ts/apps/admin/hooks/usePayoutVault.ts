@@ -1,7 +1,7 @@
 "use client"
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useConnection } from '@solana/wallet-adapter-react'
-import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
+import { getAssociatedTokenAddressSync, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import { getPoolPda, getPoolSignerPda, PROGRAM_ID } from '@/lib/program'
 import type { PoolDataResponse } from "@/lib/solana-server"
 import { useSupportedUsdcMint } from "@/hooks/useSupportedUsdcMint"
@@ -14,18 +14,18 @@ export function usePayoutVault() {
 
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), [])
   const poolSignerPda = useMemo(() => getPoolSignerPda(poolPda, PROGRAM_ID), [poolPda])
-  const { usdcMint } = useSupportedUsdcMint()
+  const { usdcMint, usdcTokenProgram } = useSupportedUsdcMint()
 
   const payoutUsdcVault = useMemo(() => {
-    if (!usdcMint) return null
+    if (!usdcMint || !usdcTokenProgram) return null
     return getAssociatedTokenAddressSync(
       usdcMint,
       poolSignerPda,
       true,
-      TOKEN_2022_PROGRAM_ID,
+      usdcTokenProgram,
       ASSOCIATED_TOKEN_PROGRAM_ID
     )
-  }, [usdcMint, poolSignerPda])
+  }, [usdcMint, usdcTokenProgram, poolSignerPda])
 
   const fetchBalance = useCallback(async () => {
     setLoading(true)

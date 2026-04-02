@@ -6,7 +6,6 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { clusterApiUrl } from "@solana/web3.js";
 import {
   getAssociatedTokenAddressSync,
-  TOKEN_2022_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import {
@@ -14,6 +13,7 @@ import {
   getPoolPda,
   getBunkercashMintPda,
   getPoolSignerPda,
+  fetchMintTokenProgram,
   fetchConfiguredUsdcMint,
   PROGRAM_ID,
 } from "@/lib/program";
@@ -149,11 +149,15 @@ export async function fetchPoolData(): Promise<PoolDataResponse> {
     }
 
     if (usdcMint) {
+      const usdcTokenProgram = await fetchMintTokenProgram(connection, usdcMint);
+      if (!usdcTokenProgram) {
+        throw new Error("Unsupported configured USDC mint");
+      }
       const payoutVault = getAssociatedTokenAddressSync(
         usdcMint,
         poolSignerPda,
         true,
-        TOKEN_2022_PROGRAM_ID,
+        usdcTokenProgram,
         ASSOCIATED_TOKEN_PROGRAM_ID,
       );
       const bal = await connection.getTokenAccountBalance(payoutVault);
