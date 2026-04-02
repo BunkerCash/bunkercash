@@ -91,8 +91,12 @@ fn apply_master_repayment(pool: &mut Pool, withdrawal: &mut Withdrawal, amount: 
     pool.nav = pool.nav.checked_add(nav_growth).unwrap();
 }
 
-fn apply_master_profit(pool: &mut Pool, amount: u64) {
+fn apply_master_profit(pool: &mut Pool, withdrawal: &Withdrawal, amount: u64) -> Result<()> {
+    validate_open_withdrawal(withdrawal)?;
+    // Profit is additive value on top of any still-outstanding principal.
+    // It increases NAV, but it must not reduce the withdrawal receivable.
     pool.nav = pool.nav.checked_add(amount).unwrap();
+    Ok(())
 }
 
 fn validate_open_withdrawal(withdrawal: &Withdrawal) -> Result<()> {
@@ -806,8 +810,6 @@ pub mod bunkercash {
             ctx.accounts.master_wallet.key() == pool.master_wallet,
             ErrorCode::Unauthorized
         );
-        validate_open_withdrawal(withdrawal)?;
-
         token_interface::transfer_checked(
             CpiContext::new(
                 ctx.accounts.usdc_token_program.to_account_info(),
@@ -822,8 +824,7 @@ pub mod bunkercash {
             ctx.accounts.usdc_mint.decimals,
         )?;
 
-        apply_master_profit(pool, amount);
-        apply_master_cancellation(withdrawal, amount)?;
+        apply_master_profit(pool, withdrawal, amount)?;
 
         emit!(MasterProfitEvent {
             withdrawal_id: withdrawal.id,
@@ -1813,7 +1814,7 @@ mod tests {
     }
 
     #[test]
-    fn master_profit_always_increases_nav_without_touching_remaining() {
+    fn master_profit_increases_nav_without_touching_remaining() {
         let mut pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 7_500_000,
@@ -1832,7 +1833,7 @@ mod tests {
             bump: 0,
         };
 
-        apply_master_profit(&mut pool, 225_000);
+        apply_master_profit(&mut pool, &withdrawal, 225_000).unwrap();
 
         assert_eq!(pool.nav, 7_725_000);
         assert_eq!(withdrawal.remaining, 400_000);
