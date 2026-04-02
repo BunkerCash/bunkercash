@@ -12,7 +12,7 @@ export function PoolTransactions() {
   const { publicKey } = useWallet();
   const { connection } = useConnection();
 
-  const cluster = getClusterFromEndpoint((connection as any).rpcEndpoint ?? "");
+  const cluster = getClusterFromEndpoint(connection.rpcEndpoint ?? "");
   const explorerBase =
     cluster === "mainnet-beta"
       ? "https://explorer.solana.com/tx/"

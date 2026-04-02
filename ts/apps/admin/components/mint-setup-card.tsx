@@ -8,6 +8,11 @@ import { AlertCircle, CheckCircle2, Coins, Loader2, RefreshCw } from "lucide-rea
 import { getBunkercashMintPda, getPoolPda, getProgram, PROGRAM_ID } from "@/lib/program";
 
 const TOKEN_METADATA_PROGRAM_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
+const DEFAULT_TOKEN_NAME = "bunkerCash";
+const DEFAULT_TOKEN_SYMBOL = "bunkerCash";
+const DEFAULT_TOKEN_METADATA_URI =
+  process.env.NEXT_PUBLIC_TOKEN_METADATA_URI ??
+  "https://bunkercash-web.bunkercoin.workers.dev/bunkercash-metadata.json";
 
 interface PoolAccountLike {
   masterWallet: PublicKey;
@@ -77,9 +82,9 @@ export function MintSetupCard() {
   const [isMintInitialized, setIsMintInitialized] = useState(false);
   const [isMetadataInitialized, setIsMetadataInitialized] = useState(false);
   const [masterWallet, setMasterWallet] = useState<string | null>(null);
-  const [tokenName, setTokenName] = useState("Bunker Cash");
-  const [tokenSymbol, setTokenSymbol] = useState("BRENT");
-  const [tokenUri, setTokenUri] = useState("");
+  const [tokenName, setTokenName] = useState(DEFAULT_TOKEN_NAME);
+  const [tokenSymbol, setTokenSymbol] = useState(DEFAULT_TOKEN_SYMBOL);
+  const [tokenUri, setTokenUri] = useState(DEFAULT_TOKEN_METADATA_URI);
 
   const fetchState = useCallback(async () => {
     setLoading(true);
@@ -331,7 +336,7 @@ export function MintSetupCard() {
               value={tokenName}
               onChange={(event) => setTokenName(event.target.value)}
               className="w-full rounded-xl border border-neutral-800 bg-black/40 px-3 py-2.5 text-sm text-white outline-none transition focus:border-[#00FFB2]"
-              placeholder="Bunker Cash"
+              placeholder={DEFAULT_TOKEN_NAME}
             />
           </label>
 
@@ -341,7 +346,7 @@ export function MintSetupCard() {
               value={tokenSymbol}
               onChange={(event) => setTokenSymbol(event.target.value)}
               className="w-full rounded-xl border border-neutral-800 bg-black/40 px-3 py-2.5 text-sm text-white outline-none transition focus:border-[#00FFB2]"
-              placeholder="BRENT"
+              placeholder={DEFAULT_TOKEN_SYMBOL}
             />
           </label>
         </div>
@@ -352,7 +357,7 @@ export function MintSetupCard() {
             value={tokenUri}
             onChange={(event) => setTokenUri(event.target.value)}
             className="w-full rounded-xl border border-neutral-800 bg-black/40 px-3 py-2.5 text-sm text-white outline-none transition focus:border-[#00FFB2]"
-            placeholder="https://your-domain.com/bunkercash.json"
+            placeholder={DEFAULT_TOKEN_METADATA_URI}
           />
         </label>
 

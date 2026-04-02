@@ -270,7 +270,7 @@ export function MasterOperationsCard() {
   };
 
   const handleMasterWithdraw = async () => {
-    if (!program || !wallet.publicKey || !pool || !usdcMint || !usdcTokenProgram) return;
+    if (!program || !wallet.publicKey || !pool || !usdcMint) return;
 
     const amount = parseUsdcInput(withdrawAmount);
     if (!amount) {
@@ -347,7 +347,7 @@ export function MasterOperationsCard() {
   };
 
   const handleProfit = async () => {
-    if (!program || !wallet.publicKey || !profitTarget || !usdcMint || !usdcTokenProgram) return;
+    if (!program || !wallet.publicKey || !profitTarget || !usdcMint) return;
 
     const amount = parseUsdcInput(profitAmount);
     if (!amount) {
@@ -408,7 +408,7 @@ export function MasterOperationsCard() {
   };
 
   const handleRepay = async () => {
-    if (!program || !wallet.publicKey || !repayTarget || !usdcMint || !usdcTokenProgram) return;
+    if (!program || !wallet.publicKey || !repayTarget || !usdcMint) return;
 
     const amount = parseUsdcInput(repayAmount);
     if (!amount) {
@@ -477,7 +477,7 @@ export function MasterOperationsCard() {
   };
 
   const handleClose = async () => {
-    if (!program || !wallet.publicKey || !closeTarget || !usdcMint || !usdcTokenProgram) return;
+    if (!program || !wallet.publicKey || !closeTarget || !usdcMint) return;
 
     const amount = parseUsdcInput(closeAmount, { allowZero: true });
     if (amount === null) {
