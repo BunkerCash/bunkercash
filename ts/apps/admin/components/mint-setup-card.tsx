@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
+import { PublicKey, SYSVAR_INSTRUCTIONS_PUBKEY, SystemProgram } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { AlertCircle, CheckCircle2, Coins, Loader2, RefreshCw } from "lucide-react";
 import { getBunkercashMintPda, getPoolPda, getProgram, PROGRAM_ID } from "@/lib/program";
@@ -39,6 +39,7 @@ interface MintSetupMethods {
       tokenMetadataProgram: PublicKey;
       tokenProgram: PublicKey;
       systemProgram: PublicKey;
+      sysvarInstructions: PublicKey;
     }) => {
       rpc: () => Promise<string>;
     };
@@ -191,6 +192,7 @@ export function MintSetupCard() {
             tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
             tokenProgram: TOKEN_2022_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
+            sysvarInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
           });
 
       const signature = await builder.rpc();

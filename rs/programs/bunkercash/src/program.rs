@@ -3,6 +3,7 @@ use anchor_lang::solana_program::{
     program::invoke_signed,
     program_pack::Pack,
     system_instruction,
+    sysvar,
 };
 use anchor_spl::associated_token::{
     get_associated_token_address_with_program_id,
@@ -11,8 +12,8 @@ use anchor_spl::associated_token::{
 use anchor_spl::token_2022::Token2022;
 use anchor_spl::token::accessor;
 use anchor_spl::token_interface::{self, Mint, TokenAccount, TokenInterface};
-use mpl_token_metadata::instructions::{CreateMetadataAccountV3CpiBuilder, UpdateMetadataAccountV2CpiBuilder};
-use mpl_token_metadata::types::DataV2;
+use mpl_token_metadata::instructions::{CreateV1CpiBuilder, UpdateMetadataAccountV2CpiBuilder};
+use mpl_token_metadata::types::{DataV2, TokenStandard};
 use mpl_token_metadata::ID as TOKEN_METADATA_PROGRAM_ID;
 use spl_token_2022::state::Mint as Token2022Mint;
 
@@ -950,31 +951,31 @@ pub mod bunkercash {
             ErrorCode::Unauthorized
         );
 
-        let pool_bump = pool.bump;
-        let seeds = &[b"pool".as_ref(), &[pool_bump]];
-        let signer = &[&seeds[..]];
+        let pool_bump = [pool.bump];
+        let mint_bump = [ctx.bumps.brent_mint];
+        let pool_signer_seeds: &[&[u8]] = &[POOL_SEED, &pool_bump];
+        let mint_signer_seeds: &[&[u8]] = &[BRENT_MINT_SEED, &mint_bump];
+        let signer_seeds: &[&[&[u8]]] = &[pool_signer_seeds, mint_signer_seeds];
 
-        let data = DataV2 {
-            name: name.clone(),
-            symbol: symbol.clone(),
-            uri: uri.clone(),
-            seller_fee_basis_points: 0,
-            creators: None,
-            collection: None,
-            uses: None,
-        };
-
-        CreateMetadataAccountV3CpiBuilder::new(&ctx.accounts.token_metadata_program.to_account_info())
+        CreateV1CpiBuilder::new(&ctx.accounts.token_metadata_program.to_account_info())
             .metadata(&ctx.accounts.metadata.to_account_info())
-            .mint(&ctx.accounts.brent_mint.to_account_info())
-            .mint_authority(&ctx.accounts.pool.to_account_info())
+            .master_edition(None)
+            .mint(&ctx.accounts.brent_mint.to_account_info(), true)
+            .authority(&ctx.accounts.pool.to_account_info())
             .payer(&ctx.accounts.admin.to_account_info())
             .update_authority(&ctx.accounts.pool.to_account_info(), true)
             .system_program(&ctx.accounts.system_program.to_account_info())
-            .rent(None)
-            .data(data)
+            .sysvar_instructions(&ctx.accounts.sysvar_instructions.to_account_info())
+            .spl_token_program(Some(&ctx.accounts.token_program.to_account_info()))
+            .name(name.clone())
+            .symbol(symbol.clone())
+            .uri(uri.clone())
+            .seller_fee_basis_points(0)
+            .primary_sale_happened(false)
             .is_mutable(true)
-            .invoke_signed(signer)?;
+            .token_standard(TokenStandard::Fungible)
+            .decimals(TOKEN_DECIMALS)
+            .invoke_signed(signer_seeds)?;
 
         msg!("Token metadata set: name={} symbol={} uri={}", name, symbol, uri);
 
@@ -1445,6 +1446,10 @@ pub struct InitMintMetadata<'info> {
 
     pub token_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
+
+    /// CHECK: Validated by address constraint
+    #[account(address = sysvar::instructions::id())]
+    pub sysvar_instructions: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
