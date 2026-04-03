@@ -20,6 +20,7 @@ import { ArrowDown, AlertCircle } from "lucide-react";
 import { BN } from '@coral-xyz/anchor'
 import { useToast } from "@/components/ui/ToastContext";
 import { useSupportedUsdcMint } from "@/hooks/useSupportedUsdcMint";
+import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
 
 const USDC_DECIMALS = 6
 const USDC_SCALE = 10n ** BigInt(USDC_DECIMALS)
@@ -401,11 +402,11 @@ export function BuyPrimaryInterface() {
         createPoolUsdcVaultIx,
         depositUsdcIx,
       );
-      const sig = await (
-        program.provider as {
-          sendAndConfirm: (tx: Transaction) => Promise<string>;
-        }
-      ).sendAndConfirm(tx);
+      const sig = await sendAndConfirmWalletTransaction({
+        connection,
+        wallet,
+        transaction: tx,
+      });
 
       setTxSig(sig);
       setUsdcAmount("");

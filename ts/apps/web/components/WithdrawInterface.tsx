@@ -22,6 +22,7 @@ import { countFractionalDigits, parseUiAmountToBaseUnits } from '@/lib/amounts'
 import { useTokenBalance } from "@/hooks/useTokenBalance";
 import { useMyClaims } from "@/hooks/useMyClaims";
 import { useToast } from "@/components/ui/ToastContext";
+import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
 
 /** Detect wallet rejection errors */
 function isWalletRejection(e: unknown): boolean {
@@ -187,9 +188,11 @@ export function WithdrawInterface() {
         .instruction();
 
       const tx = new Transaction().add(createUserAtaIx, registerIx);
-      const sig = await (
-        program.provider as { sendAndConfirm: (tx: Transaction) => Promise<string> }
-      ).sendAndConfirm(tx);
+      const sig = await sendAndConfirmWalletTransaction({
+        connection,
+        wallet,
+        transaction: tx,
+      });
       setTxSig(sig);
       setAmountUi("");
       setConfirmed(false);
