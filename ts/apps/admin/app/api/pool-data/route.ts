@@ -7,6 +7,9 @@ export const runtime = "nodejs";
 const BINDING = "GEOBLOCKING_KV";
 const CACHE_KEY = "cache:admin_pool_data";
 const TTL_SECONDS = 30;
+const FALLBACK_ADMIN_WALLET =
+  process.env.NEXT_PUBLIC_ADMIN_OVERRIDE ??
+  "3BXEsRgUmrTudbZDzQjDpA2mvwV7vDC73WGjhHPRGBee";
 
 export async function GET() {
   const start = performance.now();
@@ -30,9 +33,24 @@ export async function GET() {
       },
     });
   } catch (e: unknown) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Failed to fetch pool data" },
-      { status: 500 },
-    );
+    const fallback: PoolDataResponse = {
+      tokenPrice: 1,
+      totalSupplyRaw: 0,
+      navUsdcRaw: 0,
+      pendingClaimsUsdcRaw: 0,
+      treasuryUsdcRaw: 0,
+      pricePerToken: 1,
+      adminWallet: FALLBACK_ADMIN_WALLET,
+      ts: Date.now(),
+    };
+
+    return NextResponse.json(fallback, {
+      headers: {
+        "Cache-Control": "no-store",
+        "X-Cache": "FALLBACK",
+        "X-Admin-Fallback": "true",
+        "X-Error": e instanceof Error ? e.message : "Failed to fetch pool data",
+      },
+    });
   }
 }

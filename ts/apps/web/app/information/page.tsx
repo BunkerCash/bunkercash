@@ -165,6 +165,14 @@ const Information = () => {
                   to lose completely.
                 </p>
               </div>
+              <p className="text-muted-foreground leading-relaxed">
+                This website does not provide financial, investment, legal, or
+                tax advice. Nothing on this website should be construed as a
+                recommendation to purchase, sell, or hold any token. All
+                information is provided &quot;as is&quot; without warranties of any kind.
+                You should consult with qualified professional advisors before
+                making any decisions related to digital tokens.
+              </p>
             </div>
 
             {/* 6. Technical Risks */}
