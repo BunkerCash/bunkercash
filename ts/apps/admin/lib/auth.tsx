@@ -20,9 +20,7 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
-const FALLBACK_ADMIN_WALLET =
-  process.env.NEXT_PUBLIC_ADMIN_OVERRIDE ??
-  "3BXEsRgUmrTudbZDzQjDpA2mvwV7vDC73WGjhHPRGBee";
+const ADMIN_OVERRIDE_WALLET = process.env.NEXT_PUBLIC_ADMIN_OVERRIDE || null;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { publicKey, connected, disconnect } = useWallet();
@@ -43,16 +41,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       const walletAddr = publicKey.toBase58();
-      const overrideWallet = FALLBACK_ADMIN_WALLET;
-
-      if (overrideWallet && walletAddr === overrideWallet) {
-        if (!cancelled) {
-          setAdminAddress(overrideWallet);
-          setIsAdmin(true);
-          setIsLoading(false);
-        }
-        return;
-      }
 
       try {
         const res = await fetch("/api/pool-data");
@@ -65,7 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAdminAddress(onChainAdmin);
         if (
           walletAddr === onChainAdmin ||
-          (overrideWallet && walletAddr === overrideWallet)
+          (ADMIN_OVERRIDE_WALLET && walletAddr === ADMIN_OVERRIDE_WALLET)
         ) {
           setIsAdmin(true);
           return;

@@ -1,21 +1,12 @@
 /**
  * Rate-limited fetch middleware for Solana RPC connections.
  *
- * IMPORTANT: `ConnectionConfig.fetchMiddleware` in the installed
- * `@solana/web3.js` version must invoke the provided continuation callback
- * with the request arguments to use. It does not perform the fetch itself.
+ * This is typed against the installed `@solana/web3.js` FetchMiddleware
+ * contract so upstream signature changes fail at compile time.
  */
+import type { FetchMiddleware } from "@solana/web3.js";
 
-type FetchContinuation = (
-  info: RequestInfo | URL,
-  init?: RequestInit,
-) => void;
-
-type FetchMiddleware = (
-  info: RequestInfo | URL,
-  init: RequestInit | undefined,
-  next: FetchContinuation,
-) => void;
+type FetchContinuation = Parameters<FetchMiddleware>[2];
 
 type QueueItem = {
   info: RequestInfo | URL;
