@@ -9,7 +9,7 @@ const CACHE_KEY = "cache:admin_pool_data";
 const TTL_SECONDS = 30;
 const FALLBACK_ADMIN_WALLET =
   process.env.NEXT_PUBLIC_ADMIN_OVERRIDE ??
-  "Hmod5q5Egi1yqiRCAAgZBh1iD8o8kALVQV8WKBM84JhK";
+  "3BXEsRgUmrTudbZDzQjDpA2mvwV7vDC73WGjhHPRGBee";
 
 export async function GET() {
   const start = performance.now();

@@ -22,7 +22,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null);
 const FALLBACK_ADMIN_WALLET =
   process.env.NEXT_PUBLIC_ADMIN_OVERRIDE ??
-  "Hmod5q5Egi1yqiRCAAgZBh1iD8o8kALVQV8WKBM84JhK";
+  "3BXEsRgUmrTudbZDzQjDpA2mvwV7vDC73WGjhHPRGBee";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { publicKey, connected, disconnect } = useWallet();

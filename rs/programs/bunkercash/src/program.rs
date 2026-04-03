@@ -17,7 +17,7 @@ use mpl_token_metadata::types::{DataV2, TokenStandard};
 use mpl_token_metadata::ID as TOKEN_METADATA_PROGRAM_ID;
 use spl_token_2022::state::Mint as Token2022Mint;
 
-declare_id!("8f9dGXF3i3BdF41p7jiVKJyFcMToVyS2SyFSHbjaywLQ");
+declare_id!("87BzNLu5Nt8MXywXXtAMgp1GGcH2rcKucZWtXsNdM7RZ");
 
 const POOL_SEED: &[u8] = b"pool";
 const BRENT_MINT_SEED: &[u8] = b"bunkercash_mint";

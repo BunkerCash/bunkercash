@@ -13,7 +13,7 @@ const SUPPORTED_USDC_CONFIG_SEED = Buffer.from("supported_usdc_config");
 const MASTER_WALLET = new PublicKey(
   process.env.MASTER_WALLET_PUBKEY ??
     process.env.ADMIN_PUBKEY ??
-    "Hmod5q5Egi1yqiRCAAgZBh1iD8o8kALVQV8WKBM84JhK"
+    "3BXEsRgUmrTudbZDzQjDpA2mvwV7vDC73WGjhHPRGBee"
 );
 const USDC_MINT = new PublicKey(
   process.env.USDC_MINT ?? "Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx"
