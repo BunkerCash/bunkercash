@@ -2,7 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Zap, Lock, Square, Wallet, Globe, Percent } from "lucide-react";
+import {
+  Zap,
+  Lock,
+  Square,
+  Wallet,
+  Globe,
+  Percent,
+  MessageSquareMore,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
 
@@ -42,6 +50,12 @@ const navItems = [
     label: "Geoblocking",
     icon: Globe,
     iconColor: "text-red-400",
+  },
+  {
+    href: "/dashboard/support-requests",
+    label: "Support",
+    icon: MessageSquareMore,
+    iconColor: "text-cyan-300",
   },
   {
     href: "/dashboard/fees",
