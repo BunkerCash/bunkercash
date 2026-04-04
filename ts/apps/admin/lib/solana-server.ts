@@ -40,7 +40,7 @@ export interface PoolDataResponse {
   pendingClaimsUsdcRaw: number;
   treasuryUsdcRaw: number | null;
   pricePerToken: number;
-  adminWallet: string;
+  adminWallet: string | null;
   ts: number;
 }
 
@@ -87,7 +87,7 @@ function getConnection(): Connection {
   const endpoint =
     process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
     process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
-    clusterApiUrl("devnet");
+    clusterApiUrl("testnet");
   return new Connection(endpoint, "confirmed");
 }
 
@@ -116,13 +116,17 @@ export async function fetchPoolData(): Promise<PoolDataResponse> {
     pool: { fetch: (pubkey: PublicKey) => Promise<PoolAccountLike> };
   };
 
-  const [mintInfo, poolAccount] = await Promise.all([
-    connection.getTokenSupply(mintPda, "confirmed"),
-    accountApi.pool.fetch(poolPda),
-  ]);
-
-  const totalSupplyRaw =
-    Number(mintInfo.value.amount) / 10 ** BUNKERCASH_DECIMALS;
+  const poolAccount = await accountApi.pool.fetch(poolPda);
+  let totalSupplyRaw =
+    Number(poolAccount.totalBrentSupply.toString()) / 10 ** BUNKERCASH_DECIMALS;
+  try {
+    const mintInfo = await connection.getTokenSupply(mintPda, "confirmed");
+    totalSupplyRaw =
+      Number(mintInfo.value.amount) / 10 ** BUNKERCASH_DECIMALS;
+  } catch {
+    // The mint PDA may not exist yet on a fresh deployment.
+    // Fall back to pool state so the admin UI can still load.
+  }
   const navUsdcRaw =
     Number(poolAccount.nav.toString()) / 10 ** USDC_DECIMALS;
   const pendingClaimsUsdcRaw =
