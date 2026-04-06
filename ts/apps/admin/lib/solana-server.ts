@@ -40,7 +40,7 @@ export interface PoolDataResponse {
   pendingClaimsUsdcRaw: number;
   treasuryUsdcRaw: number | null;
   pricePerToken: number;
-  adminWallet: string;
+  adminWallet: string | null;
   ts: number;
 }
 
