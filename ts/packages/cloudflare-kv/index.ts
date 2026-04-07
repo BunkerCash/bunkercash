@@ -45,6 +45,20 @@ export async function kvDelete(binding: string, key: string): Promise<void> {
   await kv.delete(key);
 }
 
+export interface KVListOptions {
+  prefix?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function kvList(
+  binding: string,
+  options?: KVListOptions,
+): Promise<KVNamespaceListResult<unknown, string>> {
+  const kv = await getKVNamespace(binding);
+  return kv.list(options);
+}
+
 // ── Read-through cache ─────────────────────────────────
 
 interface CachedValue<T> {

@@ -15,11 +15,12 @@
   },
   "dependencies": {
     "@bunkercash/cloudflare-kv": "workspace:0.1.0",
+    "@bunkercash/support-requests": "workspace:0.1.0",
     "@coral-xyz/anchor": "=0.30.1",
     "@opennextjs/cloudflare": "=1.17.1",
     "@radix-ui/react-slot": "=1.2.4",
-    "@solana/wallet-adapter-phantom": "=0.9.28",
     "@solana/spl-token": "=0.4.9",
+    "@solana/wallet-adapter-phantom": "=0.9.28",
     "@solana/wallet-adapter-react": "=0.15.35",
     "@solana/wallet-adapter-react-ui": "=0.9.35",
     "@solana/wallet-adapter-wallets": "=0.19.32",
