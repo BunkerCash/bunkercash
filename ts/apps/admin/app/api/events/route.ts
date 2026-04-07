@@ -30,9 +30,22 @@ export async function GET() {
       },
     });
   } catch (e: unknown) {
+    const errorMessage =
+      e instanceof Error ? e.message : "Failed to fetch events";
+    const elapsed = performance.now() - start;
+
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Failed to fetch events" },
-      { status: 500 },
+      { error: errorMessage },
+      {
+        status: 503,
+        headers: {
+          "Cache-Control": "no-store",
+          "X-Cache": "FALLBACK",
+          "X-Response-Time": `${elapsed.toFixed(1)}ms`,
+          "Server-Timing": `total;dur=${elapsed.toFixed(1)};desc="events-error"`,
+          "X-Error": errorMessage,
+        },
+      },
     );
   }
 }

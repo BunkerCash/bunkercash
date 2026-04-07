@@ -13,19 +13,26 @@ const SUPPORTED_USDC_CONFIG_SEED = Buffer.from("supported_usdc_config");
 const MASTER_WALLET = new PublicKey(
   process.env.MASTER_WALLET_PUBKEY ??
     process.env.ADMIN_PUBKEY ??
-    "Hmod5q5Egi1yqiRCAAgZBh1iD8o8kALVQV8WKBM84JhK"
+    "3BXEsRgUmrTudbZDzQjDpA2mvwV7vDC73WGjhHPRGBee"
 );
 const USDC_MINT = new PublicKey(
   process.env.USDC_MINT ?? "Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx"
 );
+const USDC_TOKEN_PROGRAM = process.env.USDC_TOKEN_PROGRAM
+  ? new PublicKey(process.env.USDC_TOKEN_PROGRAM)
+  : null;
+const SKIP_EXISTENCE_CHECK = process.env.SKIP_EXISTENCE_CHECK === "true";
 
 async function main() {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
   const program = new anchor.Program(idlJson as unknown as Idl, provider);
-  const mintInfo = await provider.connection.getAccountInfo(USDC_MINT, "confirmed");
-  const usdcTokenProgram = mintInfo?.owner;
+  let usdcTokenProgram = USDC_TOKEN_PROGRAM;
+  if (!usdcTokenProgram) {
+    const mintInfo = await provider.connection.getAccountInfo(USDC_MINT, "confirmed");
+    usdcTokenProgram = mintInfo?.owner ?? null;
+  }
   if (!usdcTokenProgram) {
     throw new Error(`Unable to load mint owner for ${USDC_MINT.toBase58()}`);
   }
@@ -42,10 +49,12 @@ async function main() {
     ASSOCIATED_TOKEN_PROGRAM_ID,
   );
 
-  const existing = await provider.connection.getAccountInfo(poolPda, "confirmed");
-  if (existing) {
-    console.log("Pool already exists:", poolPda.toBase58());
-    return;
+  if (!SKIP_EXISTENCE_CHECK) {
+    const existing = await provider.connection.getAccountInfo(poolPda, "confirmed");
+    if (existing) {
+      console.log("Pool already exists:", poolPda.toBase58());
+      return;
+    }
   }
 
   const signature = await (program.methods as any)

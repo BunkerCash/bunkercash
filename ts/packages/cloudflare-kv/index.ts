@@ -1,3 +1,5 @@
+/// <reference types="@cloudflare/workers-types" />
+
 /**
  * Cloudflare KV binding accessor for the OpenNext runtime.
  *

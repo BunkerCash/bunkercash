@@ -9,11 +9,11 @@
     "check-types": "turbo run check-types"
   },
   "devDependencies": {
-    "@types/bs58": "^5.0.0",
-    "prettier": "^3.6.2",
-    "turbo": "^2.5.8",
+    "@types/bs58": "=5.0.0",
+    "prettier": "=3.6.2",
+    "turbo": "=2.5.8",
     "typescript": "5.9.2",
-    "web": "workspace:*"
+    "web": "workspace:0.1.0"
   },
   "engines": {
     "node": ">=18"
@@ -24,7 +24,7 @@
     "packages/*"
   ],
   "dependencies": {
-    "@heroicons/react": "^2.2.0",
-    "@radix-ui/react-dialog": "^1.1.15"
+    "@heroicons/react": "=2.2.0",
+    "@radix-ui/react-dialog": "=1.1.15"
   }
 }

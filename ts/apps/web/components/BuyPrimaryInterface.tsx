@@ -20,6 +20,7 @@ import { ArrowDown, AlertCircle } from "lucide-react";
 import { BN } from '@coral-xyz/anchor'
 import { useToast } from "@/components/ui/ToastContext";
 import { useSupportedUsdcMint } from "@/hooks/useSupportedUsdcMint";
+import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
 
 const USDC_DECIMALS = 6
 const USDC_SCALE = 10n ** BigInt(USDC_DECIMALS)
@@ -366,14 +367,15 @@ export function BuyPrimaryInterface() {
           TOKEN_2022_PROGRAM_ID,
           ASSOCIATED_TOKEN_PROGRAM_ID,
         );
-      const poolUsdcVaultInfo = await connection.getAccountInfo(poolUsdcVault);
-      if (!poolUsdcVaultInfo) {
-        const msg =
-          "The pool USDC vault is not initialized on this cluster yet. Ask the admin to run pool initialization before accepting deposits.";
-        setError(msg);
-        showToast(msg, "error");
-        return;
-      }
+      const createPoolUsdcVaultIx =
+        createAssociatedTokenAccountIdempotentInstruction(
+          publicKey,
+          poolUsdcVault,
+          poolPda,
+          usdcMint,
+          usdcTokenProgram,
+          ASSOCIATED_TOKEN_PROGRAM_ID,
+        );
 
       const methodsApi = (program as Program<Idl>).methods as unknown as BuyPrimaryMethods
       const depositUsdcIx = await methodsApi
@@ -397,13 +399,14 @@ export function BuyPrimaryInterface() {
       const tx = new Transaction().add(
         createUserUsdcAtaIx,
         createUserBunkercashAtaIx,
+        createPoolUsdcVaultIx,
         depositUsdcIx,
       );
-      const sig = await (
-        program.provider as {
-          sendAndConfirm: (tx: Transaction) => Promise<string>;
-        }
-      ).sendAndConfirm(tx);
+      const sig = await sendAndConfirmWalletTransaction({
+        connection,
+        wallet,
+        transaction: tx,
+      });
 
       setTxSig(sig);
       setUsdcAmount("");

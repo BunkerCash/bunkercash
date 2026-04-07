@@ -1,7 +1,17 @@
 {
-  "name": "Bunker Cash",
-  "symbol": "BRENT",
-  "description": "Bunker Cash token.",
-  "image": "https://YOUR_PUBLIC_DOMAIN/bunkercash.svg",
-  "external_url": "https://YOUR_PUBLIC_DOMAIN"
+  "name": "bunkerCash",
+  "symbol": "bunkerCash",
+  "description": "bunkerCash token metadata.",
+  "image": "https://bunkercash-web.bunkercoin.workers.dev/bunkercash.jpeg",
+  "external_url": "https://bunkercash-web.bunkercoin.workers.dev",
+  "seller_fee_basis_points": 0,
+  "properties": {
+    "category": "image",
+    "files": [
+      {
+        "uri": "https://bunkercash-web.bunkercoin.workers.dev/bunkercash.jpeg",
+        "type": "image/jpeg"
+      }
+    ]
+  }
 }

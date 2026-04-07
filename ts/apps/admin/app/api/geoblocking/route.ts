@@ -28,9 +28,11 @@ export async function GET(request: Request) {
 
     const countries = await getBlockedCountries();
     return NextResponse.json({ countries });
-  } catch (e: any) {
+  } catch (e: unknown) {
+    const message =
+      e instanceof Error ? e.message : "Failed to fetch blocked countries";
     return NextResponse.json(
-      { error: e.message || "Failed to fetch blocked countries" },
+      { error: message },
       { status: 500 }
     );
   }
@@ -67,7 +69,7 @@ export async function PUT(request: Request) {
 
     const updated = await setBlockedCountries(countries);
     return NextResponse.json({ countries: updated });
-  } catch (e: any) {
+  } catch (e: unknown) {
     if (e instanceof Error && e.message === "Blocked countries payload is malformed") {
       return NextResponse.json(
         { error: "countries must be an array of strings" },
@@ -75,8 +77,10 @@ export async function PUT(request: Request) {
       );
     }
 
+    const message =
+      e instanceof Error ? e.message : "Failed to update blocked countries";
     return NextResponse.json(
-      { error: e.message || "Failed to update blocked countries" },
+      { error: message },
       { status: 500 }
     );
   }

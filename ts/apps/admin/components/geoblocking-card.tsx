@@ -25,6 +25,19 @@ function asCountryList(value: unknown): string[] {
   return value;
 }
 
+function getErrorMessage(value: unknown, fallback: string): string {
+  if (
+    value &&
+    typeof value === "object" &&
+    "error" in value &&
+    typeof value.error === "string"
+  ) {
+    return value.error;
+  }
+
+  return fallback;
+}
+
 export function GeoblockingCard() {
   const { publicKey, signMessage } = useWallet();
   const [blocked, setBlocked] = useState<string[]>([]);
@@ -75,10 +88,16 @@ export function GeoblockingCard() {
         headers: await buildAccessHeaders(),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setBlocked(asCountryList(data.countries));
-    } catch (e: any) {
-      setError(e.message || "Failed to load blocked countries");
+      if (!res.ok) {
+        throw new Error(getErrorMessage(data, "Failed to load blocked countries"));
+      }
+      const countries =
+        data && typeof data === "object" && "countries" in data
+          ? (data as { countries?: unknown }).countries
+          : undefined;
+      setBlocked(asCountryList(countries));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to load blocked countries");
     } finally {
       setLoading(false);
     }
@@ -92,7 +111,10 @@ export function GeoblockingCard() {
     fetchBlocked();
   }, [fetchBlocked]);
 
-  const save = async (countries: string[], previousCountries: string[]) => {
+  const save = async (
+    countries: string[],
+    previousCountries: string[]
+  ): Promise<void> => {
     if (saveInFlightRef.current) return;
 
     saveInFlightRef.current = true;
@@ -104,7 +126,7 @@ export function GeoblockingCard() {
         throw new Error("Connect an admin wallet that supports message signing");
       }
 
-      const body = JSON.stringify({ countries });
+      const body: string = JSON.stringify({ countries });
       const issuedAt = new Date().toISOString();
       const bodyHashBuffer = await crypto.subtle.digest(
         "SHA-256",
@@ -130,14 +152,20 @@ export function GeoblockingCard() {
         body,
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      const nextCountries = asCountryList(data.countries);
+      if (!res.ok) {
+        throw new Error(getErrorMessage(data, "Failed to save"));
+      }
+      const responseCountries =
+        data && typeof data === "object" && "countries" in data
+          ? (data as { countries?: unknown }).countries
+          : undefined;
+      const nextCountries = asCountryList(responseCountries);
       setBlocked(nextCountries);
       setSuccess(`Updated — ${nextCountries.length} countries blocked`);
       setTimeout(() => setSuccess(null), 3000);
-    } catch (e: any) {
+    } catch (e: unknown) {
       setBlocked(previousCountries);
-      setError(e.message || "Failed to save");
+      setError(e instanceof Error ? e.message : "Failed to save");
     } finally {
       saveInFlightRef.current = false;
       setSaving(false);
