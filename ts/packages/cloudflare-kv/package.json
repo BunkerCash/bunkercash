@@ -5,9 +5,9 @@
   "main": "./index.ts",
   "types": "./index.ts",
   "dependencies": {
-    "@opennextjs/cloudflare": "*"
+    "@opennextjs/cloudflare": "=1.17.1"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "*"
+    "@cloudflare/workers-types": "=4.20260317.1"
   }
 }
