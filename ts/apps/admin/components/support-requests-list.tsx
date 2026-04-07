@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import {
   AlertCircle,
+  ChevronDown,
   Mail,
   Phone,
   RefreshCw,
@@ -11,6 +12,9 @@ import {
 } from "lucide-react";
 import { buildAdminAccessMessage } from "@/lib/admin-auth-message";
 import type { SupportRequestRecord } from "@/lib/support-requests";
+
+const PAGE_SIZE = 25;
+const ACCESS_HEADER_TTL_MS = 4 * 60 * 1000;
 
 function getErrorMessage(value: unknown, fallback: string): string {
   if (
@@ -39,11 +43,29 @@ export function SupportRequestsList() {
   const { publicKey, signMessage } = useWallet();
   const [requests, setRequests] = useState<SupportRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const accessHeadersRef = useRef<{
+    wallet: string;
+    issuedAtMs: number;
+    headers: Record<string, string>;
+  } | null>(null);
 
-  const buildAccessHeaders = useCallback(async () => {
+  const buildAccessHeaders = useCallback(async (forceRefresh = false) => {
     if (!publicKey || !signMessage) {
       throw new Error("Connect an admin wallet that supports message signing");
+    }
+
+    const wallet = publicKey.toBase58();
+    const cachedHeaders = accessHeadersRef.current;
+    if (
+      !forceRefresh &&
+      cachedHeaders &&
+      cachedHeaders.wallet === wallet &&
+      Date.now() - cachedHeaders.issuedAtMs < ACCESS_HEADER_TTL_MS
+    ) {
+      return cachedHeaders.headers;
     }
 
     const issuedAt = new Date().toISOString();
@@ -52,21 +74,58 @@ export function SupportRequestsList() {
     );
     const signature = btoa(String.fromCharCode(...signatureBytes));
 
-    return {
+    const headers = {
       "x-admin-wallet": publicKey.toBase58(),
       "x-admin-issued-at": issuedAt,
       "x-admin-signature": signature,
     };
+    accessHeadersRef.current = {
+      wallet,
+      issuedAtMs: Date.now(),
+      headers,
+    };
+
+    return headers;
   }, [publicKey, signMessage]);
 
-  const fetchRequests = useCallback(async () => {
-    setLoading(true);
+  useEffect(() => {
+    accessHeadersRef.current = null;
+  }, [publicKey]);
+
+  const fetchRequests = useCallback(async (options?: {
+    cursor?: string | null;
+    append?: boolean;
+  }) => {
+    const cursor = options?.cursor ?? null;
+    const append = options?.append ?? false;
     setError(null);
 
+    if (append) {
+      setLoadingMore(true);
+    } else {
+      setLoading(true);
+    }
+
     try {
-      const response = await fetch("/api/support-requests", {
+      const searchParams = new URLSearchParams({
+        limit: PAGE_SIZE.toString(),
+      });
+      if (cursor) {
+        searchParams.set("cursor", cursor);
+      }
+
+      const requestUrl = `/api/support-requests?${searchParams.toString()}`;
+      let response = await fetch(requestUrl, {
         headers: await buildAccessHeaders(),
       });
+
+      if (response.status === 401) {
+        accessHeadersRef.current = null;
+        response = await fetch(requestUrl, {
+          headers: await buildAccessHeaders(true),
+        });
+      }
+
       const data = await response.json();
 
       if (!response.ok) {
@@ -82,8 +141,27 @@ export function SupportRequestsList() {
         Array.isArray((data as { requests?: unknown }).requests)
           ? ((data as { requests: SupportRequestRecord[] }).requests ?? [])
           : [];
+      const nextPageCursor =
+        data &&
+        typeof data === "object" &&
+        "nextCursor" in data &&
+        (typeof (data as { nextCursor?: unknown }).nextCursor === "string" ||
+          (data as { nextCursor?: unknown }).nextCursor === null)
+          ? ((data as { nextCursor: string | null }).nextCursor ?? null)
+          : null;
 
-      setRequests(nextRequests);
+      setRequests((current) => {
+        if (!append) {
+          return nextRequests;
+        }
+
+        const existingIds = new Set(current.map((request) => request.id));
+        return [
+          ...current,
+          ...nextRequests.filter((request) => !existingIds.has(request.id)),
+        ];
+      });
+      setNextCursor(nextPageCursor);
     } catch (requestError: unknown) {
       setError(
         requestError instanceof Error
@@ -91,7 +169,11 @@ export function SupportRequestsList() {
           : "Failed to load support requests",
       );
     } finally {
-      setLoading(false);
+      if (append) {
+        setLoadingMore(false);
+      } else {
+        setLoading(false);
+      }
     }
   }, [buildAccessHeaders]);
 
@@ -107,10 +189,16 @@ export function SupportRequestsList() {
           <p className="mt-1 text-sm text-neutral-500">
             Submitted from the public support form and blocked-access notice.
           </p>
+          {requests.length > 0 ? (
+            <p className="mt-2 text-xs text-neutral-600">
+              Showing {requests.length} request{requests.length === 1 ? "" : "s"}
+              {nextCursor ? " with more available" : ""}
+            </p>
+          ) : null}
         </div>
         <button
-          onClick={fetchRequests}
-          disabled={loading}
+          onClick={() => void fetchRequests()}
+          disabled={loading || loadingMore}
           className="rounded-lg p-1.5 text-neutral-500 transition-colors hover:bg-neutral-800/40 hover:text-white disabled:opacity-50"
         >
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
@@ -130,7 +218,7 @@ export function SupportRequestsList() {
             </div>
           ))}
         </div>
-      ) : error ? (
+      ) : error && requests.length === 0 ? (
         <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-5">
           <div className="flex items-start gap-3">
             <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-500" />
@@ -149,6 +237,20 @@ export function SupportRequestsList() {
         </div>
       ) : (
         <div className="space-y-4">
+          {error ? (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-500" />
+                <div>
+                  <p className="text-sm font-medium text-red-300">
+                    Failed to load more support requests
+                  </p>
+                  <p className="mt-1 text-xs text-red-200/60">{error}</p>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           {requests.map((request) => (
             <article
               key={request.id}
@@ -208,6 +310,23 @@ export function SupportRequestsList() {
               ) : null}
             </article>
           ))}
+
+          {nextCursor ? (
+            <div className="flex justify-center pt-2">
+              <button
+                onClick={() =>
+                  void fetchRequests({ cursor: nextCursor, append: true })
+                }
+                disabled={loadingMore}
+                className="inline-flex items-center gap-2 rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-2.5 text-sm font-medium text-neutral-200 transition hover:border-neutral-500 hover:text-white disabled:opacity-50"
+              >
+                <ChevronDown
+                  className={`h-4 w-4 ${loadingMore ? "animate-bounce" : ""}`}
+                />
+                {loadingMore ? "Loading more" : "Load more"}
+              </button>
+            </div>
+          ) : null}
         </div>
       )}
     </div>

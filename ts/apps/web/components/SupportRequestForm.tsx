@@ -100,6 +100,7 @@ export function SupportRequestForm({
             }
             placeholder="Jane Doe"
             autoComplete="name"
+            required
             disabled={submitting}
           />
         </div>
@@ -113,6 +114,7 @@ export function SupportRequestForm({
             }
             placeholder={supportEmail}
             autoComplete="email"
+            required
             disabled={submitting}
           />
         </div>
@@ -152,6 +154,7 @@ export function SupportRequestForm({
             setForm((current) => ({ ...current, subject: event.target.value }))
           }
           placeholder="How can we help?"
+          required
           disabled={submitting}
         />
       </div>
@@ -165,6 +168,7 @@ export function SupportRequestForm({
           }
           placeholder="Share the issue, your jurisdiction, and any details we should review."
           rows={7}
+          required
           disabled={submitting}
           className="flex min-h-[180px] w-full rounded-md border border-input bg-background px-3 py-3 text-sm text-white placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
         />

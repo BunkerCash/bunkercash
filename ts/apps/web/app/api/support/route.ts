@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import {
   createSupportRequest,
+  enforceSupportRequestRateLimit,
+  isSupportRateLimitError,
   parseSupportRequestInput,
 } from "@/lib/support-requests";
 
@@ -10,6 +12,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const input = parseSupportRequestInput(body);
+    await enforceSupportRequestRateLimit(request, input);
     const record = await createSupportRequest(input);
 
     return NextResponse.json(
@@ -21,6 +24,18 @@ export async function POST(request: Request) {
       { status: 201 },
     );
   } catch (error: unknown) {
+    if (isSupportRateLimitError(error)) {
+      return NextResponse.json(
+        { error: error.message },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": error.retryAfterSeconds.toString(),
+          },
+        },
+      );
+    }
+
     const message =
       error instanceof Error
         ? error.message
