@@ -213,28 +213,22 @@ export async function enforceSupportRequestRateLimit(
   request: Request,
   input: CreateSupportRequestInput,
 ) {
-  const checks: Promise<void>[] = [
-    enforceWindowRateLimit({
-      scope: "email",
-      identity: input.email,
-      maxRequests: EMAIL_RATE_LIMIT_MAX_REQUESTS,
-      windowSeconds: EMAIL_RATE_LIMIT_WINDOW_SECONDS,
-    }),
-  ];
-
   const clientIp = getClientIp(request);
   if (clientIp) {
-    checks.push(
-      enforceWindowRateLimit({
-        scope: "ip",
-        identity: clientIp,
-        maxRequests: IP_RATE_LIMIT_MAX_REQUESTS,
-        windowSeconds: IP_RATE_LIMIT_WINDOW_SECONDS,
-      }),
-    );
+    await enforceWindowRateLimit({
+      scope: "ip",
+      identity: clientIp,
+      maxRequests: IP_RATE_LIMIT_MAX_REQUESTS,
+      windowSeconds: IP_RATE_LIMIT_WINDOW_SECONDS,
+    });
   }
 
-  await Promise.all(checks);
+  await enforceWindowRateLimit({
+    scope: "email",
+    identity: input.email,
+    maxRequests: EMAIL_RATE_LIMIT_MAX_REQUESTS,
+    windowSeconds: EMAIL_RATE_LIMIT_WINDOW_SECONDS,
+  });
 }
 
 export async function createSupportRequest(

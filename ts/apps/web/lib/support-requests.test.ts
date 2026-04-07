@@ -74,4 +74,29 @@ describe("enforceSupportRequestRateLimit", () => {
 
     expect(kvPutMock).not.toHaveBeenCalled();
   });
+
+  it("does not increment the email counter when the ip check rejects first", async () => {
+    kvGetMock
+      .mockResolvedValueOnce({
+        count: 3,
+        resetAt: Date.now() + 2 * 60 * 1000,
+      })
+      .mockResolvedValueOnce(null);
+
+    try {
+      await enforceSupportRequestRateLimit(
+        makeRequest({ "cf-connecting-ip": "203.0.113.42" }),
+        supportInput,
+      );
+      throw new Error("Expected support rate limiting to reject the request");
+    } catch (error: unknown) {
+      expect(isSupportRateLimitError(error)).toBe(true);
+      expect(
+        isSupportRateLimitError(error) ? error.retryAfterSeconds : 0,
+      ).toBe(2 * 60);
+    }
+
+    expect(kvGetMock).toHaveBeenCalledTimes(1);
+    expect(kvPutMock).not.toHaveBeenCalled();
+  });
 });
