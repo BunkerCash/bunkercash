@@ -10,8 +10,7 @@ function getWalletEnv(): "mainnet-beta" | "devnet" | "testnet" {
   if (env === "mainnet-beta" || env === "testnet") {
     return env;
   }
-  // Default to devnet for development/testing
-  return "devnet";
+  return "testnet";
 }
 
 export function Providers({ children }: { children: ReactNode }) {

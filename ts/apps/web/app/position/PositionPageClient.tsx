@@ -249,7 +249,7 @@ export default function PositionPageClient() {
                                 ? "Settled"
                                 : isPartiallySettled
                                   ? "Partially Settled"
-                                  : "Pending"}
+                                  : "Open"}
                             </Badge>
                           </td>
                         </tr>

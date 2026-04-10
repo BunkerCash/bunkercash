@@ -34,9 +34,9 @@ export function ClaimsTable() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-xl font-semibold text-white">Claims Ledger</h2>
+          <h2 className="text-xl font-semibold text-white">Requests Ledger</h2>
           <p className="mt-1 text-sm text-neutral-500">
-            Open claims come from the live `claim` accounts on-chain. Settled claims show the final paid USDC.
+            Open requests come from the live `claim` accounts on-chain. Settled requests show the final paid USDC.
           </p>
         </div>
         <button
@@ -51,7 +51,7 @@ export function ClaimsTable() {
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
         <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-5">
-          <div className="text-[11px] uppercase tracking-wider text-neutral-500">Open Claims</div>
+          <div className="text-[11px] uppercase tracking-wider text-neutral-500">Open Requests</div>
           <div className="mt-2 text-2xl font-semibold text-white">{claims.length}</div>
         </div>
         <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-5">
@@ -61,26 +61,26 @@ export function ClaimsTable() {
           </div>
         </div>
         <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-5">
-          <div className="text-[11px] uppercase tracking-wider text-neutral-500">Settled Claims</div>
+          <div className="text-[11px] uppercase tracking-wider text-neutral-500">Settled Requests</div>
           <div className="mt-2 text-2xl font-semibold text-white">{closedClaims.length}</div>
         </div>
       </div>
 
       {error && (
         <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 px-4 py-3 text-sm text-rose-300">
-          Failed to load claims: {error}
+          Failed to load requests: {error}
         </div>
       )}
 
       <section className="overflow-hidden rounded-xl border border-neutral-800/60">
         <div className="border-b border-neutral-800/60 bg-neutral-900/30 px-5 py-3">
-          <h3 className="text-sm font-medium text-white">Open Claims</h3>
+          <h3 className="text-sm font-medium text-white">Open Requests</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px]">
             <thead>
               <tr className="border-b border-neutral-800/60 text-left text-[11px] uppercase tracking-wider text-neutral-500">
-                <th className="px-5 py-3">Claim</th>
+                <th className="px-5 py-3">Request</th>
                 <th className="px-5 py-3">Wallet</th>
                 <th className="px-5 py-3 text-right">Outstanding</th>
                 <th className="px-5 py-3 text-right">Paid</th>
@@ -92,13 +92,13 @@ export function ClaimsTable() {
               {loading ? (
                 <tr>
                   <td colSpan={6} className="px-5 py-8 text-center text-sm text-neutral-500">
-                    Loading claims...
+                    Loading requests...
                   </td>
                 </tr>
               ) : claims.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-5 py-8 text-center text-sm text-neutral-500">
-                    No open claims.
+                    No open requests.
                   </td>
                 </tr>
               ) : (
@@ -136,7 +136,7 @@ export function ClaimsTable() {
           <table className="w-full min-w-[720px]">
             <thead>
               <tr className="border-b border-neutral-800/60 text-left text-[11px] uppercase tracking-wider text-neutral-500">
-                <th className="px-5 py-3">Claim</th>
+                <th className="px-5 py-3">Request</th>
                 <th className="px-5 py-3">Wallet</th>
                 <th className="px-5 py-3 text-right">Requested</th>
                 <th className="px-5 py-3 text-right">Paid</th>
@@ -147,13 +147,13 @@ export function ClaimsTable() {
               {loading ? (
                 <tr>
                   <td colSpan={5} className="px-5 py-8 text-center text-sm text-neutral-500">
-                    Loading settled claims...
+                    Loading settled requests...
                   </td>
                 </tr>
               ) : closedClaims.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-5 py-8 text-center text-sm text-neutral-500">
-                    No settled claims yet.
+                    No settled requests yet.
                   </td>
                 </tr>
               ) : (

@@ -49,7 +49,7 @@ const PoolStatus = () => {
     )
       return null;
     return [
-      { name: "NAV", value: stats.navUsdcRaw },
+      { name: "Net Asset Value", value: stats.navUsdcRaw },
       { name: "Treasury", value: stats.treasuryUsdcRaw },
       { name: "Open Requests", value: stats.pendingClaimsUsdcRaw },
     ];
@@ -217,7 +217,7 @@ const PoolStatus = () => {
                 </ResponsiveContainer>
               </div>
 
-              {/* Bar: NAV vs treasury vs open requests */}
+              {/* Bar: net asset value vs treasury vs open requests */}
               <div className="glass-card p-6">
                 <p className="stat-label mb-4">Protocol Liquidity Metrics</p>
                 <ResponsiveContainer width="100%" height={240}>

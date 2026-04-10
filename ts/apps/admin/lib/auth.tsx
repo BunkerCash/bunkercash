@@ -20,7 +20,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
-const ADMIN_OVERRIDE_WALLET = process.env.NEXT_PUBLIC_ADMIN_OVERRIDE || null;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { publicKey, connected, disconnect } = useWallet();
@@ -51,10 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
 
         setAdminAddress(onChainAdmin);
-        if (
-          walletAddr === onChainAdmin ||
-          (ADMIN_OVERRIDE_WALLET && walletAddr === ADMIN_OVERRIDE_WALLET)
-        ) {
+        if (walletAddr === onChainAdmin) {
           setIsAdmin(true);
           return;
         }

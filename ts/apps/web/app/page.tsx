@@ -6,7 +6,7 @@ import { StatCard } from "@/components/ui/StatCard";
 import { PROGRAM_ID } from "@/lib/program";
 
 export default function Home() {
-  const cluster = process.env.NEXT_PUBLIC_SOLANA_CLUSTER ?? "devnet";
+  const cluster = process.env.NEXT_PUBLIC_SOLANA_CLUSTER ?? "testnet";
 
   return (
     <Layout>

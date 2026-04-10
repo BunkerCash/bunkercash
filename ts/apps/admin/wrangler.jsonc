@@ -19,7 +19,7 @@
     "NEXT_PUBLIC_USDC_MINT": "DCM1oDQRSv9dn4xpZrXuX23yvivoFHSKKF1mjuCEcjdQ",
     "NEXT_PUBLIC_TOKEN_METADATA_URI": "https://bunkercash-web.bunkercoin.workers.dev/bunkercash-metadata.json",
     "NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY": "HEzTX4LNQ7cjrXTt1vKXyEZGtc94TKRUc9kWNFexJSGz",
-    "NEXT_PUBLIC_ADMIN_OVERRIDE": "3BXEsRgUmrTudbZDzQjDpA2mvwV7vDC73WGjhHPRGBee"
+    "ADMIN_OVERRIDE_WALLET": "3BXEsRgUmrTudbZDzQjDpA2mvwV7vDC73WGjhHPRGBee"
   },
   "kv_namespaces": [
     {

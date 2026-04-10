@@ -218,7 +218,7 @@ export function WithdrawInterface() {
           await import("@/hooks/useMyTransactions");
         invalidateTransactionCache();
         setActiveView("history");
-        showToast("Sell request was already processed. Check History.", "success");
+        showToast("Request was already processed. Check History.", "success");
       } else if (e instanceof SendTransactionError) {
         const logs = await e.getLogs(connection);
         if (logs?.length) {
@@ -227,11 +227,11 @@ export function WithdrawInterface() {
         setError(e.message || "Transaction failed");
         showToast(e.message || "Transaction failed", "error");
       } else if (msg.includes("ClaimAmountTooSmall") || msg.includes("non-zero USDC value")) {
-        setError("Amount is too small to produce any USDC at the current NAV.");
-        showToast("Claim amount too small at current NAV", "warning");
+        setError("Amount is too small to produce any USDC at the current net asset value.");
+        showToast("Request amount too small at current net asset value", "warning");
       } else if (msg.includes("already in use") || msg.includes("0x0")) {
-        setError("Claim slot conflict — another transaction landed first. Please try again.");
-        showToast("Claim slot taken, please retry", "warning");
+        setError("Request slot conflict — another transaction landed first. Please try again.");
+        showToast("Request slot taken, please retry", "warning");
       } else {
         setError(msg || "Transaction failed");
         showToast(msg || "Transaction failed", "error");

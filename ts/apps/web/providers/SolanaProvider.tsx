@@ -1,6 +1,7 @@
 "use client";
 
 import { FC, ReactNode, useMemo } from "react";
+import type { Adapter } from "@solana/wallet-adapter-base";
 import {
   ConnectionProvider,
   WalletProvider,
@@ -30,7 +31,7 @@ interface SolanaProviderConfig {
 
 interface SolanaProviderProps {
   children: ReactNode;
-  wallets?: any[];
+  wallets?: Adapter[];
   config?: SolanaProviderConfig;
 }
 
@@ -39,9 +40,9 @@ export const SolanaProvider: FC<SolanaProviderProps> = ({
   wallets: providedWallets = [],
   config,
 }) => {
-  // Configure endpoint based on config.env or default to devnet
+  // Keep wallet adapter defaults aligned with the app's testnet deployment.
   const endpoint = useMemo(() => {
-    const env = config?.env ?? "devnet";
+    const env = config?.env ?? "testnet";
     return clusterApiUrl(env);
   }, [config?.env]);
 
@@ -53,7 +54,7 @@ export const SolanaProvider: FC<SolanaProviderProps> = ({
     return [new PhantomWalletAdapter()];
   }, [providedWallets]);
 
-  // Rate-limited fetch middleware prevents 429s on devnet's public RPC
+  // Rate-limited fetch middleware prevents 429s on public RPC endpoints.
   const fetchMiddleware = useMemo(() => createRateLimitedFetch(), []);
 
   return (
