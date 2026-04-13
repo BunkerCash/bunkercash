@@ -25,5 +25,14 @@ out/
 # Anchor / Rust build artefacts
 rs/target/
 
+# Local scratch files
+rs/tmp/
+
 # Solana keypairs (never commit these)
+**/id.json
+**/*keypair*.json
+**/*wallet*.json
+**/keypairs/
+**/wallets/
+**/secrets/
 *.json.bak
