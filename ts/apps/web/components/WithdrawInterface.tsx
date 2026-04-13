@@ -227,8 +227,8 @@ export function WithdrawInterface() {
         setError(e.message || "Transaction failed");
         showToast(e.message || "Transaction failed", "error");
       } else if (msg.includes("ClaimAmountTooSmall") || msg.includes("non-zero USDC value")) {
-        setError("Amount is too small to produce any USDC at the current net asset value.");
-        showToast("Request amount too small at current net asset value", "warning");
+        setError("Amount is too small to produce any USDC at the current reference value.");
+        showToast("Request amount too small at current reference value", "warning");
       } else if (msg.includes("already in use") || msg.includes("0x0")) {
         setError("Request slot conflict — another transaction landed first. Please try again.");
         showToast("Request slot taken, please retry", "warning");

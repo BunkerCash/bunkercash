@@ -31,5 +31,6 @@ Run that only after coordinating with everyone using the repository, because it 
 - Keep all live keypairs outside the repo, for example under `~/.config/solana/`.
 - Use `rs/tmp/` only for untracked local scratch files.
 - Run `node scripts/check-no-keypairs.mjs` before pushing changes.
+- Keep deployment-specific admin overrides such as `ADMIN_OVERRIDE_WALLET` out of committed `wrangler.jsonc` files; set them in the deployment platform instead.
 
 The repository check looks for tracked JSON files that either use keypair-style filenames or parse as 32-byte / 64-byte Solana secret-key arrays.

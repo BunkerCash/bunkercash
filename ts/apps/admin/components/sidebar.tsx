@@ -35,7 +35,7 @@ const navItems = [
   },
   {
     href: "/dashboard/claims",
-    label: "Claims",
+    label: "Requests",
     icon: Square,
     iconColor: "text-neutral-400",
   },

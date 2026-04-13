@@ -522,7 +522,7 @@ export function SettlementCard() {
           <table className="w-full min-w-[760px]">
             <thead>
               <tr className="border-b border-neutral-800/60 text-left text-[11px] uppercase tracking-wider text-neutral-500">
-                <th className="px-5 py-3">Claim</th>
+                <th className="px-5 py-3">Request</th>
                 <th className="px-5 py-3">Wallet</th>
                 <th className="px-5 py-3 text-right">Outstanding</th>
                 <th className="px-5 py-3 text-right">Paid</th>
@@ -593,7 +593,7 @@ export function SettlementCard() {
           <table className="w-full min-w-[760px]">
             <thead>
               <tr className="border-b border-neutral-800/60 text-left text-[11px] uppercase tracking-wider text-neutral-500">
-                <th className="px-5 py-3">Claim</th>
+                <th className="px-5 py-3">Request</th>
                 <th className="px-5 py-3">Wallet</th>
                 <th className="px-5 py-3 text-right">Requested</th>
                 <th className="px-5 py-3 text-right">Paid</th>

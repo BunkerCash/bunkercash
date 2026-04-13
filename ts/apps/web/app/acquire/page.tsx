@@ -48,7 +48,7 @@ export default function AcquireTokens() {
           {/* Pool Metric Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
             <PoolMetricCard
-              label="Current Net Asset Value"
+              label="Current Reference Value"
               value={navDisplay}
               subtitle="Read directly from the on-chain pool account."
             />
