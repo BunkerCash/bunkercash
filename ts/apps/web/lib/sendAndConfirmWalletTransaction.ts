@@ -1,14 +1,14 @@
 import bs58 from "bs58"
-import type { Commitment, Connection, Transaction } from "@solana/web3.js"
+import type { Commitment, Connection, PublicKey, Transaction } from "@solana/web3.js"
 import type { ProgramWallet } from "./program"
 
 function encodeWalletSignature(
   transaction: Transaction,
-  walletPublicKey: ProgramWallet["publicKey"],
+  walletPublicKey: PublicKey,
 ): string | null {
   if (transaction.signature) return bs58.encode(transaction.signature)
   const walletSignature = transaction.signatures.find((entry) =>
-    entry.publicKey.equals(walletPublicKey!),
+    entry.publicKey.equals(walletPublicKey),
   )?.signature
   return walletSignature ? bs58.encode(walletSignature) : null
 }

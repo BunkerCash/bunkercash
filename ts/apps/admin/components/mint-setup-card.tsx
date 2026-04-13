@@ -219,7 +219,7 @@ export function MintSetupCard() {
           </div>
           <h1 className="text-xl font-semibold text-white">Bunker Cash Mint</h1>
           <p className="mt-1 text-sm text-neutral-500">
-            The buy flow requires the on-chain `bunkercash_mint` PDA to exist. This is a one-time
+            The acquire flow requires the on-chain `bunkercash_mint` PDA to exist. This is a one-time
             admin action signed by your Phantom wallet.
           </p>
         </div>

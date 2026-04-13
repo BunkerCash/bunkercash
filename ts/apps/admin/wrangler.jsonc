@@ -18,9 +18,9 @@
     "NEXT_PUBLIC_SOLANA_RPC_URL": "https://solana-testnet-rpc.publicnode.com",
     "NEXT_PUBLIC_USDC_MINT": "DCM1oDQRSv9dn4xpZrXuX23yvivoFHSKKF1mjuCEcjdQ",
     "NEXT_PUBLIC_TOKEN_METADATA_URI": "https://bunkercash-web.bunkercoin.workers.dev/bunkercash-metadata.json",
-    "NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY": "HEzTX4LNQ7cjrXTt1vKXyEZGtc94TKRUc9kWNFexJSGz",
-    "NEXT_PUBLIC_ADMIN_OVERRIDE": "3BXEsRgUmrTudbZDzQjDpA2mvwV7vDC73WGjhHPRGBee"
+    "NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY": "HEzTX4LNQ7cjrXTt1vKXyEZGtc94TKRUc9kWNFexJSGz"
   },
+  // Set ADMIN_OVERRIDE_WALLET in Cloudflare-managed worker env/secrets, not in version control.
   "kv_namespaces": [
     {
       "binding": "GEOBLOCKING_KV",

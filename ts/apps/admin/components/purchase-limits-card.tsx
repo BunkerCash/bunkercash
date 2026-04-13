@@ -397,7 +397,7 @@ export function PurchaseLimitsCard() {
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span>Pool NAV</span>
+              <span>Reference Value</span>
               <span className="font-mono text-white">
                 {loading || !state ? "Loading..." : `$${formatUsdc(state.navUsdcRaw)}`}
               </span>

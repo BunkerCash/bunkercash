@@ -601,7 +601,7 @@ export function MasterOperationsCard() {
         </div>
         <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-5">
           <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-neutral-500">
-            NAV / Open USDC
+            Reference Value / Open USDC
           </div>
           <p className="font-mono text-sm text-white">
             {pool
@@ -675,7 +675,7 @@ export function MasterOperationsCard() {
             <h2 className="text-sm font-medium text-white">Master Withdraw</h2>
             <p className="mt-1 text-xs text-neutral-500">
               Moves USDC from the payout vault to the connected admin wallet and
-              records a withdrawal without changing NAV or token price.
+              records a withdrawal without changing reference value or the reference rate.
             </p>
           </div>
           <label className="mb-2 block text-xs text-neutral-400">
@@ -730,7 +730,7 @@ export function MasterOperationsCard() {
             <p className="mt-1 text-xs text-neutral-500">
               Returns principal from the admin wallet to the payout vault and
               reduces the selected withdrawal&apos;s remaining balance without
-              changing NAV.
+              changing reference value.
             </p>
           </div>
 
@@ -767,7 +767,7 @@ export function MasterOperationsCard() {
               <span className="font-mono text-neutral-300">
                 ${formatUsdc(repayTarget.remaining)}
               </span>
-              . Use Profit instead if the returned cash should increase NAV
+              . Use Profit instead if the returned cash should increase reference value
               without reducing this withdrawal.
             </p>
           )}
@@ -795,7 +795,7 @@ export function MasterOperationsCard() {
             <p className="mt-1 text-xs text-neutral-500">
               Returns USDC from the admin wallet to the payout vault and books
               the full amount as profit against the selected withdrawal. Profit
-              always increases NAV and does not reduce the withdrawal&apos;s
+              always increases reference value and does not reduce the withdrawal&apos;s
               remaining balance.
             </p>
           </div>
@@ -834,7 +834,7 @@ export function MasterOperationsCard() {
               <span className="font-mono text-neutral-300">
                 ${formatUsdc(profitTarget.remaining)}
               </span>
-              . The submitted amount is treated as pure profit and increases NAV
+              . The submitted amount is treated as pure profit and increases reference value
               one-for-one.
             </p>
           )}
@@ -863,7 +863,7 @@ export function MasterOperationsCard() {
             </h2>
             <p className="mt-1 text-xs text-neutral-500">
               Returns the final USDC amount from the admin wallet to the payout
-              vault, closes the selected withdrawal, and adjusts NAV by the
+              vault, closes the selected withdrawal, and adjusts reference value by the
               difference between the returned amount and the withdrawal&apos;s
               remaining balance.
             </p>
@@ -910,7 +910,7 @@ export function MasterOperationsCard() {
                   <span className="font-mono text-neutral-300">
                     ${formatUsdc(closePnlDelta)}
                   </span>{" "}
-                  and increases NAV by the same amount.
+                  and increases reference value by the same amount.
                 </>
               ) : closePnlDelta < BigInt(0) ? (
                 <>
@@ -918,10 +918,10 @@ export function MasterOperationsCard() {
                   <span className="font-mono text-neutral-300">
                     ${formatUsdc(-closePnlDelta)}
                   </span>{" "}
-                  and reduces NAV by the same amount.
+                  and reduces reference value by the same amount.
                 </>
               ) : (
-                ". This closes at breakeven with no NAV change."
+                ". This closes at breakeven with no reference value change."
               )}
             </p>
           )}

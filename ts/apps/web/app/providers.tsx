@@ -7,11 +7,10 @@ import { ToastProvider } from "@/components/ui/ToastContext";
 
 function getWalletEnv(): "mainnet-beta" | "devnet" | "testnet" {
   const env = process.env.NEXT_PUBLIC_SOLANA_CLUSTER;
-  if (env === "mainnet-beta" || env === "testnet") {
+  if (env === "mainnet-beta" || env === "devnet" || env === "testnet") {
     return env;
   }
-  // Default to devnet for development/testing
-  return "devnet";
+  return "testnet";
 }
 
 export function Providers({ children }: { children: ReactNode }) {

@@ -236,7 +236,7 @@ export function SettlementCard() {
     if (!program || !publicKey || !usdcMint || !usdcTokenProgram || !payoutVault || settlementPlan.length === 0) return;
     if (exceedsSingleTransactionLimit) {
       setTxError(
-        `This underfunded settlement run must include all open claims in one transaction, and ${settlementPlan.length} claims exceeds the current safe limit of ${CLAIMS_PER_TX}. Add more vault liquidity or settle after a program upgrade.`
+        `This underfunded settlement run must include all open requests in one transaction, and ${settlementPlan.length} requests exceeds the current safe limit of ${CLAIMS_PER_TX}. Add more vault liquidity or settle after a program upgrade.`
       );
       return;
     }
@@ -367,7 +367,7 @@ export function SettlementCard() {
         <div>
           <h1 className="text-xl font-semibold text-white">Distribution Plan</h1>
           <p className="mt-1 text-sm text-neutral-500">
-            Proportional distribution across current open claims using the live pool USDC vault.
+            Proportional distribution across current open requests using the live pool USDC vault.
           </p>
         </div>
         <button
@@ -391,14 +391,14 @@ export function SettlementCard() {
           <p className="mt-1 text-xs text-neutral-500">USDC in the pool vault</p>
         </div>
         <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-5">
-          <div className="text-[11px] uppercase tracking-wider text-neutral-500">Open Claims</div>
+          <div className="text-[11px] uppercase tracking-wider text-neutral-500">Open Requests</div>
           <p className="mt-2 text-lg font-semibold text-white">{claims.length}</p>
           <p className="mt-1 text-xs text-neutral-500">eligible for settlement</p>
         </div>
         <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-5">
           <div className="text-[11px] uppercase tracking-wider text-neutral-500">Total Owed</div>
           <p className="mt-2 font-mono text-lg font-semibold text-white">${formatUsdc(totalRequested)}</p>
-          <p className="mt-1 text-xs text-neutral-500">sum of all open claim requests</p>
+          <p className="mt-1 text-xs text-neutral-500">sum of all open request amounts</p>
         </div>
         <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-5">
           <div className="text-[11px] uppercase tracking-wider text-neutral-500">Payout Ratio</div>
@@ -414,7 +414,7 @@ export function SettlementCard() {
       {!wallet.publicKey && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
           <Wallet className="mt-0.5 h-4 w-4 shrink-0" />
-          Connect the admin wallet to settle claims.
+          Connect the admin wallet to settle requests.
         </div>
       )}
 
@@ -428,12 +428,12 @@ export function SettlementCard() {
       {pendingClaimsMismatch && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-          On-chain pending claims (${formatUsdc(poolPendingClaims ?? BigInt(0))}) do not match the decoded open-claim set (${formatUsdc(totalRequested)}).
+          On-chain pending requests (${formatUsdc(poolPendingClaims ?? BigInt(0))}) do not match the decoded open-request set (${formatUsdc(totalRequested)}).
           {pendingClaimsSyncRequired
             ? " Settlement is blocked because the on-chain tracker is stale low and must be synced before any settlement run."
             : underfundedPoolMismatch
-              ? " Settlement is blocked because the program now requires the full underfunded claim set to prevent unfair payouts."
-              : " Settlement can continue because the on-chain tracker is higher than the decoded open-claim set."}
+              ? " Settlement is blocked because the program now requires the full underfunded request set to prevent unfair payouts."
+              : " Settlement can continue because the on-chain tracker is higher than the decoded open-request set."}
         </div>
       )}
 
@@ -442,12 +442,12 @@ export function SettlementCard() {
         <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-sm text-emerald-300">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4" />
-            Settled {results.settledClaims} claims across {results.signatures.length} transaction
+            Settled {results.settledClaims} requests across {results.signatures.length} transaction
             {results.signatures.length === 1 ? "" : "s"}.
           </div>
           {results.failedClaims > 0 && (
             <div className="mt-2 text-amber-300">
-              {results.failedClaims} claims still need manual retry.
+              {results.failedClaims} requests still need manual retry.
             </div>
           )}
         </div>
@@ -458,7 +458,7 @@ export function SettlementCard() {
           <div>
             <h2 className="text-base font-semibold text-white">Settlement Run</h2>
             <p className="mt-1 text-sm text-neutral-500">
-              Fully funded runs are split into small batches. Underfunded runs must still settle the full open-claim set in one transaction so the payout ratio matches on-chain math.
+              Fully funded runs are split into small batches. Underfunded runs must still settle the full open-request set in one transaction so the payout ratio matches on-chain math.
             </p>
           </div>
           <button
@@ -472,14 +472,14 @@ export function SettlementCard() {
                 Settling...
               </>
             ) : (
-              "Settle Open Claims"
+              "Settle Open Requests"
             )}
           </button>
         </div>
 
         <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
           <div className="rounded-lg border border-neutral-800/60 bg-neutral-950/40 p-4">
-            <div className="text-[11px] uppercase tracking-wider text-neutral-500">Claims in Run</div>
+            <div className="text-[11px] uppercase tracking-wider text-neutral-500">Requests in Run</div>
             <div className="mt-2 text-lg font-semibold text-white">{settlementPlan.length}</div>
           </div>
           <div className="rounded-lg border border-neutral-800/60 bg-neutral-950/40 p-4">
@@ -497,7 +497,7 @@ export function SettlementCard() {
         {settling && (
           <div className="mt-5">
             <div className="mb-2 flex items-center justify-between text-xs text-neutral-400">
-              <span>Processing claims</span>
+              <span>Processing requests</span>
               <span>
                 {progress.current} / {progress.total}
               </span>
@@ -516,13 +516,13 @@ export function SettlementCard() {
 
       <section className="overflow-hidden rounded-xl border border-neutral-800/60">
         <div className="border-b border-neutral-800/60 bg-neutral-900/30 px-5 py-3">
-          <h3 className="text-sm font-medium text-white">Open Claims in Current Run</h3>
+          <h3 className="text-sm font-medium text-white">Open Requests in Current Run</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px]">
             <thead>
               <tr className="border-b border-neutral-800/60 text-left text-[11px] uppercase tracking-wider text-neutral-500">
-                <th className="px-5 py-3">Claim</th>
+                <th className="px-5 py-3">Request</th>
                 <th className="px-5 py-3">Wallet</th>
                 <th className="px-5 py-3 text-right">Outstanding</th>
                 <th className="px-5 py-3 text-right">Paid</th>
@@ -535,13 +535,13 @@ export function SettlementCard() {
               {loading ? (
                 <tr>
                   <td colSpan={7} className="px-5 py-8 text-center text-sm text-neutral-500">
-                    Loading open claims...
+                    Loading open requests...
                   </td>
                 </tr>
               ) : claims.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-5 py-8 text-center text-sm text-neutral-500">
-                    No open claims.
+                    No open requests.
                   </td>
                 </tr>
               ) : (
@@ -587,13 +587,13 @@ export function SettlementCard() {
 
       <section className="overflow-hidden rounded-xl border border-neutral-800/60">
         <div className="border-b border-neutral-800/60 bg-neutral-900/30 px-5 py-3">
-          <h3 className="text-sm font-medium text-white">Settled Claims</h3>
+          <h3 className="text-sm font-medium text-white">Settled Requests</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px]">
             <thead>
               <tr className="border-b border-neutral-800/60 text-left text-[11px] uppercase tracking-wider text-neutral-500">
-                <th className="px-5 py-3">Claim</th>
+                <th className="px-5 py-3">Request</th>
                 <th className="px-5 py-3">Wallet</th>
                 <th className="px-5 py-3 text-right">Requested</th>
                 <th className="px-5 py-3 text-right">Paid</th>
@@ -605,13 +605,13 @@ export function SettlementCard() {
               {loading ? (
                 <tr>
                   <td colSpan={6} className="px-5 py-8 text-center text-sm text-neutral-500">
-                    Loading settled claims...
+                    Loading settled requests...
                   </td>
                 </tr>
               ) : closedClaims.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-5 py-8 text-center text-sm text-neutral-500">
-                    No settled claims yet.
+                    No settled requests yet.
                   </td>
                 </tr>
               ) : (

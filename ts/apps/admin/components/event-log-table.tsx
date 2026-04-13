@@ -12,8 +12,8 @@ import {
 
 const filterTabs: Array<{ label: string; value: EventType | "All" }> = [
   { label: "All", value: "All" },
-  { label: "Buy", value: "Buy" },
-  { label: "File Claim", value: "File Claim" },
+  { label: "Acquire", value: "Buy" },
+  { label: "Open Request", value: "File Claim" },
   { label: "Settlement", value: "Settlement" },
   { label: "Withdraw", value: "Master Withdraw" },
   { label: "Repay", value: "Master Repay" },
@@ -47,6 +47,17 @@ function formatTime(date: Date): string {
     minute: "2-digit",
     hour12: true,
   });
+}
+
+function getEventLabel(type: EventType | "All"): string {
+  switch (type) {
+    case "Buy":
+      return "Acquire";
+    case "File Claim":
+      return "Open Request";
+    default:
+      return type;
+  }
 }
 
 export function EventLogTable() {
@@ -138,7 +149,7 @@ export function EventLogTable() {
         </div>
       ) : filteredEvents.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-neutral-500 border border-neutral-800/60 rounded-xl">
-          <p className="text-sm">No {activeFilter === "All" ? "" : activeFilter + " "}events found</p>
+          <p className="text-sm">No {activeFilter === "All" ? "" : getEventLabel(activeFilter) + " "}events found</p>
           <p className="text-xs text-neutral-600 mt-1">
             Last 10 program transactions scanned
           </p>
@@ -178,7 +189,7 @@ export function EventLogTable() {
                         typeBadgeStyles[event.type]
                       )}
                     >
-                      {event.type}
+                      {getEventLabel(event.type)}
                     </span>
                   </td>
                   <td className="px-5 py-3.5 text-sm text-neutral-300 font-mono">

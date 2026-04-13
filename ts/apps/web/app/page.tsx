@@ -6,7 +6,7 @@ import { StatCard } from "@/components/ui/StatCard";
 import { PROGRAM_ID } from "@/lib/program";
 
 export default function Home() {
-  const cluster = process.env.NEXT_PUBLIC_SOLANA_CLUSTER ?? "devnet";
+  const cluster = process.env.NEXT_PUBLIC_SOLANA_CLUSTER ?? "testnet";
 
   return (
     <Layout>
@@ -53,7 +53,7 @@ export default function Home() {
           <div className="glass-card p-6 mb-8 space-y-2 text-sm text-muted-foreground">
             <p>No public market price exists for this protocol token.</p>
             <p>Total value locked is not publicly disclosed.</p>
-            <p>Net asset value is determined by the protocol administrator and is not independently verifiable.</p>
+            <p>Reference value is determined by the protocol administrator and is not independently verifiable.</p>
           </div>
 
           {/* Primary CTAs */}
