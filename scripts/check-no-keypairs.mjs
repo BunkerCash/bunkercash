@@ -54,7 +54,9 @@ for (const file of getTrackedFiles()) {
       reason = reason ?? "JSON content looks like a Solana secret key";
     }
   } catch {
-    continue;
+    if (!reason) {
+      continue;
+    }
   }
 
   if (reason) {
