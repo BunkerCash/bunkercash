@@ -4,6 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { BN } from "@coral-xyz/anchor";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey, SendTransactionError, SystemProgram, Transaction } from "@solana/web3.js";
+import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  createAssociatedTokenAccountInstruction,
+  getAssociatedTokenAddressSync,
+} from "@solana/spl-token";
 import { AlertCircle, DollarSign, Info, Loader2, RefreshCw, Settings } from "lucide-react";
 import { usePayoutVault } from "@/hooks/usePayoutVault";
 import {
@@ -61,8 +66,12 @@ interface SetSupportedUsdcMintMethods {
     accounts: (accounts: {
       pool: PublicKey;
       supportedUsdcConfig: PublicKey;
+      currentSupportedUsdcMint: PublicKey;
+      currentPoolUsdc: PublicKey;
       usdcMint: PublicKey;
+      nextPoolUsdc: PublicKey;
       admin: PublicKey;
+      currentUsdcTokenProgram: PublicKey;
       usdcTokenProgram: PublicKey;
       systemProgram: PublicKey;
     }) => {
@@ -269,30 +278,70 @@ export function PurchaseLimitsCard() {
   };
 
   const handleMintSave = async () => {
-    if (!program || !wallet.publicKey || !parsedMint) return;
+    if (!program || !wallet.publicKey || !parsedMint || !state?.supportedUsdcMint) return;
 
     setSubmitting(true);
     setError(null);
     setTxSuccess(null);
 
     try {
+      const currentSupportedUsdcMint = new PublicKey(state.supportedUsdcMint);
+      const currentUsdcTokenProgram = await fetchMintTokenProgram(
+        connection,
+        currentSupportedUsdcMint
+      );
       const usdcTokenProgram = await fetchMintTokenProgram(connection, parsedMint);
+      if (!currentUsdcTokenProgram) {
+        throw new Error("Current configured mint is not owned by the SPL Token Program or Token-2022.");
+      }
       if (!usdcTokenProgram) {
         throw new Error("Selected mint is not owned by the SPL Token Program or Token-2022.");
       }
+      const currentPoolUsdc = getAssociatedTokenAddressSync(
+        currentSupportedUsdcMint,
+        poolPda,
+        true,
+        currentUsdcTokenProgram,
+        ASSOCIATED_TOKEN_PROGRAM_ID
+      );
+      const nextPoolUsdc = getAssociatedTokenAddressSync(
+        parsedMint,
+        poolPda,
+        true,
+        usdcTokenProgram,
+        ASSOCIATED_TOKEN_PROGRAM_ID
+      );
       const ix = await (program.methods as unknown as SetSupportedUsdcMintMethods)
         .setSupportedUsdcMint()
         .accounts({
           pool: poolPda,
           supportedUsdcConfig: supportedUsdcConfigPda,
+          currentSupportedUsdcMint,
+          currentPoolUsdc,
           usdcMint: parsedMint,
+          nextPoolUsdc,
           admin: wallet.publicKey,
+          currentUsdcTokenProgram,
           usdcTokenProgram,
           systemProgram: SystemProgram.programId,
         })
         .instruction();
 
-      const tx = new Transaction().add(ix);
+      const tx = new Transaction();
+      const nextPoolUsdcInfo = await connection.getAccountInfo(nextPoolUsdc, "confirmed");
+      if (!nextPoolUsdcInfo) {
+        tx.add(
+          createAssociatedTokenAccountInstruction(
+            wallet.publicKey,
+            nextPoolUsdc,
+            poolPda,
+            parsedMint,
+            usdcTokenProgram,
+            ASSOCIATED_TOKEN_PROGRAM_ID
+          )
+        );
+      }
+      tx.add(ix);
       const provider = program.provider as ProviderLike;
       const signature = await provider.sendAndConfirm(tx);
 

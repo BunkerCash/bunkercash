@@ -9,6 +9,7 @@ import {
 const idlJson = require("../target/idl/bunkercash.json") as { address: string } & Idl;
 
 const PROGRAM_ID = new PublicKey(idlJson.address);
+const PURCHASE_LIMIT_SEED = Buffer.from("purchase_limit");
 const SUPPORTED_USDC_CONFIG_SEED = Buffer.from("supported_usdc_config");
 const MASTER_WALLET = new PublicKey(
   process.env.MASTER_WALLET_PUBKEY ??
@@ -28,6 +29,7 @@ async function main() {
   anchor.setProvider(provider);
 
   const program = new anchor.Program(idlJson as unknown as Idl, provider);
+  const bootstrapAuthority = provider.wallet.publicKey;
   let usdcTokenProgram = USDC_TOKEN_PROGRAM;
   if (!usdcTokenProgram) {
     const mintInfo = await provider.connection.getAccountInfo(USDC_MINT, "confirmed");
@@ -39,6 +41,10 @@ async function main() {
   const [poolPda] = PublicKey.findProgramAddressSync([Buffer.from("pool")], PROGRAM_ID);
   const [supportedUsdcConfigPda] = PublicKey.findProgramAddressSync(
     [SUPPORTED_USDC_CONFIG_SEED],
+    PROGRAM_ID
+  );
+  const [purchaseLimitConfigPda] = PublicKey.findProgramAddressSync(
+    [PURCHASE_LIMIT_SEED],
     PROGRAM_ID
   );
   const poolUsdc = getAssociatedTokenAddressSync(
@@ -64,6 +70,8 @@ async function main() {
       usdcMint: USDC_MINT,
       poolUsdc,
       supportedUsdcConfig: supportedUsdcConfigPda,
+      purchaseLimitConfig: purchaseLimitConfigPda,
+      bootstrapAuthority,
       payer: provider.wallet.publicKey,
       usdcTokenProgram,
       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,

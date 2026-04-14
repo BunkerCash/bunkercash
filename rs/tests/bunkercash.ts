@@ -29,6 +29,7 @@ const idlJson = require("../../ts/apps/web/lib/bunkercash.fixed.idl.json") as {
 
 const PROGRAM_ID = new PublicKey(idlJson.address);
 const POOL_SEED = "pool";
+const PURCHASE_LIMIT_SEED = "purchase_limit";
 const SUPPORTED_USDC_CONFIG_SEED = "supported_usdc_config";
 const USDC_MINT = new PublicKey(
   process.env.USDC_MINT ?? "Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx"
@@ -55,6 +56,10 @@ describe("bunkercash", () => {
       [Buffer.from(SUPPORTED_USDC_CONFIG_SEED)],
       program.programId
     );
+    const [purchaseLimitConfigPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from(PURCHASE_LIMIT_SEED)],
+      program.programId
+    );
     const poolUsdc = getAssociatedTokenAddressSync(
       USDC_MINT,
       poolPda,
@@ -72,6 +77,8 @@ describe("bunkercash", () => {
           usdcMint: USDC_MINT,
           poolUsdc,
           supportedUsdcConfig: supportedUsdcConfigPda,
+          purchaseLimitConfig: purchaseLimitConfigPda,
+          bootstrapAuthority: wallet,
           payer: wallet,
           usdcTokenProgram,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,

@@ -567,6 +567,37 @@
           }
         },
         {
+          "name": "purchase_limit_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  117,
+                  114,
+                  99,
+                  104,
+                  97,
+                  115,
+                  101,
+                  95,
+                  108,
+                  105,
+                  109,
+                  105,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "bootstrap_authority",
+          "signer": true
+        },
+        {
           "name": "payer",
           "writable": true,
           "signer": true
@@ -1394,7 +1425,21 @@
           }
         },
         {
+          "name": "current_supported_usdc_mint"
+        },
+        {
+          "name": "current_pool_usdc",
+          "writable": true
+        },
+        {
           "name": "usdc_mint"
+        },
+        {
+          "name": "next_pool_usdc",
+          "writable": true
+        },
+        {
+          "name": "current_usdc_token_program"
         },
         {
           "name": "admin",
@@ -1896,6 +1941,31 @@
       "code": 6014,
       "name": "WithdrawalAlreadyClosed",
       "msg": "Withdrawal is already closed"
+    },
+    {
+      "code": 6015,
+      "name": "MintChangeRequiresEmptyVault",
+      "msg": "Supported USDC mint changes require an empty vault for the current configured mint"
+    },
+    {
+      "code": 6016,
+      "name": "MintChangeRequiresSettledPool",
+      "msg": "Supported USDC mint changes require a fully settled pool with no live exposure"
+    },
+    {
+      "code": 6017,
+      "name": "DuplicateSettlementClaim",
+      "msg": "Duplicate claim account provided for settlement"
+    },
+    {
+      "code": 6018,
+      "name": "ArithmeticError",
+      "msg": "Arithmetic operation failed"
+    },
+    {
+      "code": 6019,
+      "name": "InvalidMetadataAccount",
+      "msg": "Invalid metadata account for the bRENT mint"
     }
   ],
   "types": [
