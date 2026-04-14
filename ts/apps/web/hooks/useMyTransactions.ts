@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useWallet } from "@solana/wallet-adapter-react";
 import type { Transaction } from "@/types";
 import type { TransactionsResponse } from "@/lib/solana-server";
+import { useOptionalWallet } from "@/hooks/useOptionalWallet";
 
 // Module-level cache so data survives tab switches (component unmount/remount)
 let txCache: { key: string; data: Transaction[] } | null = null;
@@ -14,8 +14,8 @@ export function invalidateTransactionCache() {
 }
 
 export function useMyTransactions() {
-  const wallet = useWallet();
-  const cacheKey = wallet.publicKey?.toBase58() ?? "";
+  const wallet = useOptionalWallet();
+  const cacheKey = wallet?.publicKey?.toBase58() ?? "";
 
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
     return txCache?.key === cacheKey ? txCache.data : [];
@@ -24,7 +24,7 @@ export function useMyTransactions() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchTransactions = useCallback(async () => {
-    if (!wallet.publicKey) {
+    if (!wallet?.publicKey) {
       setTransactions([]);
       return;
     }
@@ -48,14 +48,14 @@ export function useMyTransactions() {
         txSignature: tx.txSignature,
       }));
 
-      txCache = { key: wallet.publicKey!.toBase58(), data: parsed };
+      txCache = { key: wallet.publicKey.toBase58(), data: parsed };
       setTransactions(parsed);
     } catch {
       setError("Failed to fetch transactions. Please try again.");
     } finally {
       setLoading(false);
     }
-  }, [wallet.publicKey]);
+  }, [wallet?.publicKey]);
 
   useEffect(() => {
     if (txCache?.key === cacheKey && txCache.data.length > 0) return;

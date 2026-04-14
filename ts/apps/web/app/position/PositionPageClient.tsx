@@ -1,13 +1,13 @@
 "use client";
 
 import { useMemo } from "react";
-import { useWallet } from "@solana/wallet-adapter-react";
 import { Layout } from "@/components/layout/Layout";
 import { StatCard } from "@/components/ui/StatCard";
 import { Wallet, Clock, CheckCircle, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useTokenBalance } from "@/hooks/useTokenBalance";
 import { type Claim, useMyClaims } from "@/hooks/useMyClaims";
+import { useOptionalWallet } from "@/hooks/useOptionalWallet";
 
 const USDC_DECIMALS = 6;
 
@@ -33,7 +33,8 @@ function getClaimProgress(claim: Claim) {
 }
 
 export default function PositionPageClient() {
-  const { connected } = useWallet();
+  const wallet = useOptionalWallet();
+  const connected = wallet?.connected ?? false;
   const {
     balance: tokenBalance,
     loading: isLoadingBalance,

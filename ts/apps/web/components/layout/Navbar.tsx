@@ -4,9 +4,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import Image from "next/image";
-import { useWallet } from "@solana/wallet-adapter-react";
 import WalletButton from "@/components/wallet/WalletButton";
 
 import { cn } from "@/lib/utils";
@@ -22,7 +19,6 @@ const navItems = [
 
 export const Navbar = () => {
   const pathname = usePathname();
-  const { connected } = useWallet();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   return (

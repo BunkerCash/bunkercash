@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import type { Idl, Program } from '@coral-xyz/anchor'
-import { useConnection, useWallet } from '@solana/wallet-adapter-react'
+import { useConnection } from '@solana/wallet-adapter-react'
 import { PublicKey, SendTransactionError, SystemProgram, Transaction, type TransactionInstruction } from '@solana/web3.js'
 import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import {
@@ -10,6 +10,8 @@ import {
   getPoolPda,
   getPurchaseLimitConfigPda,
   getSupportedUsdcConfigPda,
+  fetchConfiguredUsdcMint,
+  fetchMintTokenProgram,
   getProgram,
   type ProgramWallet,
   PROGRAM_ID,
@@ -21,6 +23,7 @@ import { BN } from '@coral-xyz/anchor'
 import { useToast } from "@/components/ui/ToastContext";
 import { useSupportedUsdcMint } from "@/hooks/useSupportedUsdcMint";
 import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
+import { useOptionalWallet } from "@/hooks/useOptionalWallet";
 
 const USDC_DECIMALS = 6
 const USDC_SCALE = 10n ** BigInt(USDC_DECIMALS)
@@ -83,8 +86,10 @@ interface BuyPrimaryMethods {
 
 export function BuyPrimaryInterface() {
   const { connection } = useConnection()
-  const wallet = useWallet()
-  const { publicKey, signTransaction, signAllTransactions } = wallet
+  const wallet = useOptionalWallet()
+  const publicKey = wallet?.publicKey ?? null
+  const signTransaction = wallet?.signTransaction
+  const signAllTransactions = wallet?.signAllTransactions
   const { showToast } = useToast();
   const [usdcAmount, setUsdcAmount] = useState("");
   const [loading, setLoading] = useState(false);
@@ -285,6 +290,7 @@ export function BuyPrimaryInterface() {
       return;
     }
     if (
+      !wallet ||
       !program ||
       !publicKey ||
       !poolState ||
@@ -311,7 +317,20 @@ export function BuyPrimaryInterface() {
     setTxSig(null);
     setLoading(true);
     try {
-      if (!supportsUsdcDeposits) {
+      // Resolve the configured settlement mint fresh at submit time so we do not
+      // build the transaction with stale client state after an admin-side mint change.
+      const configuredUsdcMint =
+        (await fetchConfiguredUsdcMint(connection)) ?? usdcMint;
+      const configuredUsdcTokenProgram = await fetchMintTokenProgram(
+        connection,
+        configuredUsdcMint,
+      );
+
+      if (
+        !configuredUsdcTokenProgram ||
+        (!configuredUsdcTokenProgram.equals(TOKEN_PROGRAM_ID) &&
+          !configuredUsdcTokenProgram.equals(TOKEN_2022_PROGRAM_ID))
+      ) {
         const msg =
           "Configured USDC mint is not supported by this deployment.";
         setError(msg);
@@ -320,17 +339,17 @@ export function BuyPrimaryInterface() {
       }
 
       const userUsdc = getAssociatedTokenAddressSync(
-        usdcMint,
+        configuredUsdcMint,
         publicKey,
         false,
-        usdcTokenProgram,
+        configuredUsdcTokenProgram,
         ASSOCIATED_TOKEN_PROGRAM_ID,
       );
       const poolUsdcVault = getAssociatedTokenAddressSync(
-        usdcMint,
+        configuredUsdcMint,
         poolPda,
         true,
-        usdcTokenProgram,
+        configuredUsdcTokenProgram,
         ASSOCIATED_TOKEN_PROGRAM_ID,
       );
       const brentMintInfo = await connection.getAccountInfo(bunkercashMintPda);
@@ -354,8 +373,8 @@ export function BuyPrimaryInterface() {
           publicKey,
           userUsdc,
           publicKey,
-          usdcMint,
-          usdcTokenProgram,
+          configuredUsdcMint,
+          configuredUsdcTokenProgram,
           ASSOCIATED_TOKEN_PROGRAM_ID,
         );
       const createUserBunkercashAtaIx =
@@ -372,8 +391,8 @@ export function BuyPrimaryInterface() {
           publicKey,
           poolUsdcVault,
           poolPda,
-          usdcMint,
-          usdcTokenProgram,
+          configuredUsdcMint,
+          configuredUsdcTokenProgram,
           ASSOCIATED_TOKEN_PROGRAM_ID,
         );
 
@@ -388,9 +407,9 @@ export function BuyPrimaryInterface() {
           brentMint: bunkercashMintPda,
           supportedUsdcConfig: supportedUsdcConfigPda,
           purchaseLimitConfig: purchaseLimitConfigPda,
-          usdcMint,
+          usdcMint: configuredUsdcMint,
           user: publicKey,
-          usdcTokenProgram,
+          usdcTokenProgram: configuredUsdcTokenProgram,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })

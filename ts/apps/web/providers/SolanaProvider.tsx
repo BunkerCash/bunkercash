@@ -1,7 +1,6 @@
 "use client";
 
-import { FC, ReactNode, useMemo } from "react";
-import type { Adapter } from "@solana/wallet-adapter-base";
+import { FC, ReactNode, useMemo, type ComponentProps } from "react";
 import {
   ConnectionProvider,
   WalletProvider,
@@ -31,7 +30,7 @@ interface SolanaProviderConfig {
 
 interface SolanaProviderProps {
   children: ReactNode;
-  wallets?: Adapter[];
+  wallets?: ComponentProps<typeof WalletProvider>["wallets"];
   config?: SolanaProviderConfig;
 }
 

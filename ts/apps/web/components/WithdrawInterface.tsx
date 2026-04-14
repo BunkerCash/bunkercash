@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useRef } from "react";
 import type { Idl, Program } from '@coral-xyz/anchor'
-import { useConnection, useWallet } from '@solana/wallet-adapter-react'
+import { useConnection } from '@solana/wallet-adapter-react'
 import { BN } from '@coral-xyz/anchor'
 import { PublicKey, SendTransactionError, SystemProgram, Transaction, type TransactionInstruction } from '@solana/web3.js'
 import {
@@ -23,6 +23,7 @@ import { useTokenBalance } from "@/hooks/useTokenBalance";
 import { useMyClaims } from "@/hooks/useMyClaims";
 import { useToast } from "@/components/ui/ToastContext";
 import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
+import { useOptionalWallet } from "@/hooks/useOptionalWallet";
 
 /** Detect wallet rejection errors */
 function isWalletRejection(e: unknown): boolean {
@@ -67,8 +68,10 @@ interface FileClaimMethods {
 
 export function WithdrawInterface() {
   const { connection } = useConnection()
-  const wallet = useWallet()
-  const { publicKey, signTransaction, signAllTransactions } = wallet
+  const wallet = useOptionalWallet()
+  const publicKey = wallet?.publicKey ?? null
+  const signTransaction = wallet?.signTransaction
+  const signAllTransactions = wallet?.signAllTransactions
   const { showToast } = useToast();
   const [activeView, setActiveView] = useState<'register' | 'history'>('register')
   const [amountUi, setAmountUi] = useState('')
@@ -127,7 +130,7 @@ export function WithdrawInterface() {
   const displayError = error ?? inputError
 
   const handleRegisterSell = async () => {
-    if (!program || !publicKey || !connection || !userBunkercashAta)
+    if (!wallet || !program || !publicKey || !connection || !userBunkercashAta)
       return;
 
     // Prevent duplicate submissions
