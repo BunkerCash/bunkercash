@@ -1,51 +1,62 @@
 import { NextResponse } from "next/server";
-import { cachedFetch } from "@bunkercash/cloudflare-kv";
 import { fetchPoolData, type PoolDataResponse } from "@/lib/solana-server";
 
 export const runtime = "nodejs";
-
-const BINDING = "GEOBLOCKING_KV";
-const CACHE_KEY = "cache:admin_pool_data";
-const TTL_SECONDS = 30;
+const WEB_POOL_DATA_URL =
+  "https://bunkercash-web.bunkercoin.workers.dev/api/pool-data";
 
 export async function GET() {
   const start = performance.now();
   try {
-    const { data, cacheHit, staleFallback } = await cachedFetch<PoolDataResponse>(
-      BINDING,
-      CACHE_KEY,
-      TTL_SECONDS,
-      fetchPoolData,
-    );
-
+    const data: PoolDataResponse = await fetchPoolData();
     const elapsed = performance.now() - start;
-    const cacheStatus = staleFallback ? "STALE" : cacheHit ? "HIT" : "MISS";
 
     return NextResponse.json(data, {
       headers: {
-        "Cache-Control": `public, s-maxage=${TTL_SECONDS}, stale-while-revalidate=${TTL_SECONDS * 2}`,
-        "X-Cache": cacheStatus,
+        "Cache-Control": "no-store",
+        "X-Cache": "BYPASS",
         "X-Response-Time": `${elapsed.toFixed(1)}ms`,
-        "Server-Timing": `total;dur=${elapsed.toFixed(1)};desc="${cacheStatus === "MISS" ? "rpc-fetch" : `kv-${cacheStatus.toLowerCase()}`}"`,
+        "Server-Timing": `total;dur=${elapsed.toFixed(1)};desc="direct-rpc"`,
       },
     });
   } catch (e: unknown) {
     const errorMessage =
       e instanceof Error ? e.message : "Failed to fetch pool data";
-    const elapsed = performance.now() - start;
-
-    return NextResponse.json(
-      { error: errorMessage },
-      {
-        status: 503,
+    try {
+      const fallback = await fetch(WEB_POOL_DATA_URL, { cache: "no-store" });
+      if (!fallback.ok) {
+        throw new Error(`Fallback failed with ${fallback.status}`);
+      }
+      const data = (await fallback.json()) as PoolDataResponse;
+      const elapsed = performance.now() - start;
+      return NextResponse.json(data, {
         headers: {
           "Cache-Control": "no-store",
           "X-Cache": "FALLBACK",
           "X-Response-Time": `${elapsed.toFixed(1)}ms`,
-          "Server-Timing": `total;dur=${elapsed.toFixed(1)};desc="pool-data-error"`,
+          "Server-Timing": `total;dur=${elapsed.toFixed(1)};desc="web-fallback"`,
           "X-Error": errorMessage,
         },
-      },
-    );
+      });
+    } catch (fallbackError: unknown) {
+      const elapsed = performance.now() - start;
+      const fallbackMessage =
+        fallbackError instanceof Error
+          ? fallbackError.message
+          : "Fallback fetch failed";
+
+      return NextResponse.json(
+        { error: `${errorMessage} | ${fallbackMessage}` },
+        {
+          status: 503,
+          headers: {
+            "Cache-Control": "no-store",
+            "X-Cache": "MISS",
+            "X-Response-Time": `${elapsed.toFixed(1)}ms`,
+            "Server-Timing": `total;dur=${elapsed.toFixed(1)};desc="pool-data-error"`,
+          },
+        },
+      );
+    }
   }
 }

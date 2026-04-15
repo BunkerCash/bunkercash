@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { fetchRecentEvents, type EventsResponse } from "@/lib/solana-server";
+import { fetchFeeConfig, type FeeConfigResponse } from "@/lib/solana-server";
 
 export const runtime = "nodejs";
 
 export async function GET() {
   const start = performance.now();
   try {
-    const data: EventsResponse = await fetchRecentEvents(20);
+    const data: FeeConfigResponse = await fetchFeeConfig();
     const elapsed = performance.now() - start;
 
     return NextResponse.json(data, {
@@ -18,20 +18,16 @@ export async function GET() {
       },
     });
   } catch (e: unknown) {
-    const errorMessage =
-      e instanceof Error ? e.message : "Failed to fetch events";
     const elapsed = performance.now() - start;
-
     return NextResponse.json(
-      { events: [], ts: Date.now(), error: errorMessage },
+      { error: e instanceof Error ? e.message : "Failed to fetch fee config" },
       {
-        status: 200,
+        status: 503,
         headers: {
           "Cache-Control": "no-store",
-          "X-Cache": "FALLBACK",
+          "X-Cache": "MISS",
           "X-Response-Time": `${elapsed.toFixed(1)}ms`,
-          "Server-Timing": `total;dur=${elapsed.toFixed(1)};desc="events-empty-fallback"`,
-          "X-Error": errorMessage,
+          "Server-Timing": `total;dur=${elapsed.toFixed(1)};desc="fee-config-error"`,
         },
       },
     );

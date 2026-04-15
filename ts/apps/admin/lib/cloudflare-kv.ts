@@ -1,10 +1,24 @@
-import { kvGet, kvPut } from "@bunkercash/cloudflare-kv";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { COUNTRIES } from "./countries";
 
 const VALID_COUNTRY_CODES = new Set(COUNTRIES.map((c) => c.code));
 
 const BINDING = "GEOBLOCKING_KV";
 const KEY = "geoblocking:blocked_countries";
+
+async function getKvNamespace(binding: string) {
+  const { env } = await getCloudflareContext();
+  const kv = (env as Record<string, unknown>)[binding];
+
+  if (!kv || typeof kv !== "object") {
+    throw new Error(`KV binding "${binding}" not found in environment`);
+  }
+
+  return kv as {
+    get(key: string, type: "json"): Promise<unknown>;
+    put(key: string, value: string): Promise<void>;
+  };
+}
 
 export function parseBlockedCountries(value: unknown): string[] {
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
@@ -26,7 +40,8 @@ function normalizeCountries(countries: string[]): string[] {
 }
 
 export async function getBlockedCountries(): Promise<string[]> {
-  const countries = await kvGet<unknown>(BINDING, KEY);
+  const kv = await getKvNamespace(BINDING);
+  const countries = await kv.get(KEY, "json");
   if (!countries) return [];
   // Runtime validation — reject malformed KV data rather than trusting the cast
   if (
@@ -43,6 +58,7 @@ export async function setBlockedCountries(
 ): Promise<string[]> {
   const normalized = normalizeCountries(countries);
   parseBlockedCountries(normalized);
-  await kvPut(BINDING, KEY, normalized);
+  const kv = await getKvNamespace(BINDING);
+  await kv.put(KEY, JSON.stringify(normalized));
   return normalized;
 }

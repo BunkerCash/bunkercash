@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { PublicKey, SYSVAR_INSTRUCTIONS_PUBKEY, SystemProgram } from "@solana/web3.js";
+import { PublicKey, SYSVAR_INSTRUCTIONS_PUBKEY, SystemProgram, Transaction } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { AlertCircle, CheckCircle2, Coins, Loader2, RefreshCw } from "lucide-react";
 import { getBunkercashMintPda, getPoolPda, getProgram, PROGRAM_ID } from "@/lib/program";
+import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
+import type { PoolDataResponse } from "@/lib/solana-server";
 
 const TOKEN_METADATA_PROGRAM_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
 const DEFAULT_TOKEN_NAME = "bunkerCash";
@@ -14,9 +16,7 @@ const DEFAULT_TOKEN_METADATA_URI =
   process.env.NEXT_PUBLIC_TOKEN_METADATA_URI ??
   "https://bunkercash-web.bunkercoin.workers.dev/bunkercash-metadata.json";
 
-interface PoolAccountLike {
-  masterWallet: PublicKey;
-}
+type InstructionLike = Transaction["instructions"][number];
 
 interface MintSetupMethods {
   createBrentMint: () => {
@@ -27,7 +27,7 @@ interface MintSetupMethods {
       tokenProgram: PublicKey;
       systemProgram: PublicKey;
     }) => {
-      rpc: () => Promise<string>;
+      instruction: () => Promise<InstructionLike>;
     };
   };
   initMintMetadata: (name: string, symbol: string, uri: string) => {
@@ -41,7 +41,7 @@ interface MintSetupMethods {
       systemProgram: PublicKey;
       sysvarInstructions: PublicKey;
     }) => {
-      rpc: () => Promise<string>;
+      instruction: () => Promise<InstructionLike>;
     };
   };
   updateMintMetadata: (name: string, symbol: string, uri: string) => {
@@ -52,7 +52,7 @@ interface MintSetupMethods {
       metadata: PublicKey;
       tokenMetadataProgram: PublicKey;
     }) => {
-      rpc: () => Promise<string>;
+      instruction: () => Promise<InstructionLike>;
     };
   };
 }
@@ -92,27 +92,18 @@ export function MintSetupCard() {
     setError(null);
 
     try {
-      const readonlyProgram = program ?? null;
-      if (!readonlyProgram) {
-        const [mintInfo, metadataInfo] = await Promise.all([
-          connection.getAccountInfo(mintPda),
-          connection.getAccountInfo(metadataPda),
-        ]);
-        setIsMintInitialized(!!mintInfo);
-        setIsMetadataInitialized(!!metadataInfo);
-        return;
-      }
-
-      const accountApi = readonlyProgram.account as {
-        pool: { fetch: (pubkey: PublicKey) => Promise<PoolAccountLike> };
-      };
-      const [poolState, mintInfo, metadataInfo] = await Promise.all([
-        accountApi.pool.fetch(poolPda),
+      const [poolDataRes, mintInfo, metadataInfo] = await Promise.all([
+        fetch("/api/pool-data", { cache: "no-store" }),
         connection.getAccountInfo(mintPda),
         connection.getAccountInfo(metadataPda),
       ]);
 
-      setMasterWallet(poolState.masterWallet.toBase58());
+      if (!poolDataRes.ok) {
+        throw new Error(`pool-data: ${poolDataRes.status}`);
+      }
+
+      const poolData = (await poolDataRes.json()) as PoolDataResponse;
+      setMasterWallet(poolData.adminWallet);
       setIsMintInitialized(!!mintInfo);
       setIsMetadataInitialized(!!metadataInfo);
     } catch (e) {
@@ -136,7 +127,7 @@ export function MintSetupCard() {
 
     try {
       const methodsApi = program.methods as unknown as MintSetupMethods;
-      const signature = await methodsApi
+      const ix = await methodsApi
         .createBrentMint()
         .accounts({
           pool: poolPda,
@@ -145,7 +136,13 @@ export function MintSetupCard() {
           tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
-        .rpc();
+        .instruction();
+
+      const signature = await sendAndConfirmWalletTransaction({
+        connection,
+        wallet,
+        transaction: new Transaction().add(ix),
+      });
 
       setSuccess(`Mint initialized. Tx: ${signature}`);
       setIsMintInitialized(true);
@@ -195,7 +192,12 @@ export function MintSetupCard() {
             sysvarInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
           });
 
-      const signature = await builder.rpc();
+      const ix = await builder.instruction();
+      const signature = await sendAndConfirmWalletTransaction({
+        connection,
+        wallet,
+        transaction: new Transaction().add(ix),
+      });
       setSuccess(
         `${isMetadataInitialized ? "Metadata updated" : "Metadata initialized"}. Tx: ${signature}`,
       );

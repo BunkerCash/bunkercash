@@ -17,7 +17,7 @@ export const SolanaProvider: FC<{ children: ReactNode }> = ({ children }) => {
     () =>
       process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
       process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
-      clusterApiUrl("devnet"),
+      clusterApiUrl("testnet"),
     []
   );
   const wallets = useMemo(() => [new PhantomWalletAdapter()], []);

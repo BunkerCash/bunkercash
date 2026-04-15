@@ -18,6 +18,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { useMasterWithdrawals } from "@/hooks/useMasterWithdrawals";
+import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
 import { usePayoutVault } from "@/hooks/usePayoutVault";
 import {
   getMasterPoolPda,
@@ -314,8 +315,11 @@ export function MasterOperationsCard() {
       tx.add(ataState.ensureAdminAtaIx);
       tx.add(ix);
 
-      const provider = program.provider as ProviderLike;
-      const signature = await provider.sendAndConfirm(tx);
+      const signature = await sendAndConfirmWalletTransaction({
+        connection,
+        wallet,
+        transaction: tx,
+      });
 
       setTxSuccess({
         label: "Withdrawal recorded and sent to admin wallet",
@@ -326,13 +330,6 @@ export function MasterOperationsCard() {
       refresh();
       refreshVault();
     } catch (e: unknown) {
-      console.error("Error submitting master withdraw:", e);
-      if (e instanceof SendTransactionError) {
-        const logs = await e.getLogs(connection);
-        if (logs?.length) {
-          console.error("Master withdraw transaction logs:", logs);
-        }
-      }
       const msg = getErrorMessage(e, "Failed to submit withdrawal");
       if (msg.includes("already in use") || msg.includes("0x0")) {
         setTxError("Withdrawal slot conflict. Refresh and retry.");
@@ -382,8 +379,11 @@ export function MasterOperationsCard() {
       tx.add(ataState.ensureAdminAtaIx);
       tx.add(ix);
 
-      const provider = program.provider as ProviderLike;
-      const signature = await provider.sendAndConfirm(tx);
+      const signature = await sendAndConfirmWalletTransaction({
+        connection,
+        wallet,
+        transaction: tx,
+      });
 
       setTxSuccess({
         label: `Recorded profit against withdrawal #${profitTarget.id}`,
@@ -393,13 +393,6 @@ export function MasterOperationsCard() {
       refresh();
       refreshVault();
     } catch (e: unknown) {
-      console.error("Error submitting master profit:", e);
-      if (e instanceof SendTransactionError) {
-        const logs = await e.getLogs(connection);
-        if (logs?.length) {
-          console.error("Master profit transaction logs:", logs);
-        }
-      }
       setTxError(getErrorMessage(e, "Failed to submit profit"));
     } finally {
       setSubmitting(null);
@@ -451,8 +444,11 @@ export function MasterOperationsCard() {
       tx.add(ataState.ensureAdminAtaIx);
       tx.add(ix);
 
-      const provider = program.provider as ProviderLike;
-      const signature = await provider.sendAndConfirm(tx);
+      const signature = await sendAndConfirmWalletTransaction({
+        connection,
+        wallet,
+        transaction: tx,
+      });
 
       setTxSuccess({
         label: `Repaid $${formatUsdc(amount)} against withdrawal #${repayTarget.id}`,
@@ -462,13 +458,6 @@ export function MasterOperationsCard() {
       refresh();
       refreshVault();
     } catch (e: unknown) {
-      console.error("Error submitting master repayment:", e);
-      if (e instanceof SendTransactionError) {
-        const logs = await e.getLogs(connection);
-        if (logs?.length) {
-          console.error("Master repay transaction logs:", logs);
-        }
-      }
       setTxError(getErrorMessage(e, "Failed to submit repayment"));
     } finally {
       setSubmitting(null);
@@ -515,8 +504,11 @@ export function MasterOperationsCard() {
       tx.add(ataState.ensureAdminAtaIx);
       tx.add(ix);
 
-      const provider = program.provider as ProviderLike;
-      const signature = await provider.sendAndConfirm(tx);
+      const signature = await sendAndConfirmWalletTransaction({
+        connection,
+        wallet,
+        transaction: tx,
+      });
 
       const remaining = BigInt(closeTarget.remaining);
       const pnlDelta = amount - remaining;
@@ -535,13 +527,6 @@ export function MasterOperationsCard() {
       refresh();
       refreshVault();
     } catch (e: unknown) {
-      console.error("Error closing withdrawal:", e);
-      if (e instanceof SendTransactionError) {
-        const logs = await e.getLogs(connection);
-        if (logs?.length) {
-          console.error("Close withdrawal transaction logs:", logs);
-        }
-      }
       setTxError(getErrorMessage(e, "Failed to close withdrawal"));
     } finally {
       setSubmitting(null);

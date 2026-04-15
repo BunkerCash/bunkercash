@@ -9,6 +9,7 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import {
+  getFeeConfigPda,
   getReadonlyProgram,
   getPoolPda,
   getBunkercashMintPda,
@@ -19,6 +20,7 @@ import {
 } from "@/lib/program";
 import { fetchDecodedClaimAccounts } from "@/lib/claim-accounts";
 import type { DecodedClaimAccount } from "@/lib/claim-accounts";
+import { getClusterFromEndpoint } from "@/lib/constants";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -33,6 +35,11 @@ interface PoolAccountLike {
   totalPendingClaims: Stringable;
 }
 
+interface FeeConfigAccountLike {
+  purchaseFeeBps: Stringable;
+  claimFeeBps: Stringable;
+}
+
 export interface PoolDataResponse {
   tokenPrice: number;
   totalSupplyRaw: number;
@@ -41,6 +48,13 @@ export interface PoolDataResponse {
   treasuryUsdcRaw: number | null;
   pricePerToken: number;
   adminWallet: string | null;
+  ts: number;
+}
+
+export interface FeeConfigResponse {
+  adminWallet: string;
+  purchaseFeeBps: number;
+  claimFeeBps: number;
   ts: number;
 }
 
@@ -83,12 +97,34 @@ export interface EventsResponse {
 const BUNKERCASH_DECIMALS = 6;
 const USDC_DECIMALS = 6;
 
-function getConnection(): Connection {
-  const endpoint =
+function getRpcEndpoints(): string[] {
+  const endpoints = [
     process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
-    process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
-    clusterApiUrl("testnet");
-  return new Connection(endpoint, "confirmed");
+      process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
+      clusterApiUrl("testnet"),
+    clusterApiUrl("testnet"),
+    "https://solana-testnet-rpc.publicnode.com",
+  ];
+
+  return [...new Set(endpoints.filter(Boolean))];
+}
+
+async function withConnectionFallback<T>(
+  fn: (connection: Connection) => Promise<T>,
+): Promise<T> {
+  const errors: string[] = [];
+
+  for (const endpoint of getRpcEndpoints()) {
+    const connection = new Connection(endpoint, "confirmed");
+    try {
+      return await fn(connection);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(`${endpoint}: ${message}`);
+    }
+  }
+
+  throw new Error(`All configured RPC endpoints failed. ${errors.join(" | ")}`);
 }
 
 function serializeClaim(claim: DecodedClaimAccount): SerializedClaim {
@@ -107,104 +143,142 @@ function serializeClaim(claim: DecodedClaimAccount): SerializedClaim {
 // ── Fetchers ───────────────────────────────────────────
 
 export async function fetchPoolData(): Promise<PoolDataResponse> {
-  const connection = getConnection();
-  const program = getReadonlyProgram(connection);
-  const poolPda = getPoolPda(PROGRAM_ID);
-  const mintPda = getBunkercashMintPda(PROGRAM_ID);
+  return withConnectionFallback(async (connection) => {
+    const cluster = getClusterFromEndpoint(connection.rpcEndpoint ?? "");
+    const program = getReadonlyProgram(connection);
+    const poolPda = getPoolPda(PROGRAM_ID);
+    const mintPda = getBunkercashMintPda(PROGRAM_ID);
 
-  const accountApi = program.account as {
-    pool: { fetch: (pubkey: PublicKey) => Promise<PoolAccountLike> };
-  };
+    const accountApi = program.account as {
+      pool: { fetch: (pubkey: PublicKey) => Promise<PoolAccountLike> };
+    };
 
-  const poolAccount = await accountApi.pool.fetch(poolPda);
-  let totalSupplyRaw =
-    Number(poolAccount.totalBrentSupply.toString()) / 10 ** BUNKERCASH_DECIMALS;
-  try {
-    const mintInfo = await connection.getTokenSupply(mintPda, "confirmed");
-    totalSupplyRaw =
-      Number(mintInfo.value.amount) / 10 ** BUNKERCASH_DECIMALS;
-  } catch {
-    // The mint PDA may not exist yet on a fresh deployment.
-    // Fall back to pool state so the admin UI can still load.
-  }
-  const navUsdcRaw =
-    Number(poolAccount.nav.toString()) / 10 ** USDC_DECIMALS;
-  const pendingClaimsUsdcRaw =
-    Number(poolAccount.totalPendingClaims.toString()) / 10 ** USDC_DECIMALS;
-  const tokenPrice = totalSupplyRaw > 0 ? navUsdcRaw / totalSupplyRaw : 1;
-  const adminWallet = poolAccount.masterWallet.toBase58();
-
-  let treasuryUsdcRaw: number | null = null;
-  try {
-    const poolSignerPda = getPoolSignerPda(poolPda, PROGRAM_ID);
-    let usdcMint: PublicKey | null = null;
+    const poolAccount = await accountApi.pool.fetch(poolPda);
+    let totalSupplyRaw =
+      Number(poolAccount.totalBrentSupply.toString()) / 10 ** BUNKERCASH_DECIMALS;
     try {
-      usdcMint = await fetchConfiguredUsdcMint(connection);
+      const mintInfo = await connection.getTokenSupply(mintPda, "confirmed");
+      totalSupplyRaw =
+        Number(mintInfo.value.amount) / 10 ** BUNKERCASH_DECIMALS;
     } catch {
-      // Ignore initial fetch errors, handled by fallback
+      // The mint PDA may not exist yet on a fresh deployment.
+      // Fall back to pool state so the admin UI can still load.
     }
+    const navUsdcRaw =
+      Number(poolAccount.nav.toString()) / 10 ** USDC_DECIMALS;
+    const pendingClaimsUsdcRaw =
+      Number(poolAccount.totalPendingClaims.toString()) / 10 ** USDC_DECIMALS;
+    const tokenPrice = totalSupplyRaw > 0 ? navUsdcRaw / totalSupplyRaw : 1;
+    const adminWallet = poolAccount.masterWallet.toBase58();
 
-    if (!usdcMint && process.env.NEXT_PUBLIC_USDC_MINT) {
-      usdcMint = new PublicKey(process.env.NEXT_PUBLIC_USDC_MINT);
-    }
-
-    if (usdcMint) {
-      const usdcTokenProgram = await fetchMintTokenProgram(connection, usdcMint);
-      if (!usdcTokenProgram) {
-        throw new Error("Unsupported configured USDC mint");
+    let treasuryUsdcRaw: number | null = null;
+    try {
+      const poolSignerPda = getPoolSignerPda(poolPda, PROGRAM_ID);
+      let usdcMint: PublicKey | null = null;
+      try {
+        usdcMint = await fetchConfiguredUsdcMint(connection);
+      } catch {
+        // Ignore initial fetch errors, handled by fallback
       }
-      const payoutVault = getAssociatedTokenAddressSync(
-        usdcMint,
-        poolSignerPda,
-        true,
-        usdcTokenProgram,
-        ASSOCIATED_TOKEN_PROGRAM_ID,
-      );
-      const bal = await connection.getTokenAccountBalance(payoutVault);
-      treasuryUsdcRaw = bal.value.uiAmount ?? 0;
-    }
-  } catch {
-    treasuryUsdcRaw = 0;
-  }
 
-  return {
-    tokenPrice,
-    totalSupplyRaw,
-    navUsdcRaw,
-    pendingClaimsUsdcRaw,
-    treasuryUsdcRaw,
-    pricePerToken: tokenPrice,
-    adminWallet,
-    ts: Date.now(),
-  };
+      if (!usdcMint && process.env.NEXT_PUBLIC_USDC_MINT && cluster !== "localnet") {
+        usdcMint = new PublicKey(process.env.NEXT_PUBLIC_USDC_MINT);
+      }
+
+      if (usdcMint) {
+        const usdcTokenProgram = await fetchMintTokenProgram(connection, usdcMint);
+        if (!usdcTokenProgram) {
+          throw new Error("Unsupported configured USDC mint");
+        }
+        const payoutVault = getAssociatedTokenAddressSync(
+          usdcMint,
+          poolSignerPda,
+          true,
+          usdcTokenProgram,
+          ASSOCIATED_TOKEN_PROGRAM_ID,
+        );
+        const bal = await connection.getTokenAccountBalance(payoutVault);
+        treasuryUsdcRaw = bal.value.uiAmount ?? 0;
+      }
+    } catch {
+      treasuryUsdcRaw = 0;
+    }
+
+    return {
+      tokenPrice,
+      totalSupplyRaw,
+      navUsdcRaw,
+      pendingClaimsUsdcRaw,
+      treasuryUsdcRaw,
+      pricePerToken: tokenPrice,
+      adminWallet,
+      ts: Date.now(),
+    };
+  });
+}
+
+export async function fetchFeeConfig(): Promise<FeeConfigResponse> {
+  return withConnectionFallback(async (connection) => {
+    const program = getReadonlyProgram(connection);
+    const poolPda = getPoolPda(PROGRAM_ID);
+    const feeConfigPda = getFeeConfigPda(PROGRAM_ID);
+
+    const accountApi = program.account as {
+      pool: { fetch: (pubkey: PublicKey) => Promise<PoolAccountLike> };
+      feeConfig?: { fetch: (pubkey: PublicKey) => Promise<FeeConfigAccountLike> };
+    };
+
+    const poolAccount = await accountApi.pool.fetch(poolPda);
+    let purchaseFeeBps = 0;
+    let claimFeeBps = 0;
+
+    if (accountApi.feeConfig) {
+      try {
+        const feeConfig = await accountApi.feeConfig.fetch(feeConfigPda);
+        purchaseFeeBps = Number(feeConfig.purchaseFeeBps.toString());
+        claimFeeBps = Number(feeConfig.claimFeeBps.toString());
+      } catch {
+        purchaseFeeBps = 0;
+        claimFeeBps = 0;
+      }
+    }
+
+    return {
+      adminWallet: poolAccount.masterWallet.toBase58(),
+      purchaseFeeBps,
+      claimFeeBps,
+      ts: Date.now(),
+    };
+  });
 }
 
 export async function fetchAllClaims(): Promise<ClaimsResponse> {
-  const connection = getConnection();
-  const allClaims = await fetchDecodedClaimAccounts(connection);
+  return withConnectionFallback(async (connection) => {
+    const allClaims = await fetchDecodedClaimAccounts(connection);
 
-  const open: SerializedClaim[] = [];
-  const closed: SerializedClaim[] = [];
-  let totalRequested = BigInt(0);
+    const open: SerializedClaim[] = [];
+    const closed: SerializedClaim[] = [];
+    let totalRequested = BigInt(0);
 
-  for (const claim of allClaims) {
-    const serialized = serializeClaim(claim);
-    const remainingUsdc = BigInt(claim.remainingUsdc);
-    if (claim.processed || remainingUsdc === BigInt(0)) {
-      closed.push(serialized);
-    } else {
-      open.push(serialized);
-      totalRequested += remainingUsdc;
+    for (const claim of allClaims) {
+      const serialized = serializeClaim(claim);
+      const remainingUsdc = BigInt(claim.remainingUsdc);
+      if (claim.processed || remainingUsdc === BigInt(0)) {
+        closed.push(serialized);
+      } else {
+        open.push(serialized);
+        totalRequested += remainingUsdc;
+      }
     }
-  }
 
-  return {
-    open,
-    closed,
-    totalRequestedUsdc: totalRequested.toString(),
-    openCount: open.length,
-    ts: Date.now(),
-  };
+    return {
+      open,
+      closed,
+      totalRequestedUsdc: totalRequested.toString(),
+      openCount: open.length,
+      ts: Date.now(),
+    };
+  });
 }
 
 // ── Events fetcher ─────────────────────────────────────
@@ -254,73 +328,73 @@ function parseClaimsSettledAmount(logMessages: string[] | null | undefined): num
 }
 
 export async function fetchRecentEvents(limit = 20): Promise<EventsResponse> {
-  const connection = getConnection();
-  const programIdStr = PROGRAM_ID.toBase58();
+  return withConnectionFallback(async (connection) => {
+    const programIdStr = PROGRAM_ID.toBase58();
 
-  const sigs = await connection.getSignaturesForAddress(PROGRAM_ID, { limit });
-  if (sigs.length === 0) {
-    return { events: [], ts: Date.now() };
-  }
-
-  // Batch fetch in groups of 5 to avoid 429s
-  const events: SerializedEvent[] = [];
-  const BATCH = 5;
-
-  for (let start = 0; start < sigs.length; start += BATCH) {
-    const batch = sigs.slice(start, start + BATCH);
-
-    let txs: (import("@solana/web3.js").VersionedTransactionResponse | null)[];
-    try {
-      txs = await connection.getTransactions(
-        batch.map((s) => s.signature),
-        { commitment: "confirmed", maxSupportedTransactionVersion: 0 },
-      );
-    } catch {
-      continue;
+    const sigs = await connection.getSignaturesForAddress(PROGRAM_ID, { limit });
+    if (sigs.length === 0) {
+      return { events: [], ts: Date.now() };
     }
 
-    for (let i = 0; i < batch.length; i++) {
-      const sig = batch[i]!;
-      const tx = txs[i];
-      if (!tx) continue;
+    const events: SerializedEvent[] = [];
+    const BATCH = 5;
 
-      const timestamp = sig.blockTime ? sig.blockTime * 1000 : Date.now();
-      const msg = tx.transaction.message;
-      const accountKeys = msg.staticAccountKeys;
-      const instructions = msg.compiledInstructions;
-      const defaultWallet = accountKeys[0]?.toBase58() ?? "unknown";
+    for (let start = 0; start < sigs.length; start += BATCH) {
+      const batch = sigs.slice(start, start + BATCH);
 
-      for (const ix of instructions) {
-        const ixProgramId = accountKeys[ix.programIdIndex]?.toBase58();
-        if (ixProgramId !== programIdStr) continue;
-        const data = ix.data;
-        if (data.length < 8) continue;
+      let txs: (import("@solana/web3.js").VersionedTransactionResponse | null)[];
+      try {
+        txs = await connection.getTransactions(
+          batch.map((s) => s.signature),
+          { commitment: "confirmed", maxSupportedTransactionVersion: 0 },
+        );
+      } catch {
+        continue;
+      }
 
-        const discKey = Array.from(data.slice(0, 8)).join(",");
-        const info = DISC_MAP[discKey];
-        if (!info) continue;
+      for (let i = 0; i < batch.length; i++) {
+        const sig = batch[i]!;
+        const tx = txs[i];
+        if (!tx) continue;
 
-        let amount: number | null = null;
-        if (info.amountSource === "ix_arg" && data.length >= 16) {
-          const raw = decodeU64LE(data, 8);
-          const decimals = info.currency === "BNKR" ? BNKR_DECIMALS : USDC_DECIMALS;
-          amount = Number(raw) / 10 ** decimals;
-        } else if (info.amountSource === "claims_settled_event") {
-          amount = parseClaimsSettledAmount(tx.meta?.logMessages);
+        const timestamp = sig.blockTime ? sig.blockTime * 1000 : Date.now();
+        const msg = tx.transaction.message;
+        const accountKeys = msg.staticAccountKeys;
+        const instructions = msg.compiledInstructions;
+        const defaultWallet = accountKeys[0]?.toBase58() ?? "unknown";
+
+        for (const ix of instructions) {
+          const ixProgramId = accountKeys[ix.programIdIndex]?.toBase58();
+          if (ixProgramId !== programIdStr) continue;
+          const data = ix.data;
+          if (data.length < 8) continue;
+
+          const discKey = Array.from(data.slice(0, 8)).join(",");
+          const info = DISC_MAP[discKey];
+          if (!info) continue;
+
+          let amount: number | null = null;
+          if (info.amountSource === "ix_arg" && data.length >= 16) {
+            const raw = decodeU64LE(data, 8);
+            const decimals = info.currency === "BNKR" ? BNKR_DECIMALS : USDC_DECIMALS;
+            amount = Number(raw) / 10 ** decimals;
+          } else if (info.amountSource === "claims_settled_event") {
+            amount = parseClaimsSettledAmount(tx.meta?.logMessages);
+          }
+
+          events.push({
+            id: `${sig.signature}-${events.length}`,
+            type: info.type,
+            time: timestamp,
+            wallet: defaultWallet,
+            amount,
+            currency: info.currency,
+            txHash: sig.signature,
+          });
         }
-
-        events.push({
-          id: `${sig.signature}-${events.length}`,
-          type: info.type,
-          time: timestamp,
-          wallet: defaultWallet,
-          amount,
-          currency: info.currency,
-          txHash: sig.signature,
-        });
       }
     }
-  }
 
-  return { events, ts: Date.now() };
+    return { events, ts: Date.now() };
+  });
 }

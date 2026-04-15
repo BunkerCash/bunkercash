@@ -11,6 +11,7 @@ import {
 } from "@solana/spl-token";
 import { AlertCircle, DollarSign, Info, Loader2, RefreshCw, Settings } from "lucide-react";
 import { usePayoutVault } from "@/hooks/usePayoutVault";
+import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
 import {
   getProgram,
   getReadonlyProgram,
@@ -258,19 +259,16 @@ export function PurchaseLimitsCard() {
         .instruction();
 
       const tx = new Transaction().add(ix);
-      const provider = program.provider as ProviderLike;
-      const signature = await provider.sendAndConfirm(tx);
+      const signature = await sendAndConfirmWalletTransaction({
+        connection,
+        wallet,
+        transaction: tx,
+      });
 
       setTxSuccess(signature);
       await fetchState();
       await refreshVault();
     } catch (e: unknown) {
-      if (e instanceof SendTransactionError) {
-        const logs = await e.getLogs(connection);
-        if (logs?.length) {
-          console.error("Purchase limit transaction logs:", logs);
-        }
-      }
       setError(getErrorMessage(e, "Failed to update purchase limit"));
     } finally {
       setSubmitting(false);
@@ -342,19 +340,16 @@ export function PurchaseLimitsCard() {
         );
       }
       tx.add(ix);
-      const provider = program.provider as ProviderLike;
-      const signature = await provider.sendAndConfirm(tx);
+      const signature = await sendAndConfirmWalletTransaction({
+        connection,
+        wallet,
+        transaction: tx,
+      });
 
       setTxSuccess(signature);
       await fetchState();
       await refreshVault();
     } catch (e: unknown) {
-      if (e instanceof SendTransactionError) {
-        const logs = await e.getLogs(connection);
-        if (logs?.length) {
-          console.error("Supported mint transaction logs:", logs);
-        }
-      }
       setError(getErrorMessage(e, "Failed to update supported USDC mint"));
     } finally {
       setSubmitting(false);

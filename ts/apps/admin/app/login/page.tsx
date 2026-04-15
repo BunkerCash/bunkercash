@@ -5,13 +5,7 @@ import { useRouter } from "next/navigation";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Wallet } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import dynamic from "next/dynamic";
-
-const WalletMultiButton = dynamic(
-  async () =>
-    (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton,
-  { ssr: false }
-);
+import { AdminWalletButton } from "@/components/admin-wallet-button";
 
 export default function LoginPage() {
   const { isAuthenticated, isLoading, isAdmin } = useAuth();
@@ -57,7 +51,7 @@ export default function LoginPage() {
 
         {/* Connect wallet */}
         <div className="flex flex-col items-center gap-4">
-          <WalletMultiButton
+          <AdminWalletButton
             style={{
               width: "100%",
               height: "44px",
@@ -66,7 +60,6 @@ export default function LoginPage() {
               borderRadius: "8px",
               background: "#00FFB2",
               color: "#000",
-              justifyContent: "center",
             }}
           />
 

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
+import { clusterApiUrl, Connection } from "@solana/web3.js";
 import {
   getMasterPoolPda,
   getReadonlyMasterProgram,
@@ -45,6 +46,10 @@ interface RawMasterWithdrawalRecord {
 
 const CACHE_TTL = 30_000;
 const POOL_ACCOUNT_DISCRIMINATOR = 8;
+const FALLBACK_RPC_ENDPOINTS = [
+  clusterApiUrl("testnet"),
+  "https://solana-testnet-rpc.publicnode.com",
+];
 
 function readU64Le(data: Uint8Array, offset: number): string {
   let value = BigInt(0);
@@ -83,17 +88,15 @@ export function useMasterWithdrawals() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const program = useMemo(() => getReadonlyMasterProgram(connection), [connection]);
-
   const poolPda = useMemo(() => getMasterPoolPda(), []);
   const rpcEndpoint = connection.rpcEndpoint ?? "";
+  const rpcEndpoints = useMemo(
+    () => Array.from(new Set([rpcEndpoint, ...FALLBACK_RPC_ENDPOINTS].filter(Boolean))),
+    [rpcEndpoint],
+  );
 
   const fetchAll = useCallback(
     async (bypassCache = false) => {
-      if (!program) {
-        setLoading(false);
-        return;
-      }
       const fetchSequence = ++fetchSequenceRef.current;
 
       if (
@@ -111,21 +114,61 @@ export function useMasterWithdrawals() {
       setLoading(true);
       setError(null);
       try {
-        const accountApi = program.account as {
-          withdrawal: { all: () => Promise<RawMasterWithdrawalRecord[]> };
-        };
+        let poolInfoData: Uint8Array | null = null;
+        let poolError: unknown = null;
 
-        const poolInfo = await withRateLimitRetry(() =>
-          connection.getAccountInfo(poolPda, "confirmed"),
-        );
-        const allWithdrawals = await withRateLimitRetry(() =>
-          accountApi.withdrawal.all(),
-        );
-        if (!poolInfo?.data) {
-          throw new Error("Pool account not found");
+        for (const endpoint of rpcEndpoints) {
+          const endpointConnection = new Connection(endpoint, "confirmed");
+          try {
+            const poolInfo = await withRateLimitRetry(() =>
+              endpointConnection.getAccountInfo(poolPda, "confirmed"),
+            );
+            if (poolInfo?.data) {
+              poolInfoData = poolInfo.data;
+              break;
+            }
+            throw new Error(`Pool account not found at ${endpoint}`);
+          } catch (error) {
+            poolError = error;
+          }
         }
 
-        const normalizedPool = decodePoolAccount(poolInfo.data);
+        if (!poolInfoData) {
+          throw poolError instanceof Error
+            ? poolError
+            : new Error("Pool account not found");
+        }
+
+        const normalizedPool = decodePoolAccount(poolInfoData);
+
+        let allWithdrawals: RawMasterWithdrawalRecord[] = [];
+        let withdrawalError: unknown = null;
+        const programEndpoint = rpcEndpoints[0] ?? rpcEndpoint;
+
+        for (const endpoint of rpcEndpoints) {
+          const endpointConnection = new Connection(endpoint, "confirmed");
+          const program = getReadonlyMasterProgram(endpointConnection);
+          const accountApi = program.account as {
+            withdrawal: { all: () => Promise<RawMasterWithdrawalRecord[]> };
+          };
+
+          try {
+            allWithdrawals = await withRateLimitRetry(() =>
+              accountApi.withdrawal.all(),
+            );
+            withdrawalError = null;
+            break;
+          } catch (error) {
+            withdrawalError = error;
+          }
+        }
+
+        if (withdrawalError) {
+          console.warn(
+            `Master withdrawals list failed; showing pool state only (${programEndpoint})`,
+            withdrawalError,
+          );
+        }
 
         if (fetchSequence !== fetchSequenceRef.current) return;
 
@@ -169,7 +212,7 @@ export function useMasterWithdrawals() {
         setLoading(false);
       }
     },
-    [connection, program, poolPda, rpcEndpoint],
+    [poolPda, rpcEndpoints],
   );
 
   useEffect(() => {

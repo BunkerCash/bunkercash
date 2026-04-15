@@ -16,12 +16,15 @@ let adminWalletsCache: { wallets: Set<string>; ts: number } | null = null;
 let adminWalletsPromise: Promise<Set<string>> | null = null;
 let adminWalletsFailureTs = 0;
 
-function getRpcEndpoint() {
-  return (
+function getRpcEndpoints(): string[] {
+  const endpoints = [
     process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
-    process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
-    clusterApiUrl("devnet")
-  );
+      process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
+      clusterApiUrl("testnet"),
+    clusterApiUrl("testnet"),
+    "https://solana-testnet-rpc.publicnode.com",
+  ];
+  return [...new Set(endpoints.filter(Boolean))];
 }
 
 export async function getAuthorizedAdminWallets(): Promise<Set<string>> {
@@ -36,6 +39,8 @@ export async function getAuthorizedAdminWallets(): Promise<Set<string>> {
     adminWalletsFailureTs &&
     Date.now() - adminWalletsFailureTs < ADMIN_WALLETS_FAILURE_BACKOFF_MS
   ) {
+    const override = process.env.ADMIN_OVERRIDE_WALLET;
+    if (override) return new Set([override]);
     throw new Error("Admin wallet lookup temporarily unavailable");
   }
 
@@ -44,22 +49,40 @@ export async function getAuthorizedAdminWallets(): Promise<Set<string>> {
   }
 
   adminWalletsPromise = (async () => {
-    const connection = new Connection(getRpcEndpoint(), "confirmed");
-    const program = getReadonlyProgram(connection);
-    const accountApi = program.account as {
-      pool: { fetch: (pubkey: ReturnType<typeof getPoolPda>) => Promise<PoolAccountLike> };
-    };
-    const poolState = await accountApi.pool.fetch(getPoolPda());
-    const wallets = new Set([poolState.masterWallet.toBase58()]);
-    const override = process.env.ADMIN_OVERRIDE_WALLET;
+    const endpoints = getRpcEndpoints();
+    let lastError: unknown;
 
-    if (override) {
-      wallets.add(override);
+    for (const endpoint of endpoints) {
+      try {
+        const connection = new Connection(endpoint, "confirmed");
+        const program = getReadonlyProgram(connection);
+        const accountApi = program.account as {
+          pool: { fetch: (pubkey: ReturnType<typeof getPoolPda>) => Promise<PoolAccountLike> };
+        };
+        const poolState = await accountApi.pool.fetch(getPoolPda());
+        const wallets = new Set([poolState.masterWallet.toBase58()]);
+        const override = process.env.ADMIN_OVERRIDE_WALLET;
+
+        if (override) {
+          wallets.add(override);
+        }
+
+        adminWalletsFailureTs = 0;
+        adminWalletsCache = { wallets, ts: Date.now() };
+        return wallets;
+      } catch (error) {
+        lastError = error;
+      }
     }
 
-    adminWalletsFailureTs = 0;
-    adminWalletsCache = { wallets, ts: Date.now() };
-    return wallets;
+    const override = process.env.ADMIN_OVERRIDE_WALLET;
+    if (override) {
+      const wallets = new Set([override]);
+      adminWalletsCache = { wallets, ts: Date.now() };
+      return wallets;
+    }
+
+    throw lastError;
   })();
 
   try {
@@ -146,8 +169,9 @@ export async function authorizeGeoblockingUpdate(args: {
     if (!authorizedWallets.has(wallet)) {
       return { ok: false as const, error: "Connected wallet is not authorized" };
     }
-  } catch {
-    return { ok: false as const, error: "Failed to verify admin authorization" };
+  } catch (e: unknown) {
+    const detail = e instanceof Error ? e.message : String(e ?? "");
+    return { ok: false as const, error: `Failed to verify admin authorization: ${detail}` };
   }
 
   return { ok: true as const };
@@ -189,7 +213,8 @@ export async function authorizeAdminAccess(args: {
 
     const authorizedWallets = await getAuthorizedAdminWallets();
     return { ok: true as const, isAdmin: authorizedWallets.has(wallet) };
-  } catch {
-    return { ok: false as const, error: "Failed to verify admin authorization" };
+  } catch (e: unknown) {
+    const detail = e instanceof Error ? e.message : String(e ?? "");
+    return { ok: false as const, error: `Failed to verify admin authorization: ${detail}` };
   }
 }
