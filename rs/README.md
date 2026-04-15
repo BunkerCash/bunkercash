@@ -44,7 +44,7 @@ Creates the pool and mint if needed, creates ATAs, and optionally runs a test bu
 cd rs
 export ANCHOR_PROVIDER_URL=https://api.devnet.solana.com
 export ANCHOR_WALLET=~/.config/solana/id.json
-export USDC_MINT=Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx
+export USDC_MINT=DCM1oDQRSv9dn4xpZrXuX23yvivoFHSKKF1mjuCEcjdQ
 npx ts-node -P tsconfig.json scripts/bootstrap-fixed-price.ts
 # Optional: run a test buy (e.g. 2.5 USDC worth)
 TEST_BUY_USDC=2.5 npx ts-node -P tsconfig.json scripts/bootstrap-fixed-price.ts
@@ -64,4 +64,3 @@ NEW_PRICE_USDC_PER_TOKEN=1000000 npx ts-node -P tsconfig.json scripts/update-pri
 The program emits the following events (see `ts/apps/web/lib/bunkercash.fixed.idl.json`):
 
 - `LiquidityAdded`: emitted when the pool admin transfers USDC into the payout vault via `add_liquidity`.
-

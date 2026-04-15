@@ -31,9 +31,14 @@ const PROGRAM_ID = new PublicKey(idlJson.address);
 const POOL_SEED = "pool";
 const PURCHASE_LIMIT_SEED = "purchase_limit";
 const SUPPORTED_USDC_CONFIG_SEED = "supported_usdc_config";
-const USDC_MINT = new PublicKey(
-  process.env.USDC_MINT ?? "Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx"
-);
+
+function requireUsdcMint(): PublicKey {
+  const mint = process.env.USDC_MINT;
+  if (!mint) {
+    throw new Error("USDC_MINT must be set explicitly for this test run.");
+  }
+  return new PublicKey(mint);
+}
 
 describe("bunkercash", () => {
   const provider = anchor.AnchorProvider.env();
@@ -41,12 +46,13 @@ describe("bunkercash", () => {
 
   const program = new anchor.Program(idlJson as unknown as Idl, provider);
   const wallet = provider.wallet.publicKey;
+  const usdcMint = requireUsdcMint();
 
   it("initializes the pool (or skips if already initialized)", async () => {
-    const mintInfo = await provider.connection.getAccountInfo(USDC_MINT, "confirmed");
+    const mintInfo = await provider.connection.getAccountInfo(usdcMint, "confirmed");
     const usdcTokenProgram = mintInfo?.owner;
     if (!usdcTokenProgram) {
-      throw new Error(`Unable to load mint owner for ${USDC_MINT.toBase58()}`);
+      throw new Error(`Unable to load mint owner for ${usdcMint.toBase58()}`);
     }
     const [poolPda] = PublicKey.findProgramAddressSync(
       [Buffer.from(POOL_SEED)],
@@ -61,7 +67,7 @@ describe("bunkercash", () => {
       program.programId
     );
     const poolUsdc = getAssociatedTokenAddressSync(
-      USDC_MINT,
+      usdcMint,
       poolPda,
       true,
       usdcTokenProgram,
@@ -74,7 +80,7 @@ describe("bunkercash", () => {
         .initialize(wallet)
         .accounts({
           pool: poolPda,
-          usdcMint: USDC_MINT,
+          usdcMint,
           poolUsdc,
           supportedUsdcConfig: supportedUsdcConfigPda,
           purchaseLimitConfig: purchaseLimitConfigPda,

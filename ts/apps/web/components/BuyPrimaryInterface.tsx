@@ -7,6 +7,7 @@ import { PublicKey, SendTransactionError, SystemProgram, Transaction, type Trans
 import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import {
   getBunkercashMintPda,
+  getFeeConfigPda,
   getPoolPda,
   getPurchaseLimitConfigPda,
   getSupportedUsdcConfigPda,
@@ -42,6 +43,11 @@ function derivePrice(navRaw: bigint, supplyRaw: bigint): number {
   return Number(navRaw) / Number(supplyRaw)
 }
 
+function formatPercentFromBps(bps: number): string {
+  const formatted = (bps / 100).toFixed(2)
+  return formatted.replace(/\.?0+$/, "")
+}
+
 /** Detect wallet rejection errors */
 function isWalletRejection(e: unknown): boolean {
   const msg = e instanceof Error ? e.message.toLowerCase() : String(e ?? '').toLowerCase()
@@ -63,6 +69,10 @@ interface PurchaseLimitConfigAccount {
   totalDepositedUsdc: Stringable;
 }
 
+interface FeeConfigAccount {
+  purchaseFeeBps: Stringable;
+}
+
 interface BuyPrimaryMethods {
   depositUsdc: (amount: BN) => {
     accounts: (accounts: {
@@ -73,6 +83,7 @@ interface BuyPrimaryMethods {
       brentMint: PublicKey;
       supportedUsdcConfig: PublicKey;
       purchaseLimitConfig: PublicKey;
+      feeConfig: PublicKey;
       usdcMint: PublicKey;
       user: PublicKey;
       usdcTokenProgram: PublicKey;
@@ -103,6 +114,7 @@ export function BuyPrimaryInterface() {
     totalBrentSupply: bigint;
     purchaseLimitUsdc: bigint;
     totalDepositedUsdc: bigint;
+    purchaseFeeBps: number;
   } | null>(null);
   const [poolError, setPoolError] = useState<string | null>(null);
 
@@ -123,6 +135,7 @@ export function BuyPrimaryInterface() {
     () => getPurchaseLimitConfigPda(PROGRAM_ID),
     []
   );
+  const feeConfigPda = useMemo(() => getFeeConfigPda(PROGRAM_ID), []);
   const supportedUsdcConfigPda = useMemo(
     () => getSupportedUsdcConfigPda(PROGRAM_ID),
     []
@@ -141,10 +154,14 @@ export function BuyPrimaryInterface() {
         purchaseLimitConfig?: {
           fetch: (key: PublicKey) => Promise<PurchaseLimitConfigAccount>;
         };
+        feeConfig?: {
+          fetch: (key: PublicKey) => Promise<FeeConfigAccount>;
+        };
       }
       const state = await accountApi.pool.fetch(poolPda);
       let purchaseLimitUsdc = BigInt(0);
       let totalDepositedUsdc = BigInt(0);
+      let purchaseFeeBps = 0;
 
       if (accountApi.purchaseLimitConfig) {
         try {
@@ -159,19 +176,29 @@ export function BuyPrimaryInterface() {
         }
       }
 
+      if (accountApi.feeConfig) {
+        try {
+          const feeConfig = await accountApi.feeConfig.fetch(feeConfigPda);
+          purchaseFeeBps = Number(feeConfig.purchaseFeeBps.toString());
+        } catch {
+          purchaseFeeBps = 0;
+        }
+      }
+
       setPoolState({
         masterWallet: state.masterWallet,
         nav: BigInt(state.nav.toString()),
         totalBrentSupply: BigInt(state.totalBrentSupply.toString()),
         purchaseLimitUsdc,
         totalDepositedUsdc,
+        purchaseFeeBps,
       });
       setPoolError(null);
     } catch {
       setPoolError("not_initialized");
       setPoolState(null);
     }
-  }, [program, poolPda, connection, purchaseLimitConfigPda]);
+  }, [program, poolPda, connection, purchaseLimitConfigPda, feeConfigPda]);
 
   useEffect(() => {
     void fetchPoolState();
@@ -239,11 +266,24 @@ export function BuyPrimaryInterface() {
 
   const tokenAmountRaw = useMemo(() => {
     if (!poolState || !usdcAmountRaw) return null;
+    const purchaseFeeRaw = (usdcAmountRaw * BigInt(poolState.purchaseFeeBps)) / 10_000n;
+    const netInvestmentRaw = usdcAmountRaw - purchaseFeeRaw;
+    if (netInvestmentRaw <= 0n) return null;
     if (poolState.totalBrentSupply === BigInt(0) || poolState.nav === BigInt(0)) {
-      return usdcAmountRaw;
+      return netInvestmentRaw;
     }
-    return (usdcAmountRaw * poolState.totalBrentSupply) / poolState.nav;
+    return (netInvestmentRaw * poolState.totalBrentSupply) / poolState.nav;
   }, [poolState, usdcAmountRaw]);
+
+  const purchaseFeeRaw = useMemo(() => {
+    if (!poolState || !usdcAmountRaw) return null;
+    return (usdcAmountRaw * BigInt(poolState.purchaseFeeBps)) / 10_000n;
+  }, [poolState, usdcAmountRaw]);
+
+  const netInvestmentRaw = useMemo(() => {
+    if (!usdcAmountRaw || purchaseFeeRaw == null) return null;
+    return usdcAmountRaw - purchaseFeeRaw;
+  }, [usdcAmountRaw, purchaseFeeRaw]);
 
   const tokenAmountUi =
     tokenAmountRaw != null ? toUi(tokenAmountRaw, USDC_DECIMALS) : "";
@@ -274,8 +314,11 @@ export function BuyPrimaryInterface() {
     if (usdcBalanceRaw != null && usdcAmountRaw > usdcBalanceRaw) {
       return "Insufficient USDC balance";
     }
+    if (tokenAmountRaw != null && tokenAmountRaw <= 0n) {
+      return "Amount is too small after fees and current pricing";
+    }
     return null;
-  }, [usdcAmount, usdcAmountRaw, usdcBalanceRaw, remainingPurchaseCapacityRaw]);
+  }, [usdcAmount, usdcAmountRaw, usdcBalanceRaw, remainingPurchaseCapacityRaw, tokenAmountRaw]);
 
   const handleBuy = async () => {
     if (!usdcMint) {
@@ -332,7 +375,7 @@ export function BuyPrimaryInterface() {
           !configuredUsdcTokenProgram.equals(TOKEN_2022_PROGRAM_ID))
       ) {
         const msg =
-          "Configured USDC mint is not supported by this deployment.";
+          `Configured USDC mint ${configuredUsdcMint.toBase58()} is missing or owned by an unexpected token program on ${currentCluster}.`;
         setError(msg);
         showToast(msg, "error");
         return;
@@ -407,6 +450,7 @@ export function BuyPrimaryInterface() {
           brentMint: bunkercashMintPda,
           supportedUsdcConfig: supportedUsdcConfigPda,
           purchaseLimitConfig: purchaseLimitConfigPda,
+          feeConfig: feeConfigPda,
           usdcMint: configuredUsdcMint,
           user: publicKey,
           usdcTokenProgram: configuredUsdcTokenProgram,
@@ -582,6 +626,18 @@ export function BuyPrimaryInterface() {
               <span className="text-sm font-semibold text-[#00FFB2]">
                 Bunker Cash
               </span>
+            </div>
+          </div>
+          <div className="mt-4 rounded-xl border border-neutral-800 bg-neutral-950/40 p-4 text-sm">
+            <div className="flex justify-between text-neutral-400">
+              <span>Purchase fee</span>
+              <span>
+                {purchaseFeeRaw != null ? `${toUi(purchaseFeeRaw, USDC_DECIMALS)} USDC` : "0 USDC"} ({formatPercentFromBps(poolState.purchaseFeeBps)}%)
+              </span>
+            </div>
+            <div className="mt-2 flex justify-between text-white">
+              <span>Net investment</span>
+              <span>{netInvestmentRaw != null ? `${toUi(netInvestmentRaw, USDC_DECIMALS)} USDC` : "0 USDC"}</span>
             </div>
           </div>
         </div>

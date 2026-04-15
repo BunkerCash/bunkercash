@@ -58,10 +58,7 @@ export function getSquadsDashboardUrl(
   return base;
 }
 
-export const USDC_MINTS: Record<string, string> = {
-  'devnet': 'Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx',
-  'testnet': 'Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx',
-};
+export const USDC_MINTS: Record<string, string> = {};
 
 export function getClusterFromEndpoint(endpoint: string): ClusterType {
   const envCluster = process.env.NEXT_PUBLIC_CLUSTER;
@@ -78,7 +75,7 @@ export function getClusterFromEndpoint(endpoint: string): ClusterType {
 export function getUsdcMintForCluster(cluster: ClusterType): PublicKey | null {
   // Allow env override for flexibility (e.g. NEXT_PUBLIC_USDC_MINT in .env)
   const envMint = process.env.NEXT_PUBLIC_USDC_MINT;
-  if (envMint) return new PublicKey(envMint);
+  if (envMint && cluster !== 'localnet') return new PublicKey(envMint);
 
   const mint = USDC_MINTS[cluster];
   if (!mint) return null;

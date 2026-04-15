@@ -25,14 +25,16 @@ mod governance_keys {
 
 use governance_keys::{SQUADS_MEMBER_1, SQUADS_MEMBER_2, SQUADS_MEMBER_3, SQUADS_MEMBER_4};
 
-declare_id!("87BzNLu5Nt8MXywXXtAMgp1GGcH2rcKucZWtXsNdM7RZ");
+declare_id!("3tmrhPNJqwBtzLvRJDbk8ApGGsq7CgdJUsGraXTVzAip");
 
 const POOL_SEED: &[u8] = b"pool";
 const BRENT_MINT_SEED: &[u8] = b"bunkercash_mint";
 const CLAIM_SEED: &[u8] = b"claim";
 const PURCHASE_LIMIT_SEED: &[u8] = b"purchase_limit";
 const SUPPORTED_USDC_CONFIG_SEED: &[u8] = b"supported_usdc_config";
+const FEE_CONFIG_SEED: &[u8] = b"fee_config";
 const TOKEN_DECIMALS: u8 = 6;
+const MAX_FEE_BPS: u16 = 1_000;
 
 fn arithmetic_error() -> Error {
     ErrorCode::ArithmeticError.into()
@@ -52,6 +54,23 @@ fn validate_supported_usdc_mint(
 fn validate_non_zero_amount(amount: u64) -> Result<()> {
     require!(amount > 0, ErrorCode::InvalidAmount);
     Ok(())
+}
+
+fn validate_fee_bps(fee_bps: u16) -> Result<()> {
+    require!(fee_bps <= MAX_FEE_BPS, ErrorCode::InvalidFeeBps);
+    Ok(())
+}
+
+fn calculate_fee_amount(amount: u64, fee_bps: u16) -> Result<u64> {
+    validate_fee_bps(fee_bps)?;
+    u64::try_from(
+        (amount as u128)
+            .checked_mul(fee_bps as u128)
+            .ok_or_else(arithmetic_error)?
+            .checked_div(10_000)
+            .ok_or_else(arithmetic_error)?,
+    )
+    .map_err(|_| arithmetic_error())
 }
 
 fn is_bootstrap_authority(initializer: &Pubkey) -> bool {
@@ -336,6 +355,7 @@ pub mod bunkercash {
         let pool = &mut ctx.accounts.pool;
         let supported_usdc_config = &mut ctx.accounts.supported_usdc_config;
         let purchase_limit_config = &mut ctx.accounts.purchase_limit_config;
+        let fee_config = &mut ctx.accounts.fee_config;
         let timestamp = Clock::get()?.unix_timestamp;
         pool.master_wallet = master_wallet;
         pool.nav = 0;
@@ -351,6 +371,9 @@ pub mod bunkercash {
         purchase_limit_config.purchase_limit_usdc = 0;
         purchase_limit_config.total_deposited_usdc = 0;
         purchase_limit_config.bump = ctx.bumps.purchase_limit_config;
+        fee_config.purchase_fee_bps = 0;
+        fee_config.claim_fee_bps = 0;
+        fee_config.bump = ctx.bumps.fee_config;
 
         emit!(PoolInitializedEvent {
             pool: pool.key(),
@@ -379,19 +402,21 @@ pub mod bunkercash {
 
         let pool = &mut ctx.accounts.pool;
         let purchase_limit_config = &mut ctx.accounts.purchase_limit_config;
+        let fee_config = &ctx.accounts.fee_config;
         let user = ctx.accounts.user.key();
 
-        if purchase_limit_config.bump == 0 {
-            purchase_limit_config.bump = ctx.bumps.purchase_limit_config;
-        }
         validate_purchase_limit(purchase_limit_config, usdc_amount)?;
+        let purchase_fee = calculate_fee_amount(usdc_amount, fee_config.purchase_fee_bps)?;
+        let net_usdc_amount = usdc_amount
+            .checked_sub(purchase_fee)
+            .ok_or_else(arithmetic_error)?;
 
         let brent_to_mint = if pool.total_brent_supply == 0 {
-            usdc_amount
+            net_usdc_amount
         } else {
             require!(pool.nav > 0, ErrorCode::InvalidNAV);
             u64::try_from(
-                (usdc_amount as u128)
+                (net_usdc_amount as u128)
                     .checked_mul(pool.total_brent_supply as u128)
                     .ok_or_else(arithmetic_error)?
                     .checked_div(pool.nav as u128)
@@ -520,6 +545,39 @@ pub mod bunkercash {
         Ok(())
     }
 
+    pub fn set_fee_config(
+        ctx: Context<SetFeeConfig>,
+        purchase_fee_bps: u16,
+        claim_fee_bps: u16,
+    ) -> Result<()> {
+        validate_fee_bps(purchase_fee_bps)?;
+        validate_fee_bps(claim_fee_bps)?;
+
+        let pool = &ctx.accounts.pool;
+        let fee_config = &mut ctx.accounts.fee_config;
+
+        require!(
+            ctx.accounts.admin.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+
+        fee_config.purchase_fee_bps = purchase_fee_bps;
+        fee_config.claim_fee_bps = claim_fee_bps;
+        if fee_config.bump == 0 {
+            fee_config.bump = ctx.bumps.fee_config;
+        }
+
+        emit!(FeeConfigUpdatedEvent {
+            pool: pool.key(),
+            admin: ctx.accounts.admin.key(),
+            purchase_fee_bps,
+            claim_fee_bps,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+
+        Ok(())
+    }
+
     pub fn create_brent_mint(ctx: Context<CreateBrentMint>) -> Result<()> {
         let pool = &ctx.accounts.pool;
         require!(
@@ -588,16 +646,22 @@ pub mod bunkercash {
     ) -> Result<()> {
         let pool = &mut ctx.accounts.pool;
         let claim = &mut ctx.accounts.claim;
+        let fee_config = &ctx.accounts.fee_config;
         let user = ctx.accounts.user.key();
 
         require!(pool.nav > 0 && pool.total_brent_supply > 0, ErrorCode::InvalidNAV);
 
-        let usdc_value = calculate_claim_usdc_value(
+        let gross_usdc_value = calculate_claim_usdc_value(
             brent_amount,
             pool.nav,
             pool.total_brent_supply,
         )
         .ok_or(ErrorCode::ClaimAmountTooSmall)?;
+        let claim_fee = calculate_fee_amount(gross_usdc_value, fee_config.claim_fee_bps)?;
+        let usdc_value = gross_usdc_value
+            .checked_sub(claim_fee)
+            .ok_or_else(arithmetic_error)?;
+        require!(usdc_value > 0, ErrorCode::ClaimAmountTooSmall);
 
         anchor_spl::token_2022::burn_checked(
             CpiContext::new(
@@ -1220,6 +1284,15 @@ pub struct Initialize<'info> {
     )]
     pub purchase_limit_config: Account<'info, PurchaseLimitConfig>,
 
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + FeeConfig::INIT_SPACE,
+        seeds = [FEE_CONFIG_SEED],
+        bump
+    )]
+    pub fee_config: Account<'info, FeeConfig>,
+
     pub bootstrap_authority: Signer<'info>,
 
     #[account(mut)]
@@ -1289,6 +1362,12 @@ pub struct DepositUsdc<'info> {
     pub purchase_limit_config: Account<'info, PurchaseLimitConfig>,
 
     #[account(
+        seeds = [FEE_CONFIG_SEED],
+        bump = fee_config.bump
+    )]
+    pub fee_config: Account<'info, FeeConfig>,
+
+    #[account(
         mint::decimals = TOKEN_DECIMALS,
         mint::token_program = usdc_token_program
     )]
@@ -1318,6 +1397,29 @@ pub struct SetPurchaseLimit<'info> {
         bump
     )]
     pub purchase_limit_config: Account<'info, PurchaseLimitConfig>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct SetFeeConfig<'info> {
+    #[account(
+        seeds = [POOL_SEED],
+        bump = pool.bump
+    )]
+    pub pool: Account<'info, Pool>,
+
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = 8 + FeeConfig::INIT_SPACE,
+        seeds = [FEE_CONFIG_SEED],
+        bump
+    )]
+    pub fee_config: Account<'info, FeeConfig>,
 
     #[account(mut)]
     pub admin: Signer<'info>,
@@ -1423,6 +1525,12 @@ pub struct FileClaim<'info> {
         mint::token_program = token_program
     )]
     pub brent_mint: InterfaceAccount<'info, Mint>,
+
+    #[account(
+        seeds = [FEE_CONFIG_SEED],
+        bump = fee_config.bump
+    )]
+    pub fee_config: Account<'info, FeeConfig>,
 
     #[account(mut)]
     pub user: Signer<'info>,
@@ -1713,6 +1821,14 @@ pub struct SupportedUsdcConfig {
     pub bump: u8,
 }
 
+#[account]
+#[derive(InitSpace)]
+pub struct FeeConfig {
+    pub purchase_fee_bps: u16,
+    pub claim_fee_bps: u16,
+    pub bump: u8,
+}
+
 #[event]
 pub struct MasterWithdrawalEvent {
     pub withdrawal_id: u64,
@@ -1851,6 +1967,15 @@ pub struct MintMetadataUpdatedEvent {
     pub timestamp: i64,
 }
 
+#[event]
+pub struct FeeConfigUpdatedEvent {
+    pub pool: Pubkey,
+    pub admin: Pubkey,
+    pub purchase_fee_bps: u16,
+    pub claim_fee_bps: u16,
+    pub timestamp: i64,
+}
+
 #[error_code]
 pub enum ErrorCode {
     #[msg("Invalid NAV value")]
@@ -1893,18 +2018,20 @@ pub enum ErrorCode {
     ArithmeticError,
     #[msg("Invalid metadata account for the bRENT mint")]
     InvalidMetadataAccount,
+    #[msg("Fee must be between 0 and 10 percent")]
+    InvalidFeeBps,
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
         apply_master_cancellation, apply_master_close_withdrawal, apply_master_profit,
-        apply_master_repayment, calculate_claim_usdc_value, record_master_withdrawal,
-        validate_initializer, validate_open_withdrawal, validate_purchase_limit,
+        apply_master_repayment, calculate_claim_usdc_value, calculate_fee_amount,
+        record_master_withdrawal, validate_fee_bps, validate_initializer,
+        validate_open_withdrawal, validate_purchase_limit,
         validate_settlement_pending_claims, validate_supported_usdc_mint,
         validate_supported_usdc_mint_change, validate_unique_settlement_claim_accounts,
-        ErrorCode, Pool, PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal,
-        SQUADS_MEMBER_1,
+        ErrorCode, Pool, PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal, SQUADS_MEMBER_1,
     };
     use anchor_lang::prelude::Pubkey;
 
@@ -1924,6 +2051,17 @@ mod tests {
             calculate_claim_usdc_value(250_000, 1_000_000, 1_000_000),
             Some(250_000)
         );
+    }
+
+    #[test]
+    fn fee_bps_rejects_values_above_cap() {
+        let err = validate_fee_bps(1_001).unwrap_err();
+        assert_eq!(err, ErrorCode::InvalidFeeBps.into());
+    }
+
+    #[test]
+    fn fee_amount_rounds_down_in_basis_points() {
+        assert_eq!(calculate_fee_amount(1_234_567, 125).unwrap(), 15_432);
     }
 
     #[test]

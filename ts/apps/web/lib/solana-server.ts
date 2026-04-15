@@ -24,6 +24,7 @@ import {
 } from "@/lib/program";
 import { fetchDecodedClaimAccounts } from "@/lib/claim-accounts";
 import type { DecodedClaimAccount } from "@/lib/claim-accounts";
+import { getClusterFromEndpoint } from "@/lib/constants";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -98,6 +99,7 @@ function serializeClaim(claim: DecodedClaimAccount): SerializedClaim {
 
 export async function fetchPoolData(): Promise<PoolDataResponse> {
   const connection = getConnection();
+  const cluster = getClusterFromEndpoint(connection.rpcEndpoint ?? "");
   const program = getReadonlyProgram(connection);
   const poolPda = getPoolPda(PROGRAM_ID);
   const mintPda = getBunkercashMintPda(PROGRAM_ID);
@@ -136,7 +138,7 @@ export async function fetchPoolData(): Promise<PoolDataResponse> {
       // Ignore initial fetch errors, handled by fallback
     }
     
-    if (!usdcMint && process.env.NEXT_PUBLIC_USDC_MINT) {
+    if (!usdcMint && process.env.NEXT_PUBLIC_USDC_MINT && cluster !== "localnet") {
       usdcMint = new PublicKey(process.env.NEXT_PUBLIC_USDC_MINT);
     }
 

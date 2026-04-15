@@ -34,9 +34,13 @@ const POOL_SEED = "bunkercash_pool";
 const MINT_SEED = "bunkercash_mint";
 const POOL_SIGNER_SEED = "bunkercash_pool_signer";
 
-const DEVNET_USDC_MINT = new PublicKey(
-  process.env.USDC_MINT ?? "Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx"
-);
+function requireUsdcMint(): PublicKey {
+  const mint = process.env.USDC_MINT;
+  if (!mint) {
+    throw new Error("USDC_MINT must be set explicitly before running bootstrap-fixed-price.ts.");
+  }
+  return new PublicKey(mint);
+}
 
 async function ensureAta(params: {
   provider: AnchorProvider;
@@ -80,6 +84,7 @@ async function ensureAta(params: {
 async function main() {
   const provider = AnchorProvider.env();
   anchor.setProvider(provider);
+  const usdcMint = requireUsdcMint();
 
   const payer = (provider.wallet as any).payer as anchor.web3.Keypair;
   const wallet = provider.wallet.publicKey;
@@ -103,7 +108,7 @@ async function main() {
   console.log("Pool PDA:", poolPda.toBase58());
   console.log("Pool signer PDA:", poolSignerPda.toBase58());
   console.log("Bunker Cash mint PDA:", bunkercashMintPda.toBase58());
-  console.log("USDC mint:", DEVNET_USDC_MINT.toBase58());
+  console.log("USDC mint:", usdcMint.toBase58());
 
   // Admin: use ADMIN_PUBKEY env (e.g. your Phantom address) if set; otherwise wallet that runs this script.
   const adminPubkey = process.env.ADMIN_PUBKEY
@@ -135,7 +140,7 @@ async function main() {
   const userUsdcAta = await ensureAta({
     provider,
     payer,
-    mint: DEVNET_USDC_MINT,
+    mint: usdcMint,
     owner: wallet,
     allowOwnerOffCurve: false,
     tokenProgram: TOKEN_PROGRAM_ID,
@@ -144,7 +149,7 @@ async function main() {
   const payoutUsdcVaultAta = await ensureAta({
     provider,
     payer,
-    mint: DEVNET_USDC_MINT,
+    mint: usdcMint,
     owner: poolSignerPda,
     allowOwnerOffCurve: true,
     tokenProgram: TOKEN_PROGRAM_ID,
@@ -183,7 +188,7 @@ async function main() {
       );
       console.error("Fund this wallet on devnet, then re-run:");
       console.error("  Wallet:", wallet.toBase58());
-      console.error("  USDC mint:", DEVNET_USDC_MINT.toBase58());
+      console.error("  USDC mint:", usdcMint.toBase58());
       console.error("  USDC ATA:", userUsdcAta.toBase58());
       process.exitCode = 1;
       return;
@@ -196,7 +201,7 @@ async function main() {
         poolSigner: poolSignerPda,
         bunkercashMint: bunkercashMintPda,
         user: wallet,
-        usdcMint: DEVNET_USDC_MINT,
+        usdcMint,
         userUsdc: userUsdcAta,
         payoutUsdcVault: payoutUsdcVaultAta,
         userBunkercash: userBunkercashAta,
@@ -219,4 +224,3 @@ main()
     console.error(e);
     process.exit(1);
   });
-

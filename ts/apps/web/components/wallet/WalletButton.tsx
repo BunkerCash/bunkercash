@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { useOptionalWallet } from "@/hooks/useOptionalWallet";
+import { PhantomConnectButton } from "@/components/wallet/PhantomConnectButton";
 
 export default function WalletButton() {
   const [mounted, setMounted] = useState(false);
@@ -58,7 +58,7 @@ export default function WalletButton() {
   }
 
   return (
-    <WalletMultiButton
+    <PhantomConnectButton
       style={{
         backgroundColor: "transparent",
         border: "1px solid hsl(var(--border))",

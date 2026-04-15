@@ -241,10 +241,11 @@ async function main() {
     program.programId
   );
 
-  // Default to USDC-Dev (SPL legacy) on devnet if not provided.
-  const usdcMint = new PublicKey(
-    process.env.USDC_MINT ?? "Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx"
-  );
+  const usdcMintEnv = process.env.USDC_MINT;
+  if (!usdcMintEnv) {
+    throw new Error("USDC_MINT must be set explicitly before running e2e-buy-sell.ts.");
+  }
+  const usdcMint = new PublicKey(usdcMintEnv);
 
   // Initialize pool + mint if missing.
   const poolInfo = await provider.connection.getAccountInfo(poolPda, "confirmed");
@@ -379,9 +380,8 @@ async function main() {
     const sellSig = await rpcWithBlockhashRetry(`register_sell(${s.label})`, async () => {
       const poolState = await (program.account as any).poolState.fetch(poolPda);
       const claimCounter: BN = poolState.claimCounter as BN;
-      const nextId = claimCounter.add(new BN(1));
       const [pda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("claim"), poolPda.toBuffer(), bnU64LE(nextId)],
+        [Buffer.from("claim"), poolPda.toBuffer(), bnU64LE(claimCounter)],
         program.programId
       );
       claimPda = pda;
@@ -539,4 +539,3 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
-

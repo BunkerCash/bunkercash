@@ -26,5 +26,8 @@
   "dependencies": {
     "@heroicons/react": "=2.2.0",
     "@radix-ui/react-dialog": "=1.1.15"
+  },
+  "overrides": {
+    "@solana/wallet-adapter-react": "=0.15.39"
   }
 }

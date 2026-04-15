@@ -1,5 +1,5 @@
 {
-  "address": "87BzNLu5Nt8MXywXXtAMgp1GGcH2rcKucZWtXsNdM7RZ",
+  "address": "3tmrhPNJqwBtzLvRJDbk8ApGGsq7CgdJUsGraXTVzAip",
   "metadata": {
     "name": "bunkercash",
     "version": "0.1.0",
@@ -211,6 +211,28 @@
           }
         },
         {
+          "name": "fee_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  101,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "usdc_mint"
         },
         {
@@ -327,6 +349,28 @@
           }
         },
         {
+          "name": "fee_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  101,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "user",
           "writable": true,
           "signer": true
@@ -425,6 +469,10 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "sysvar_instructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
         }
       ],
       "args": [
@@ -588,6 +636,29 @@
                   109,
                   105,
                   116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "fee_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  101,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
                 ]
               }
             ]
@@ -1289,6 +1360,79 @@
       "args": []
     },
     {
+      "name": "set_fee_config",
+      "discriminator": [
+        221,
+        222,
+        52,
+        206,
+        114,
+        198,
+        64,
+        91
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "fee_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  101,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "purchase_fee_bps",
+          "type": "u16"
+        },
+        {
+          "name": "claim_fee_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
       "name": "set_purchase_limit",
       "discriminator": [
         153,
@@ -1428,23 +1572,21 @@
           "name": "current_supported_usdc_mint"
         },
         {
-          "name": "current_pool_usdc",
-          "writable": true
+          "name": "current_pool_usdc"
         },
         {
           "name": "usdc_mint"
         },
         {
-          "name": "next_pool_usdc",
-          "writable": true
-        },
-        {
-          "name": "current_usdc_token_program"
+          "name": "next_pool_usdc"
         },
         {
           "name": "admin",
           "writable": true,
           "signer": true
+        },
+        {
+          "name": "current_usdc_token_program"
         },
         {
           "name": "usdc_token_program"
@@ -1643,6 +1785,19 @@
       ]
     },
     {
+      "name": "FeeConfig",
+      "discriminator": [
+        143,
+        52,
+        146,
+        187,
+        219,
+        123,
+        76,
+        155
+      ]
+    },
+    {
       "name": "Pool",
       "discriminator": [
         241,
@@ -1746,6 +1901,19 @@
         76,
         83,
         133
+      ]
+    },
+    {
+      "name": "FeeConfigUpdatedEvent",
+      "discriminator": [
+        139,
+        188,
+        235,
+        116,
+        222,
+        55,
+        95,
+        201
       ]
     },
     {
@@ -1966,6 +2134,11 @@
       "code": 6019,
       "name": "InvalidMetadataAccount",
       "msg": "Invalid metadata account for the bRENT mint"
+    },
+    {
+      "code": 6020,
+      "name": "InvalidFeeBps",
+      "msg": "Fee must be between 0 and 10 percent"
     }
   ],
   "types": [
@@ -2145,6 +2318,54 @@
           {
             "name": "remaining_pending_claims",
             "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FeeConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "purchase_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "claim_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FeeConfigUpdatedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "purchase_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "claim_fee_bps",
+            "type": "u16"
           },
           {
             "name": "timestamp",

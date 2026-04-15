@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Idl, Program } from '@coral-xyz/anchor'
 import { useConnection } from '@solana/wallet-adapter-react'
 import { BN } from '@coral-xyz/anchor'
@@ -13,6 +13,7 @@ import {
 } from '@solana/spl-token'
 import {
   getBunkercashMintPda,
+  getFeeConfigPda,
   getPoolPda,
   getProgram,
   type ProgramWallet,
@@ -25,7 +26,6 @@ import { useToast } from "@/components/ui/ToastContext";
 import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
 import { useOptionalWallet } from "@/hooks/useOptionalWallet";
 
-/** Detect wallet rejection errors */
 function isWalletRejection(e: unknown): boolean {
   const msg =
     e instanceof Error
@@ -43,11 +43,18 @@ interface Stringable {
 }
 
 interface PoolAccount {
+  nav: Stringable
+  totalBrentSupply: Stringable
   claimCounter: Stringable
+}
+
+interface FeeConfigAccount {
+  claimFeeBps: Stringable
 }
 
 interface WithdrawAccountApi {
   pool: { fetch: (pubkey: PublicKey) => Promise<PoolAccount> }
+  feeConfig?: { fetch: (pubkey: PublicKey) => Promise<FeeConfigAccount> }
 }
 
 interface FileClaimMethods {
@@ -58,12 +65,25 @@ interface FileClaimMethods {
       user: PublicKey
       userBrent: PublicKey
       brentMint: PublicKey
+      feeConfig: PublicKey
       tokenProgram: PublicKey
       systemProgram: PublicKey
     }) => {
       instruction: () => Promise<TransactionInstruction>
     }
   }
+}
+
+function toUi(amount: bigint, decimals: number): string {
+  const s = amount.toString().padStart(decimals + 1, "0")
+  const head = s.slice(0, -decimals)
+  const tail = s.slice(-decimals).replace(/0+$/, "")
+  return tail.length ? `${head}.${tail}` : head
+}
+
+function formatPercentFromBps(bps: number): string {
+  const formatted = (bps / 100).toFixed(2)
+  return formatted.replace(/\.?0+$/, "")
 }
 
 export function WithdrawInterface() {
@@ -80,7 +100,12 @@ export function WithdrawInterface() {
   const [error, setError] = useState<string | null>(null)
   const [txSig, setTxSig] = useState<string | null>(null)
   const txInFlight = useRef(false);
-
+  const [poolState, setPoolState] = useState<{
+    nav: bigint
+    totalBrentSupply: bigint
+    claimCounter: bigint
+    claimFeeBps: number
+  } | null>(null)
 
   const program = useMemo(
     () =>
@@ -95,6 +120,7 @@ export function WithdrawInterface() {
   )
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), [])
   const mintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), [])
+  const feeConfigPda = useMemo(() => getFeeConfigPda(PROGRAM_ID), [])
 
   const { balance: tokenBalanceUi, refreshBalance: fetchTokenBalance } =
     useTokenBalance();
@@ -104,6 +130,38 @@ export function WithdrawInterface() {
     () => parseUiAmountToBaseUnits(tokenBalanceUi, 6),
     [tokenBalanceUi]
   )
+
+  const fetchPoolState = useCallback(async () => {
+    if (!program) return
+
+    try {
+      const accountApi = (program as Program<Idl>).account as WithdrawAccountApi
+      const state = await accountApi.pool.fetch(poolPda)
+      let claimFeeBps = 0
+
+      if (accountApi.feeConfig) {
+        try {
+          const feeConfig = await accountApi.feeConfig.fetch(feeConfigPda)
+          claimFeeBps = Number(feeConfig.claimFeeBps.toString())
+        } catch {
+          claimFeeBps = 0
+        }
+      }
+
+      setPoolState({
+        nav: BigInt(state.nav.toString()),
+        totalBrentSupply: BigInt(state.totalBrentSupply.toString()),
+        claimCounter: BigInt(state.claimCounter.toString()),
+        claimFeeBps,
+      })
+    } catch {
+      setPoolState(null)
+    }
+  }, [feeConfigPda, poolPda, program])
+
+  useEffect(() => {
+    void fetchPoolState()
+  }, [fetchPoolState])
 
   const userBunkercashAta = useMemo(() => {
     if (!publicKey) return null
@@ -116,16 +174,35 @@ export function WithdrawInterface() {
     )
   }, [publicKey, mintPda])
 
+  const grossClaimUsdcRaw = useMemo(() => {
+    if (!poolState || amountRaw == null) return null
+    if (amountRaw <= 0n || poolState.nav <= 0n || poolState.totalBrentSupply <= 0n) return null
+    return (amountRaw * poolState.nav) / poolState.totalBrentSupply
+  }, [amountRaw, poolState])
+
+  const claimFeeRaw = useMemo(() => {
+    if (!poolState || grossClaimUsdcRaw == null) return null
+    return (grossClaimUsdcRaw * BigInt(poolState.claimFeeBps)) / 10_000n
+  }, [grossClaimUsdcRaw, poolState])
+
+  const netClaimUsdcRaw = useMemo(() => {
+    if (grossClaimUsdcRaw == null || claimFeeRaw == null) return null
+    return grossClaimUsdcRaw - claimFeeRaw
+  }, [claimFeeRaw, grossClaimUsdcRaw])
+
   const inputError = useMemo(() => {
     if (!amountUi) return null
     if (countFractionalDigits(amountUi) > 6) return "Max 6 decimal places"
     if (amountRaw == null) return "Enter a valid amount"
     if (amountRaw <= 0n) return "Amount must be greater than 0"
+    if (grossClaimUsdcRaw !== null && grossClaimUsdcRaw <= 0n) {
+      return "Amount is too small to produce any USDC at the current reference value"
+    }
     if (tokenBalanceRaw != null && amountRaw > tokenBalanceRaw) {
       return "Amount exceeds your bRENT balance"
     }
     return null
-  }, [amountRaw, amountUi, tokenBalanceRaw])
+  }, [amountRaw, amountUi, grossClaimUsdcRaw, tokenBalanceRaw])
 
   const displayError = error ?? inputError
 
@@ -133,7 +210,6 @@ export function WithdrawInterface() {
     if (!wallet || !program || !publicKey || !connection || !userBunkercashAta)
       return;
 
-    // Prevent duplicate submissions
     if (txInFlight.current) return;
     txInFlight.current = true;
 
@@ -147,7 +223,6 @@ export function WithdrawInterface() {
 
       const sellAmount = new BN(amountRaw.toString())
 
-      // Validate against actual balance
       if (tokenBalanceRaw != null && amountRaw > tokenBalanceRaw) {
         setError("Amount exceeds your bRENT balance");
         showToast("Insufficient bRENT balance", "error");
@@ -156,17 +231,15 @@ export function WithdrawInterface() {
         return;
       }
 
-      // Derive claim PDA from current counter.
       const accountApi = (program as Program<Idl>).account as WithdrawAccountApi
-      const poolState = await accountApi.pool.fetch(poolPda);
-      const nextId = new BN(poolState.claimCounter.toString());
-      const idLe = Uint8Array.from(nextId.toArray("le", 8));
+      const livePoolState = poolState ?? await accountApi.pool.fetch(poolPda)
+      const claimId = new BN(livePoolState.claimCounter.toString());
+      const idLe = Uint8Array.from(claimId.toArray("le", 8));
       const [claimPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("claim"), publicKey.toBuffer(), idLe],
         PROGRAM_ID,
       );
 
-      // Ensure ATAs exist (idempotent).
       const createUserAtaIx = createAssociatedTokenAccountIdempotentInstruction(
         publicKey,
         userBunkercashAta,
@@ -185,6 +258,7 @@ export function WithdrawInterface() {
           user: publicKey,
           userBrent: userBunkercashAta,
           brentMint: mintPda,
+          feeConfig: feeConfigPda,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
@@ -201,8 +275,8 @@ export function WithdrawInterface() {
       setConfirmed(false);
       await fetchTokenBalance();
       await fetchClaims();
+      await fetchPoolState();
       showToast(`Request submitted. Tx: ${sig.slice(0, 8)}…`, "success");
-      // Invalidate transactions cache so Transactions tab fetches fresh data
       const { invalidateTransactionCache } =
         await import("@/hooks/useMyTransactions");
       invalidateTransactionCache();
@@ -281,6 +355,9 @@ export function WithdrawInterface() {
               circulation and creates a pending settlement request, subject to
               available protocol liquidity.
             </p>
+            <p className="mt-2 text-xs text-neutral-500">
+              Current claim fee: {formatPercentFromBps(poolState?.claimFeeBps ?? 0)}%
+            </p>
           </div>
 
           <div className="bg-neutral-900 rounded-2xl p-6 border border-neutral-800">
@@ -316,6 +393,25 @@ export function WithdrawInterface() {
               </button>
             </div>
           </div>
+
+          {grossClaimUsdcRaw != null && claimFeeRaw != null && netClaimUsdcRaw != null && (
+            <div className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-4 text-sm text-neutral-300">
+              <div className="flex justify-between">
+                <span>Gross request value</span>
+                <span>{toUi(grossClaimUsdcRaw, 6)} USDC</span>
+              </div>
+              <div className="mt-2 flex justify-between text-neutral-400">
+                <span>Claim fee</span>
+                <span>
+                  {toUi(claimFeeRaw, 6)} USDC ({formatPercentFromBps(poolState?.claimFeeBps ?? 0)}%)
+                </span>
+              </div>
+              <div className="mt-2 flex justify-between font-medium text-white">
+                <span>Estimated net request</span>
+                <span>{toUi(netClaimUsdcRaw, 6)} USDC</span>
+              </div>
+            </div>
+          )}
 
           <div className="flex items-start gap-3 px-1">
             <input
