@@ -45,30 +45,8 @@ export function TradePageContent({
     <Layout>
       <div className="container mx-auto px-4 py-12">
         <div className="mx-auto max-w-2xl">
-          <div className="mb-10 text-center">
-            <h1 className="mb-4 text-3xl font-bold text-foreground">{title}</h1>
-            <p className="mx-auto max-w-xl text-muted-foreground">
-              {description}
-            </p>
-          </div>
-
-          <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <PoolMetricCard
-              label="Current Reference Value"
-              value={navDisplay}
-              subtitle="Read directly from the on-chain pool account."
-            />
-            <PoolMetricCard
-              label="Liquid Size"
-              value={liquidDisplay}
-              subtitle="Current USDC balance available in the payout vault."
-            />
-          </div>
-
-          <TradeInterface initialTab={initialTab} hiddenTabs={hiddenTabs} />
-
-          <div className="mt-8 rounded-2xl border border-yellow-800/40 bg-yellow-950/20 p-5">
-            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-yellow-500">
+          <div className="mb-6 rounded-2xl border border-yellow-800/40 bg-yellow-950/20 p-4">
+            <div className="mb-1.5 flex items-center gap-2 text-sm font-semibold text-yellow-500">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 20 20"
@@ -94,6 +72,28 @@ export function TradePageContent({
               your own decisions. This is not financial advice.
             </p>
           </div>
+
+          <div className="mb-10 text-center">
+            <h1 className="mb-4 text-3xl font-bold text-foreground">{title}</h1>
+            <p className="mx-auto max-w-xl text-muted-foreground">
+              {description}
+            </p>
+          </div>
+
+          <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <PoolMetricCard
+              label="Current Reference Value"
+              value={navDisplay}
+              subtitle="Read directly from the on-chain pool account."
+            />
+            <PoolMetricCard
+              label="Liquid Size"
+              value={liquidDisplay}
+              subtitle="Current USDC balance available in the payout vault."
+            />
+          </div>
+
+          <TradeInterface initialTab={initialTab} hiddenTabs={hiddenTabs} />
         </div>
       </div>
     </Layout>
