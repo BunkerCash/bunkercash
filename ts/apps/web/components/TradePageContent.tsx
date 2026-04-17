@@ -66,6 +66,34 @@ export function TradePageContent({
           </div>
 
           <TradeInterface initialTab={initialTab} hiddenTabs={hiddenTabs} />
+
+          <div className="mt-8 rounded-2xl border border-yellow-800/40 bg-yellow-950/20 p-5">
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-yellow-500">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                className="h-4 w-4"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              Risk Disclaimer
+            </div>
+            <p className="text-xs leading-relaxed text-yellow-600/80">
+              Bunker Cash tokens are not investments, securities, or financial
+              instruments. They carry no guarantee of value, return, or
+              liquidity. Token prices may fluctuate and you may lose part or all
+              of the amount used to acquire them. Settlement of sell requests
+              depends on available protocol liquidity and is not guaranteed
+              within any timeframe. By using this interface you acknowledge that
+              you understand these risks and that you are solely responsible for
+              your own decisions. This is not financial advice.
+            </p>
+          </div>
         </div>
       </div>
     </Layout>

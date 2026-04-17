@@ -3,6 +3,7 @@ import { fetchPoolData, type PoolDataResponse } from "@/lib/solana-server";
 
 export const runtime = "nodejs";
 const WEB_POOL_DATA_URL =
+  process.env.WEB_POOL_DATA_FALLBACK_URL ??
   "https://bunkercash-web.bunkercoin.workers.dev/api/pool-data";
 
 export async function GET() {
