@@ -46,9 +46,10 @@ interface RawMasterWithdrawalRecord {
 
 const CACHE_TTL = 30_000;
 const POOL_ACCOUNT_DISCRIMINATOR = 8;
+const CLUSTER = (process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "devnet") as Parameters<typeof clusterApiUrl>[0];
 const FALLBACK_RPC_ENDPOINTS = [
-  clusterApiUrl("testnet"),
-  "https://solana-testnet-rpc.publicnode.com",
+  clusterApiUrl(CLUSTER),
+  ...(CLUSTER === "testnet" ? ["https://solana-testnet-rpc.publicnode.com"] : []),
 ];
 
 function readU64Le(data: Uint8Array, offset: number): string {

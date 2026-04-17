@@ -25,7 +25,7 @@ mod governance_keys {
 
 use governance_keys::{SQUADS_MEMBER_1, SQUADS_MEMBER_2, SQUADS_MEMBER_3, SQUADS_MEMBER_4};
 
-declare_id!("3tmrhPNJqwBtzLvRJDbk8ApGGsq7CgdJUsGraXTVzAip");
+declare_id!("G5Vb57tzpH1FvqrqDiPqNeZka7VbexAYWnPW5EmwF3Ld");
 
 const POOL_SEED: &[u8] = b"pool";
 const BRENT_MINT_SEED: &[u8] = b"bunkercash_mint";
@@ -411,15 +411,24 @@ pub mod bunkercash {
             .checked_sub(purchase_fee)
             .ok_or_else(arithmetic_error)?;
 
+        let available_nav_for_pricing = pool
+            .nav
+            .checked_sub(pool.total_pending_claims)
+            .ok_or(ErrorCode::InvalidNAV)?;
+
         let brent_to_mint = if pool.total_brent_supply == 0 {
+            // Only allow 1:1 minting when no residual NAV exists.
+            // Residual NAV (from fees etc.) with zero supply would give
+            // the next depositor a windfall at existing holders' expense.
+            require!(available_nav_for_pricing == 0, ErrorCode::InvalidNAV);
             net_usdc_amount
         } else {
-            require!(pool.nav > 0, ErrorCode::InvalidNAV);
+            require!(available_nav_for_pricing > 0, ErrorCode::InvalidNAV);
             u64::try_from(
                 (net_usdc_amount as u128)
                     .checked_mul(pool.total_brent_supply as u128)
                     .ok_or_else(arithmetic_error)?
-                    .checked_div(pool.nav as u128)
+                    .checked_div(available_nav_for_pricing as u128)
                     .ok_or_else(arithmetic_error)?,
             )
             .map_err(|_| arithmetic_error())?
@@ -640,6 +649,7 @@ pub mod bunkercash {
         Ok(())
     }
 
+    // tokenclaims 
     pub fn file_claim(
         ctx: Context<FileClaim>,
         brent_amount: u64,
@@ -651,9 +661,15 @@ pub mod bunkercash {
 
         require!(pool.nav > 0 && pool.total_brent_supply > 0, ErrorCode::InvalidNAV);
 
+        let available_nav = pool
+            .nav
+            .checked_sub(pool.total_pending_claims)
+            .ok_or(ErrorCode::InvalidNAV)?;
+        require!(available_nav > 0, ErrorCode::InvalidNAV);
+
         let gross_usdc_value = calculate_claim_usdc_value(
             brent_amount,
-            pool.nav,
+            available_nav,
             pool.total_brent_supply,
         )
         .ok_or(ErrorCode::ClaimAmountTooSmall)?;
@@ -838,7 +854,7 @@ pub mod bunkercash {
 
                     let remaining_after_payout = claim_remaining_amount.saturating_sub(payout);
 
-                    pool.nav = pool.nav.saturating_sub(payout);
+                    pool.nav = pool.nav.checked_sub(payout).ok_or_else(arithmetic_error)?;
                     claims_settled = claims_settled.checked_add(1).ok_or_else(arithmetic_error)?;
                     total_paid = total_paid.checked_add(payout).ok_or_else(arithmetic_error)?;
 
@@ -864,7 +880,7 @@ pub mod bunkercash {
             }
         }
 
-        pool.total_pending_claims = pool_pending_before.saturating_sub(total_paid);
+        pool.total_pending_claims = pool_pending_before.checked_sub(total_paid).ok_or_else(arithmetic_error)?;
 
         emit!(ClaimsSettledEvent {
             pool: pool.key(),

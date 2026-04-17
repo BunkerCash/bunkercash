@@ -8,8 +8,8 @@ import { ArrowUpIcon, ArrowRightIcon } from "@heroicons/react/24/outline";
 import { useOptionalWallet } from "@/hooks/useOptionalWallet";
 
 const TX_LABEL: Record<Transaction["type"], string> = {
-  investment: "Acquire",
-  withdrawal: "Request",
+  investment: "Buy",
+  withdrawal: "Sell",
 };
 
 export function PoolTransactions() {

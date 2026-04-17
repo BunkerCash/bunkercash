@@ -18,9 +18,10 @@ export async function GET() {
       },
     });
   } catch (e: unknown) {
+    console.error("[fees] RPC failed:", e instanceof Error ? e.message : e);
     const elapsed = performance.now() - start;
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Failed to fetch fee config" },
+      { error: "Failed to fetch fee config" },
       {
         status: 503,
         headers: {

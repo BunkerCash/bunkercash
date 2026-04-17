@@ -30,7 +30,8 @@ export async function middleware(request: NextRequest) {
       url.pathname = "/blocked";
       return NextResponse.rewrite(url);
     }
-  } catch {
+  } catch (e) {
+    console.error("[geoblocking] Failed to check blocked countries:", e);
     return NextResponse.next();
   }
 

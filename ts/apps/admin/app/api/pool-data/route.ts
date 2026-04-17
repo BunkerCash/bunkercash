@@ -22,6 +22,7 @@ export async function GET() {
   } catch (e: unknown) {
     const errorMessage =
       e instanceof Error ? e.message : "Failed to fetch pool data";
+    console.error("[pool-data] Primary RPC failed:", errorMessage);
     try {
       const fallback = await fetch(WEB_POOL_DATA_URL, { cache: "no-store" });
       if (!fallback.ok) {
@@ -35,18 +36,13 @@ export async function GET() {
           "X-Cache": "FALLBACK",
           "X-Response-Time": `${elapsed.toFixed(1)}ms`,
           "Server-Timing": `total;dur=${elapsed.toFixed(1)};desc="web-fallback"`,
-          "X-Error": errorMessage,
         },
       });
     } catch (fallbackError: unknown) {
+      console.error("[pool-data] Fallback also failed:", fallbackError);
       const elapsed = performance.now() - start;
-      const fallbackMessage =
-        fallbackError instanceof Error
-          ? fallbackError.message
-          : "Fallback fetch failed";
-
       return NextResponse.json(
-        { error: `${errorMessage} | ${fallbackMessage}` },
+        { error: "Failed to fetch pool data" },
         {
           status: 503,
           headers: {

@@ -62,6 +62,7 @@ interface PoolAccount {
   masterWallet: PublicKey;
   nav: Stringable;
   totalBrentSupply: Stringable;
+  totalPendingClaims: Stringable;
 }
 
 interface PurchaseLimitConfigAccount {
@@ -185,9 +186,13 @@ export function BuyPrimaryInterface() {
         }
       }
 
+      const nav = BigInt(state.nav.toString())
+      const totalPendingClaims = BigInt(state.totalPendingClaims.toString())
+      const availableNav = nav > totalPendingClaims ? nav - totalPendingClaims : 0n
+
       setPoolState({
         masterWallet: state.masterWallet,
-        nav: BigInt(state.nav.toString()),
+        nav: availableNav,
         totalBrentSupply: BigInt(state.totalBrentSupply.toString()),
         purchaseLimitUsdc,
         totalDepositedUsdc,
@@ -682,7 +687,7 @@ export function BuyPrimaryInterface() {
         }
         className="w-full rounded-xl bg-[#00FFB2] py-5 text-lg font-semibold text-black transition-all hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600"
       >
-        {loading ? "Processing…" : "Acquire Tokens"}
+        {loading ? "Processing…" : "Buy"}
       </button>
 
       <div className="text-center text-xs text-neutral-600 space-y-1">

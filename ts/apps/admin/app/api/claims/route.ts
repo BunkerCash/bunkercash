@@ -3,6 +3,7 @@ import { fetchAllClaims, type ClaimsResponse } from "@/lib/solana-server";
 
 export const runtime = "nodejs";
 const WEB_CLAIMS_URL =
+  process.env.WEB_CLAIMS_FALLBACK_URL ??
   "https://bunkercash-web.bunkercoin.workers.dev/api/claims";
 
 export async function GET() {
@@ -22,6 +23,7 @@ export async function GET() {
   } catch (e: unknown) {
     const errorMessage =
       e instanceof Error ? e.message : "Failed to fetch claims";
+    console.error("[claims] Primary RPC failed:", errorMessage);
     try {
       const fallback = await fetch(WEB_CLAIMS_URL, { cache: "no-store" });
       if (!fallback.ok) {
@@ -35,16 +37,12 @@ export async function GET() {
           "X-Cache": "FALLBACK",
           "X-Response-Time": `${elapsed.toFixed(1)}ms`,
           "Server-Timing": `total;dur=${elapsed.toFixed(1)};desc="web-fallback"`,
-          "X-Error": errorMessage,
         },
       });
     } catch (fallbackError: unknown) {
-      const fallbackMessage =
-        fallbackError instanceof Error
-          ? fallbackError.message
-          : "Fallback fetch failed";
+      console.error("[claims] Fallback also failed:", fallbackError);
       return NextResponse.json(
-        { error: `${errorMessage} | ${fallbackMessage}` },
+        { error: "Failed to fetch claims" },
         { status: 500 },
       );
     }

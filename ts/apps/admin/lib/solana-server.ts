@@ -98,12 +98,13 @@ const BUNKERCASH_DECIMALS = 6;
 const USDC_DECIMALS = 6;
 
 function getRpcEndpoints(): string[] {
+  const cluster = (process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "devnet") as Parameters<typeof clusterApiUrl>[0];
   const endpoints = [
     process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
       process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
-      clusterApiUrl("testnet"),
-    clusterApiUrl("testnet"),
-    "https://solana-testnet-rpc.publicnode.com",
+      clusterApiUrl(cluster),
+    clusterApiUrl(cluster),
+    ...(cluster === "testnet" ? ["https://solana-testnet-rpc.publicnode.com"] : []),
   ];
 
   return [...new Set(endpoints.filter(Boolean))];
@@ -168,7 +169,8 @@ export async function fetchPoolData(): Promise<PoolDataResponse> {
       Number(poolAccount.nav.toString()) / 10 ** USDC_DECIMALS;
     const pendingClaimsUsdcRaw =
       Number(poolAccount.totalPendingClaims.toString()) / 10 ** USDC_DECIMALS;
-    const tokenPrice = totalSupplyRaw > 0 ? navUsdcRaw / totalSupplyRaw : 1;
+    const availableNavUsdcRaw = Math.max(navUsdcRaw - pendingClaimsUsdcRaw, 0);
+    const tokenPrice = totalSupplyRaw > 0 ? availableNavUsdcRaw / totalSupplyRaw : 1;
     const adminWallet = poolAccount.masterWallet.toBase58();
 
     let treasuryUsdcRaw: number | null = null;

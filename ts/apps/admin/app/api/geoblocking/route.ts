@@ -29,10 +29,9 @@ export async function GET(request: Request) {
     const countries = await getBlockedCountries();
     return NextResponse.json({ countries });
   } catch (e: unknown) {
-    const message =
-      e instanceof Error ? e.message : "Failed to fetch blocked countries";
+    console.error("[geoblocking] GET failed:", e instanceof Error ? e.message : e);
     return NextResponse.json(
-      { error: message },
+      { error: "Failed to fetch blocked countries" },
       { status: 500 }
     );
   }
@@ -77,10 +76,9 @@ export async function PUT(request: Request) {
       );
     }
 
-    const message =
-      e instanceof Error ? e.message : "Failed to update blocked countries";
+    console.error("[geoblocking] PUT failed:", e instanceof Error ? e.message : e);
     return NextResponse.json(
-      { error: message },
+      { error: "Failed to update blocked countries" },
       { status: 500 }
     );
   }

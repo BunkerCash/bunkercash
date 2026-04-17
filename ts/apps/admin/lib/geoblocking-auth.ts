@@ -17,12 +17,13 @@ let adminWalletsPromise: Promise<Set<string>> | null = null;
 let adminWalletsFailureTs = 0;
 
 function getRpcEndpoints(): string[] {
+  const cluster = (process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "devnet") as Parameters<typeof clusterApiUrl>[0];
   const endpoints = [
     process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
       process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
-      clusterApiUrl("testnet"),
-    clusterApiUrl("testnet"),
-    "https://solana-testnet-rpc.publicnode.com",
+      clusterApiUrl(cluster),
+    clusterApiUrl(cluster),
+    ...(cluster === "testnet" ? ["https://solana-testnet-rpc.publicnode.com"] : []),
   ];
   return [...new Set(endpoints.filter(Boolean))];
 }
@@ -77,7 +78,9 @@ export async function getAuthorizedAdminWallets(): Promise<Set<string>> {
 
     const override = process.env.ADMIN_OVERRIDE_WALLET;
     if (override) {
-      const wallets = new Set([override]);
+      const wallets = new Set(
+        adminWalletsCache ? [...adminWalletsCache.wallets, override] : [override]
+      );
       adminWalletsCache = { wallets, ts: Date.now() };
       return wallets;
     }

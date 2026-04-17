@@ -75,10 +75,11 @@ const BUNKERCASH_DECIMALS = 6;
 const USDC_DECIMALS = 6;
 
 function getConnection(): Connection {
+  const cluster = process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "devnet";
   const endpoint =
     process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
     process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
-    "https://api.testnet.solana.com";
+    `https://api.${cluster}.solana.com`;
   return new Connection(endpoint, "confirmed");
 }
 
@@ -124,7 +125,8 @@ export async function fetchPoolData(): Promise<PoolDataResponse> {
   const pendingClaimsUsdcRaw =
     Number(poolAccount.totalPendingClaims.toString()) / 10 ** USDC_DECIMALS;
 
-  const tokenPrice = totalSupplyRaw > 0 ? navUsdcRaw / totalSupplyRaw : 1;
+  const availableNavUsdcRaw = Math.max(navUsdcRaw - pendingClaimsUsdcRaw, 0);
+  const tokenPrice = totalSupplyRaw > 0 ? availableNavUsdcRaw / totalSupplyRaw : 1;
   const adminWallet = poolAccount.masterWallet.toBase58();
 
   // Vault balance

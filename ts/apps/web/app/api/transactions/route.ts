@@ -51,8 +51,9 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (e: unknown) {
+    console.error("[transactions] Failed:", e instanceof Error ? e.message : e);
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Failed to fetch transactions" },
+      { error: "Failed to fetch transactions" },
       { status: 500 },
     );
   }

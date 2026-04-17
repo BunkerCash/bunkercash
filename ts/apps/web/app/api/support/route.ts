@@ -36,20 +36,23 @@ export async function POST(request: Request) {
       );
     }
 
-    const message =
+    const rawMessage =
       error instanceof Error
         ? error.message
         : "Failed to submit support request";
 
-    const status =
-      message.includes("required") ||
-      message.includes("must be") ||
-      message.includes("valid") ||
-      message.includes("JSON object") ||
-      message.includes("Field exceeds")
-        ? 400
-        : 500;
+    const isValidationError =
+      rawMessage.includes("required") ||
+      rawMessage.includes("must be") ||
+      rawMessage.includes("valid") ||
+      rawMessage.includes("JSON object") ||
+      rawMessage.includes("Field exceeds");
 
-    return NextResponse.json({ error: message }, { status });
+    if (isValidationError) {
+      return NextResponse.json({ error: rawMessage }, { status: 400 });
+    }
+
+    console.error("[support] Failed:", rawMessage);
+    return NextResponse.json({ error: "Failed to submit support request" }, { status: 500 });
   }
 }

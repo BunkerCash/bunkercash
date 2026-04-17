@@ -30,8 +30,9 @@ export async function GET() {
       },
     });
   } catch (e: unknown) {
+    console.error("[claims] Failed:", e instanceof Error ? e.message : e);
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Failed to fetch claims" },
+      { error: "Failed to fetch claims" },
       { status: 500 },
     );
   }

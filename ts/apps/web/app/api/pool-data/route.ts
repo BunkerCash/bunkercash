@@ -30,8 +30,9 @@ export async function GET() {
       },
     });
   } catch (e: unknown) {
+    console.error("[pool-data] Failed:", e instanceof Error ? e.message : e);
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Failed to fetch pool data" },
+      { error: "Failed to fetch pool data" },
       { status: 500 },
     );
   }
