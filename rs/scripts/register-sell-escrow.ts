@@ -88,9 +88,8 @@ async function main() {
   // Fetch pool state to compute next claim PDA.
   const poolState = await (program.account as any).poolState.fetch(poolPda);
   const claimCounter: BN = poolState.claimCounter as BN;
-  const nextId = claimCounter.add(new BN(1));
   const [claimPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("claim"), poolPda.toBuffer(), bnU64LE(nextId)],
+    [Buffer.from("claim"), poolPda.toBuffer(), bnU64LE(claimCounter)],
     program.programId
   );
 
@@ -149,4 +148,3 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
-

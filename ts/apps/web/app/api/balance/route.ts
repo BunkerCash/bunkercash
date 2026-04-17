@@ -48,8 +48,9 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (e: unknown) {
+    console.error("[balance] Failed:", e instanceof Error ? e.message : e);
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Failed to fetch balance" },
+      { error: "Failed to fetch balance" },
       { status: 500 },
     );
   }

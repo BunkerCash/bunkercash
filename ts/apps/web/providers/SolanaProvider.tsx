@@ -1,7 +1,6 @@
 "use client";
 
-import { FC, ReactNode, useMemo } from "react";
-import type { Adapter } from "@solana/wallet-adapter-base";
+import { FC, ReactNode, useMemo, type ComponentProps } from "react";
 import {
   ConnectionProvider,
   WalletProvider,
@@ -16,7 +15,7 @@ import "@solana/wallet-adapter-react-ui/styles.css";
 
 interface SolanaProviderConfig {
   autoConnect: boolean;
-  env: "mainnet-beta" | "devnet" | "testnet";
+  env: "mainnet-beta" | "devnet" | "testnet" | "localnet";
   metadata: {
     name: string;
     description: string;
@@ -31,7 +30,7 @@ interface SolanaProviderConfig {
 
 interface SolanaProviderProps {
   children: ReactNode;
-  wallets?: Adapter[];
+  wallets?: ComponentProps<typeof WalletProvider>["wallets"];
   config?: SolanaProviderConfig;
 }
 
@@ -40,9 +39,18 @@ export const SolanaProvider: FC<SolanaProviderProps> = ({
   wallets: providedWallets = [],
   config,
 }) => {
-  // Keep wallet adapter defaults aligned with the app's testnet deployment.
   const endpoint = useMemo(() => {
+    const configuredEndpoint =
+      process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
+      process.env.NEXT_PUBLIC_RPC_ENDPOINT;
+    if (configuredEndpoint) {
+      return configuredEndpoint;
+    }
+
     const env = config?.env ?? "testnet";
+    if (env === "localnet") {
+      return "http://127.0.0.1:8899";
+    }
     return clusterApiUrl(env);
   }, [config?.env]);
 

@@ -4,17 +4,13 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import Image from "next/image";
-import { useWallet } from "@solana/wallet-adapter-react";
 import WalletButton from "@/components/wallet/WalletButton";
 
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { label: "Overview", path: "/" },
-  { label: "Acquire Tokens", path: "/acquire" },
-  { label: "Submit Request", path: "/sell" },
+  { label: "Buy", path: "/buy" },
+  { label: "Sell", path: "/sell" },
   { label: "Pool Status", path: "/pool" },
   { label: "My Activity", path: "/position" },
   { label: "Information", path: "/information" },
@@ -22,7 +18,6 @@ const navItems = [
 
 export const Navbar = () => {
   const pathname = usePathname();
-  const { connected } = useWallet();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   return (

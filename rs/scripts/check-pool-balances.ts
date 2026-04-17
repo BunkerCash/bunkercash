@@ -14,7 +14,7 @@
  * cd rs
  * export ANCHOR_PROVIDER_URL=https://api.testnet.solana.com
  * export ANCHOR_WALLET=~/.config/solana/id.json
- * export USDC_MINT=<your usdc mint>   # optional; defaults to the configured test mint
+ * export USDC_MINT=<your usdc mint>
  * npx ts-node -P tsconfig.json scripts/check-pool-balances.ts
  */
 import * as anchor from "@coral-xyz/anchor";
@@ -35,9 +35,14 @@ const idlJson = require("../../ts/apps/web/lib/bunkercash.fixed.idl.json") as {
 const PROGRAM_ID = new PublicKey(idlJson.address);
 const POOL_SEED = "pool";
 const MINT_SEED = "bunkercash_mint";
-const DEFAULT_TESTNET_USDC_MINT = new PublicKey(
-  "DCM1oDQRSv9dn4xpZrXuX23yvivoFHSKKF1mjuCEcjdQ"
-);
+
+function requireUsdcMint(): PublicKey {
+  const mint = process.env.USDC_MINT;
+  if (!mint) {
+    throw new Error("USDC_MINT must be set explicitly before running check-pool-balances.ts.");
+  }
+  return new PublicKey(mint);
+}
 
 async function balanceOrMissing(
   provider: AnchorProvider,
@@ -67,7 +72,7 @@ async function main() {
   );
   const poolSignerPda = poolPda;
 
-  const usdcMint = new PublicKey(process.env.USDC_MINT ?? DEFAULT_TESTNET_USDC_MINT);
+  const usdcMint = requireUsdcMint();
 
   const userUsdcAta = getAssociatedTokenAddressSync(
     usdcMint,

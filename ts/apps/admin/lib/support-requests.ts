@@ -1,24 +1,76 @@
-import { kvGet, kvList } from "@bunkercash/cloudflare-kv";
-import {
-  SUPPORT_REQUESTS_KV_BINDING,
-  SUPPORT_REQUEST_KEY_PREFIX,
-  isSupportRequestRecord,
-  type SupportRequestRecord,
-} from "@bunkercash/support-requests";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
+
+const SUPPORT_REQUESTS_KV_BINDING = "GEOBLOCKING_KV";
+const SUPPORT_REQUEST_KEY_PREFIX = "support:request:";
 
 const BINDING = SUPPORT_REQUESTS_KV_BINDING;
 const REQUEST_KEY_PREFIX = SUPPORT_REQUEST_KEY_PREFIX;
 const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 100;
 
-export type {
-  SupportRequestRecord,
-  SupportRequestSource,
-} from "@bunkercash/support-requests";
+export type SupportRequestSource = "blocked-page" | "support-page";
+
+export interface SupportRequestRecord {
+  id: string;
+  createdAt: string;
+  fullName: string;
+  email: string;
+  phone: string | null;
+  country: string | null;
+  subject: string;
+  message: string;
+  source: SupportRequestSource;
+  pageUrl: string | null;
+}
 
 export interface SupportRequestsPage {
   requests: SupportRequestRecord[];
   nextCursor: string | null;
+}
+
+function isSupportRequestRecord(value: unknown): value is SupportRequestRecord {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  const optionalString = (field: unknown) =>
+    field === null || typeof field === "string";
+
+  return (
+    typeof record.id === "string" &&
+    typeof record.createdAt === "string" &&
+    typeof record.fullName === "string" &&
+    typeof record.email === "string" &&
+    optionalString(record.phone) &&
+    optionalString(record.country) &&
+    typeof record.subject === "string" &&
+    typeof record.message === "string" &&
+    (record.source === "blocked-page" || record.source === "support-page") &&
+    optionalString(record.pageUrl)
+  );
+}
+
+async function getKvNamespace(binding: string) {
+  const { env } = await getCloudflareContext();
+  const kv = (env as Record<string, unknown>)[binding];
+
+  if (!kv || typeof kv !== "object") {
+    throw new Error(`KV binding "${binding}" not found in environment`);
+  }
+
+  return kv as {
+    get(key: string, type: "json"): Promise<unknown>;
+    list(options?: {
+      prefix?: string;
+      limit?: number;
+      cursor?: string;
+    }): Promise<{
+      cursor?: string;
+      list_complete: boolean;
+      keys: Array<{ name: string }>;
+    }>;
+  };
 }
 
 function clampPageSize(limit: number | undefined): number {
@@ -30,11 +82,12 @@ function clampPageSize(limit: number | undefined): number {
 }
 
 async function listAllSupportRequestKeys(): Promise<string[]> {
+  const kv = await getKvNamespace(BINDING);
   const keys: string[] = [];
   let cursor: string | undefined;
 
   while (true) {
-    const page = await kvList(BINDING, {
+    const page = await kv.list({
       prefix: REQUEST_KEY_PREFIX,
       cursor,
       limit: MAX_PAGE_SIZE,
@@ -68,9 +121,10 @@ export async function listSupportRequestsPage(options?: {
   }
 
   const pageKeys = sortedKeys.slice(startIndex, startIndex + limit);
+  const kv = await getKvNamespace(BINDING);
   const requests = await Promise.all(
     pageKeys.map(async (key) => {
-      const value = await kvGet<unknown>(BINDING, key);
+      const value = await kv.get(key, "json");
       return isSupportRequestRecord(value) ? value : null;
     }),
   );

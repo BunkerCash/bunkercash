@@ -4,14 +4,16 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
-import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import { cn } from '@/lib/utils'
+import { useOptionalWallet } from "@/hooks/useOptionalWallet";
+import { PhantomConnectButton } from "@/components/wallet/PhantomConnectButton";
 
 export function Header() {
   const pathname = usePathname()
   const isHome = pathname === '/'
   const isBrent = pathname === '/brent'
   const [mounted, setMounted] = useState(false)
+  const wallet = useOptionalWallet()
 
   useEffect(() => {
     setMounted(true)
@@ -48,8 +50,8 @@ export function Header() {
             </nav>
           </div>
 
-          {mounted ? (
-            <WalletMultiButton
+          {mounted && wallet ? (
+            <PhantomConnectButton
               className="!bg-[#00FFB2] !text-black hover:!bg-[#00FFB2]/90 !transition-all !rounded-lg !font-semibold !px-6 !h-10"
             />
           ) : (

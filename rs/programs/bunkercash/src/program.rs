@@ -17,14 +17,28 @@ use mpl_token_metadata::types::{DataV2, TokenStandard};
 use mpl_token_metadata::ID as TOKEN_METADATA_PROGRAM_ID;
 use spl_token_2022::state::Mint as Token2022Mint;
 
-declare_id!("87BzNLu5Nt8MXywXXtAMgp1GGcH2rcKucZWtXsNdM7RZ");
+mod governance_keys {
+    use anchor_lang::prelude::*;
+
+    include!(concat!(env!("OUT_DIR"), "/squads_keys.rs"));
+}
+
+use governance_keys::{SQUADS_MEMBER_1, SQUADS_MEMBER_2, SQUADS_MEMBER_3, SQUADS_MEMBER_4};
+
+declare_id!("G5Vb57tzpH1FvqrqDiPqNeZka7VbexAYWnPW5EmwF3Ld");
 
 const POOL_SEED: &[u8] = b"pool";
 const BRENT_MINT_SEED: &[u8] = b"bunkercash_mint";
 const CLAIM_SEED: &[u8] = b"claim";
 const PURCHASE_LIMIT_SEED: &[u8] = b"purchase_limit";
 const SUPPORTED_USDC_CONFIG_SEED: &[u8] = b"supported_usdc_config";
+const FEE_CONFIG_SEED: &[u8] = b"fee_config";
 const TOKEN_DECIMALS: u8 = 6;
+const MAX_FEE_BPS: u16 = 1_000;
+
+fn arithmetic_error() -> Error {
+    ErrorCode::ArithmeticError.into()
+}
 
 fn validate_supported_usdc_mint(
     supported_usdc_config: &SupportedUsdcConfig,
@@ -39,6 +53,35 @@ fn validate_supported_usdc_mint(
 
 fn validate_non_zero_amount(amount: u64) -> Result<()> {
     require!(amount > 0, ErrorCode::InvalidAmount);
+    Ok(())
+}
+
+fn validate_fee_bps(fee_bps: u16) -> Result<()> {
+    require!(fee_bps <= MAX_FEE_BPS, ErrorCode::InvalidFeeBps);
+    Ok(())
+}
+
+fn calculate_fee_amount(amount: u64, fee_bps: u16) -> Result<u64> {
+    validate_fee_bps(fee_bps)?;
+    u64::try_from(
+        (amount as u128)
+            .checked_mul(fee_bps as u128)
+            .ok_or_else(arithmetic_error)?
+            .checked_div(10_000)
+            .ok_or_else(arithmetic_error)?,
+    )
+    .map_err(|_| arithmetic_error())
+}
+
+fn is_bootstrap_authority(initializer: &Pubkey) -> bool {
+    *initializer == SQUADS_MEMBER_1
+        || *initializer == SQUADS_MEMBER_2
+        || *initializer == SQUADS_MEMBER_3
+        || *initializer == SQUADS_MEMBER_4
+}
+
+fn validate_initializer(initializer: &Pubkey) -> Result<()> {
+    require!(is_bootstrap_authority(initializer), ErrorCode::Unauthorized);
     Ok(())
 }
 
@@ -66,6 +109,18 @@ fn canonical_pool_usdc_vault(pool: Pubkey, usdc_mint: Pubkey, token_program: Pub
     get_associated_token_address_with_program_id(&pool, &usdc_mint, &token_program)
 }
 
+fn canonical_metadata_account(brent_mint: Pubkey) -> Pubkey {
+    Pubkey::find_program_address(
+        &[
+            b"metadata",
+            TOKEN_METADATA_PROGRAM_ID.as_ref(),
+            brent_mint.as_ref(),
+        ],
+        &TOKEN_METADATA_PROGRAM_ID,
+    )
+    .0
+}
+
 fn record_master_withdrawal(
     pool: &mut Pool,
     withdrawal: &mut Withdrawal,
@@ -73,30 +128,43 @@ fn record_master_withdrawal(
     metadata_hash: [u8; 32],
     withdrawal_bump: u8,
     timestamp: i64,
-) {
-    pool.withdrawal_counter = pool.withdrawal_counter.checked_add(1).unwrap();
+) -> Result<()> {
+    pool.withdrawal_counter = pool
+        .withdrawal_counter
+        .checked_add(1)
+        .ok_or_else(arithmetic_error)?;
 
-    withdrawal.id = pool.withdrawal_counter - 1;
+    withdrawal.id = pool
+        .withdrawal_counter
+        .checked_sub(1)
+        .ok_or_else(arithmetic_error)?;
     withdrawal.amount = amount;
     withdrawal.remaining = amount;
     withdrawal.metadata_hash = metadata_hash;
     withdrawal.timestamp = timestamp;
     withdrawal.bump = withdrawal_bump;
+    Ok(())
 }
 
-fn apply_master_repayment(pool: &mut Pool, withdrawal: &mut Withdrawal, amount: u64) {
+fn apply_master_repayment(pool: &mut Pool, withdrawal: &mut Withdrawal, amount: u64) -> Result<()> {
     let principal_returned = amount.min(withdrawal.remaining);
-    let nav_growth = amount.checked_sub(principal_returned).unwrap();
+    let nav_growth = amount
+        .checked_sub(principal_returned)
+        .ok_or_else(arithmetic_error)?;
 
-    withdrawal.remaining = withdrawal.remaining.checked_sub(principal_returned).unwrap();
-    pool.nav = pool.nav.checked_add(nav_growth).unwrap();
+    withdrawal.remaining = withdrawal
+        .remaining
+        .checked_sub(principal_returned)
+        .ok_or_else(arithmetic_error)?;
+    pool.nav = pool.nav.checked_add(nav_growth).ok_or_else(arithmetic_error)?;
+    Ok(())
 }
 
 fn apply_master_profit(pool: &mut Pool, withdrawal: &Withdrawal, amount: u64) -> Result<()> {
     validate_open_withdrawal(withdrawal)?;
-    // Profit is additive value on top of any still-outstanding principal.
-    // It increases NAV, but it must not reduce the withdrawal receivable.
-    pool.nav = pool.nav.checked_add(amount).unwrap();
+    // Profit remains attributed to an open withdrawal. It increases NAV but
+    // does not settle or reduce the withdrawal receivable.
+    pool.nav = pool.nav.checked_add(amount).ok_or_else(arithmetic_error)?;
     Ok(())
 }
 
@@ -121,7 +189,10 @@ fn apply_master_cancellation(
         amount <= withdrawal.remaining,
         ErrorCode::RepaymentExceedsWithdrawal
     );
-    withdrawal.remaining = withdrawal.remaining.checked_sub(amount).unwrap();
+    withdrawal.remaining = withdrawal
+        .remaining
+        .checked_sub(amount)
+        .ok_or_else(arithmetic_error)?;
     Ok(())
 }
 
@@ -133,10 +204,10 @@ fn apply_master_close_withdrawal(
     validate_open_withdrawal(withdrawal)?;
     let remaining = withdrawal.remaining;
     if amount >= remaining {
-        let nav_growth = amount.checked_sub(remaining).unwrap();
-        pool.nav = pool.nav.checked_add(nav_growth).unwrap();
+        let nav_growth = amount.checked_sub(remaining).ok_or_else(arithmetic_error)?;
+        pool.nav = pool.nav.checked_add(nav_growth).ok_or_else(arithmetic_error)?;
     } else {
-        let loss = remaining.checked_sub(amount).unwrap();
+        let loss = remaining.checked_sub(amount).ok_or_else(arithmetic_error)?;
         pool.nav = pool.nav.checked_sub(loss).ok_or(ErrorCode::InvalidNAV)?;
     }
 
@@ -165,6 +236,35 @@ fn validate_purchase_limit(
     Ok(())
 }
 
+fn validate_supported_usdc_mint_change(
+    pool: &Pool,
+    current_mint: &Pubkey,
+    next_mint: &Pubkey,
+    current_vault_balance: u64,
+) -> Result<()> {
+    // No-op updates are harmless and should not require a full pool shutdown.
+    if current_mint == next_mint {
+        return Ok(());
+    }
+
+    require!(
+        pool.total_pending_claims == 0,
+        ErrorCode::MintChangeRequiresSettledPool
+    );
+    require!(
+        current_vault_balance == 0,
+        ErrorCode::MintChangeRequiresEmptyVault
+    );
+    // The program does not maintain a global open-withdrawal index, so require
+    // a stronger quiescent state before changing the settlement mint.
+    require!(
+        pool.nav == 0 && pool.total_brent_supply == 0,
+        ErrorCode::MintChangeRequiresSettledPool
+    );
+
+    Ok(())
+}
+
 fn validate_settlement_pending_claims(
     pool_pending_before: u64,
     actual_total_remaining: u64,
@@ -173,6 +273,20 @@ fn validate_settlement_pending_claims(
         actual_total_remaining <= pool_pending_before,
         ErrorCode::PendingClaimsOutOfSync
     );
+    Ok(())
+}
+
+fn validate_unique_settlement_claim_accounts(claim_keys: &[Pubkey]) -> Result<()> {
+    let mut seen_claim_keys = Vec::with_capacity(claim_keys.len());
+
+    for claim_key in claim_keys {
+        require!(
+            !seen_claim_keys.iter().any(|seen| seen == claim_key),
+            ErrorCode::DuplicateSettlementClaim
+        );
+        seen_claim_keys.push(*claim_key);
+    }
+
     Ok(())
 }
 
@@ -186,6 +300,12 @@ fn validate_settlement_accounts<'info>(
         remaining_accounts.len() % 2 == 0,
         ErrorCode::InvalidSettlementAccounts
     );
+
+    let claim_keys: Vec<Pubkey> = remaining_accounts
+        .chunks_exact(2)
+        .map(|account_pair| account_pair[0].key())
+        .collect();
+    validate_unique_settlement_claim_accounts(&claim_keys)?;
 
     for account_pair in remaining_accounts.chunks_exact(2) {
         let claim_account_info = &account_pair[0];
@@ -230,8 +350,12 @@ pub mod bunkercash {
         ctx: Context<Initialize>,
         master_wallet: Pubkey,
     ) -> Result<()> {
+        validate_initializer(&ctx.accounts.bootstrap_authority.key())?;
+
         let pool = &mut ctx.accounts.pool;
         let supported_usdc_config = &mut ctx.accounts.supported_usdc_config;
+        let purchase_limit_config = &mut ctx.accounts.purchase_limit_config;
+        let fee_config = &mut ctx.accounts.fee_config;
         let timestamp = Clock::get()?.unix_timestamp;
         pool.master_wallet = master_wallet;
         pool.nav = 0;
@@ -244,6 +368,12 @@ pub mod bunkercash {
         let usdc_mint_key = ctx.accounts.usdc_mint.key();
         supported_usdc_config.mint = usdc_mint_key;
         supported_usdc_config.bump = ctx.bumps.supported_usdc_config;
+        purchase_limit_config.purchase_limit_usdc = 0;
+        purchase_limit_config.total_deposited_usdc = 0;
+        purchase_limit_config.bump = ctx.bumps.purchase_limit_config;
+        fee_config.purchase_fee_bps = 0;
+        fee_config.claim_fee_bps = 0;
+        fee_config.bump = ctx.bumps.fee_config;
 
         emit!(PoolInitializedEvent {
             pool: pool.key(),
@@ -272,22 +402,36 @@ pub mod bunkercash {
 
         let pool = &mut ctx.accounts.pool;
         let purchase_limit_config = &mut ctx.accounts.purchase_limit_config;
+        let fee_config = &ctx.accounts.fee_config;
         let user = ctx.accounts.user.key();
 
-        if purchase_limit_config.bump == 0 {
-            purchase_limit_config.bump = ctx.bumps.purchase_limit_config;
-        }
         validate_purchase_limit(purchase_limit_config, usdc_amount)?;
+        let purchase_fee = calculate_fee_amount(usdc_amount, fee_config.purchase_fee_bps)?;
+        let net_usdc_amount = usdc_amount
+            .checked_sub(purchase_fee)
+            .ok_or_else(arithmetic_error)?;
+
+        let available_nav_for_pricing = pool
+            .nav
+            .checked_sub(pool.total_pending_claims)
+            .ok_or(ErrorCode::InvalidNAV)?;
 
         let brent_to_mint = if pool.total_brent_supply == 0 {
-            usdc_amount
+            // Only allow 1:1 minting when no residual NAV exists.
+            // Residual NAV (from fees etc.) with zero supply would give
+            // the next depositor a windfall at existing holders' expense.
+            require!(available_nav_for_pricing == 0, ErrorCode::InvalidNAV);
+            net_usdc_amount
         } else {
-            require!(pool.nav > 0, ErrorCode::InvalidNAV);
-            (usdc_amount as u128)
-                .checked_mul(pool.total_brent_supply as u128)
-                .unwrap()
-                .checked_div(pool.nav as u128)
-                .unwrap() as u64
+            require!(available_nav_for_pricing > 0, ErrorCode::InvalidNAV);
+            u64::try_from(
+                (net_usdc_amount as u128)
+                    .checked_mul(pool.total_brent_supply as u128)
+                    .ok_or_else(arithmetic_error)?
+                    .checked_div(available_nav_for_pricing as u128)
+                    .ok_or_else(arithmetic_error)?,
+            )
+            .map_err(|_| arithmetic_error())?
         };
 
         token_interface::transfer_checked(
@@ -304,12 +448,15 @@ pub mod bunkercash {
             ctx.accounts.usdc_mint.decimals,
         )?;
 
-        pool.nav = pool.nav.checked_add(usdc_amount).unwrap();
-        pool.total_brent_supply = pool.total_brent_supply.checked_add(brent_to_mint).unwrap();
+        pool.nav = pool.nav.checked_add(usdc_amount).ok_or_else(arithmetic_error)?;
+        pool.total_brent_supply = pool
+            .total_brent_supply
+            .checked_add(brent_to_mint)
+            .ok_or_else(arithmetic_error)?;
         purchase_limit_config.total_deposited_usdc = purchase_limit_config
             .total_deposited_usdc
             .checked_add(usdc_amount)
-            .unwrap();
+            .ok_or_else(arithmetic_error)?;
 
         let pool_bump = pool.bump;
         let new_nav = pool.nav;
@@ -359,6 +506,14 @@ pub mod bunkercash {
             ErrorCode::Unauthorized
         );
 
+        let current_vault_balance = accessor::amount(&ctx.accounts.current_pool_usdc.to_account_info())?;
+        validate_supported_usdc_mint_change(
+            pool,
+            &ctx.accounts.current_supported_usdc_mint.key(),
+            &ctx.accounts.usdc_mint.key(),
+            current_vault_balance,
+        )?;
+
         supported_usdc_config.mint = ctx.accounts.usdc_mint.key();
         supported_usdc_config.bump = ctx.bumps.supported_usdc_config;
 
@@ -395,6 +550,39 @@ pub mod bunkercash {
         );
 
         purchase_limit_config.total_deposited_usdc = 0;
+
+        Ok(())
+    }
+
+    pub fn set_fee_config(
+        ctx: Context<SetFeeConfig>,
+        purchase_fee_bps: u16,
+        claim_fee_bps: u16,
+    ) -> Result<()> {
+        validate_fee_bps(purchase_fee_bps)?;
+        validate_fee_bps(claim_fee_bps)?;
+
+        let pool = &ctx.accounts.pool;
+        let fee_config = &mut ctx.accounts.fee_config;
+
+        require!(
+            ctx.accounts.admin.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+
+        fee_config.purchase_fee_bps = purchase_fee_bps;
+        fee_config.claim_fee_bps = claim_fee_bps;
+        if fee_config.bump == 0 {
+            fee_config.bump = ctx.bumps.fee_config;
+        }
+
+        emit!(FeeConfigUpdatedEvent {
+            pool: pool.key(),
+            admin: ctx.accounts.admin.key(),
+            purchase_fee_bps,
+            claim_fee_bps,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
 
         Ok(())
     }
@@ -461,22 +649,35 @@ pub mod bunkercash {
         Ok(())
     }
 
+    // tokenclaims 
     pub fn file_claim(
         ctx: Context<FileClaim>,
         brent_amount: u64,
     ) -> Result<()> {
         let pool = &mut ctx.accounts.pool;
         let claim = &mut ctx.accounts.claim;
+        let fee_config = &ctx.accounts.fee_config;
         let user = ctx.accounts.user.key();
 
         require!(pool.nav > 0 && pool.total_brent_supply > 0, ErrorCode::InvalidNAV);
 
-        let usdc_value = calculate_claim_usdc_value(
+        let available_nav = pool
+            .nav
+            .checked_sub(pool.total_pending_claims)
+            .ok_or(ErrorCode::InvalidNAV)?;
+        require!(available_nav > 0, ErrorCode::InvalidNAV);
+
+        let gross_usdc_value = calculate_claim_usdc_value(
             brent_amount,
-            pool.nav,
+            available_nav,
             pool.total_brent_supply,
         )
         .ok_or(ErrorCode::ClaimAmountTooSmall)?;
+        let claim_fee = calculate_fee_amount(gross_usdc_value, fee_config.claim_fee_bps)?;
+        let usdc_value = gross_usdc_value
+            .checked_sub(claim_fee)
+            .ok_or_else(arithmetic_error)?;
+        require!(usdc_value > 0, ErrorCode::ClaimAmountTooSmall);
 
         anchor_spl::token_2022::burn_checked(
             CpiContext::new(
@@ -491,11 +692,17 @@ pub mod bunkercash {
             ctx.accounts.brent_mint.decimals,
         )?;
 
-        pool.total_brent_supply = pool.total_brent_supply.checked_sub(brent_amount).unwrap();
-        pool.total_pending_claims = pool.total_pending_claims.checked_add(usdc_value).unwrap();
-        pool.claim_counter = pool.claim_counter.checked_add(1).unwrap();
+        pool.total_brent_supply = pool
+            .total_brent_supply
+            .checked_sub(brent_amount)
+            .ok_or_else(arithmetic_error)?;
+        pool.total_pending_claims = pool
+            .total_pending_claims
+            .checked_add(usdc_value)
+            .ok_or_else(arithmetic_error)?;
+        pool.claim_counter = pool.claim_counter.checked_add(1).ok_or_else(arithmetic_error)?;
 
-        let claim_id = pool.claim_counter - 1;
+        let claim_id = pool.claim_counter.checked_sub(1).ok_or_else(arithmetic_error)?;
         let timestamp = Clock::get()?.unix_timestamp;
 
         claim.user = user;
@@ -554,7 +761,7 @@ pub mod bunkercash {
                 if claim.paid_amount < claim.usdc_amount {
                     actual_total_remaining = actual_total_remaining
                         .checked_add(claim.usdc_amount.saturating_sub(claim.paid_amount))
-                        .unwrap();
+                        .ok_or_else(arithmetic_error)?;
                 }
             }
         }
@@ -569,11 +776,14 @@ pub mod bunkercash {
 
         let total_claimable = usdc_balance.min(actual_total_remaining);
         let payout_ratio = if actual_total_remaining > 0 {
-            (total_claimable as u128)
-                .checked_mul(1_000_000)
-                .unwrap()
-                .checked_div(actual_total_remaining as u128)
-                .unwrap() as u64
+            u64::try_from(
+                (total_claimable as u128)
+                    .checked_mul(1_000_000)
+                    .ok_or_else(arithmetic_error)?
+                    .checked_div(actual_total_remaining as u128)
+                    .ok_or_else(arithmetic_error)?,
+            )
+            .map_err(|_| arithmetic_error())?
         } else {
             0
         };
@@ -612,11 +822,14 @@ pub mod bunkercash {
                     let claim_usdc_amount = claim.usdc_amount;
                     let claim_paid_amount = claim.paid_amount;
                     let claim_remaining_amount = claim_usdc_amount.saturating_sub(claim.paid_amount);
-                    let payout = (claim_remaining_amount as u128)
-                        .checked_mul(payout_ratio as u128)
-                        .unwrap()
-                        .checked_div(1_000_000)
-                        .unwrap() as u64;
+                    let payout = u64::try_from(
+                        (claim_remaining_amount as u128)
+                            .checked_mul(payout_ratio as u128)
+                            .ok_or_else(arithmetic_error)?
+                            .checked_div(1_000_000)
+                            .ok_or_else(arithmetic_error)?,
+                    )
+                    .map_err(|_| arithmetic_error())?;
 
                     if payout == 0 {
                         continue;
@@ -641,13 +854,15 @@ pub mod bunkercash {
 
                     let remaining_after_payout = claim_remaining_amount.saturating_sub(payout);
 
-                    pool.nav = pool.nav.saturating_sub(payout);
-                    claims_settled = claims_settled.checked_add(1).unwrap();
-                    total_paid = total_paid.checked_add(payout).unwrap();
+                    pool.nav = pool.nav.checked_sub(payout).ok_or_else(arithmetic_error)?;
+                    claims_settled = claims_settled.checked_add(1).ok_or_else(arithmetic_error)?;
+                    total_paid = total_paid.checked_add(payout).ok_or_else(arithmetic_error)?;
 
                     let mut updated_claim = claim;
                     updated_claim.processed = remaining_after_payout == 0;
-                    updated_claim.paid_amount = claim_paid_amount.checked_add(payout).unwrap();
+                    updated_claim.paid_amount = claim_paid_amount
+                        .checked_add(payout)
+                        .ok_or_else(arithmetic_error)?;
                     updated_claim.serialize(&mut &mut claim_data[8..])?;
 
                     emit!(ClaimSettledEvent {
@@ -665,7 +880,7 @@ pub mod bunkercash {
             }
         }
 
-        pool.total_pending_claims = pool_pending_before.saturating_sub(total_paid);
+        pool.total_pending_claims = pool_pending_before.checked_sub(total_paid).ok_or_else(arithmetic_error)?;
 
         emit!(ClaimsSettledEvent {
             pool: pool.key(),
@@ -732,7 +947,7 @@ pub mod bunkercash {
             metadata_hash,
             ctx.bumps.withdrawal,
             timestamp,
-        );
+        )?;
 
         emit!(MasterWithdrawalEvent {
             withdrawal_id: withdrawal.id,
@@ -778,7 +993,7 @@ pub mod bunkercash {
             ctx.accounts.usdc_mint.decimals,
         )?;
 
-        apply_master_repayment(pool, withdrawal, amount);
+        apply_master_repayment(pool, withdrawal, amount)?;
 
         emit!(MasterRepaymentEvent {
             withdrawal_id: withdrawal.id,
@@ -1076,6 +1291,26 @@ pub struct Initialize<'info> {
     )]
     pub supported_usdc_config: Account<'info, SupportedUsdcConfig>,
 
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + PurchaseLimitConfig::INIT_SPACE,
+        seeds = [PURCHASE_LIMIT_SEED],
+        bump
+    )]
+    pub purchase_limit_config: Account<'info, PurchaseLimitConfig>,
+
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + FeeConfig::INIT_SPACE,
+        seeds = [FEE_CONFIG_SEED],
+        bump
+    )]
+    pub fee_config: Account<'info, FeeConfig>,
+
+    pub bootstrap_authority: Signer<'info>,
+
     #[account(mut)]
     pub payer: Signer<'info>,
 
@@ -1136,13 +1371,17 @@ pub struct DepositUsdc<'info> {
     pub supported_usdc_config: Account<'info, SupportedUsdcConfig>,
 
     #[account(
-        init_if_needed,
-        payer = user,
-        space = 8 + PurchaseLimitConfig::INIT_SPACE,
+        mut,
         seeds = [PURCHASE_LIMIT_SEED],
-        bump
+        bump = purchase_limit_config.bump
     )]
     pub purchase_limit_config: Account<'info, PurchaseLimitConfig>,
+
+    #[account(
+        seeds = [FEE_CONFIG_SEED],
+        bump = fee_config.bump
+    )]
+    pub fee_config: Account<'info, FeeConfig>,
 
     #[account(
         mint::decimals = TOKEN_DECIMALS,
@@ -1182,6 +1421,29 @@ pub struct SetPurchaseLimit<'info> {
 }
 
 #[derive(Accounts)]
+pub struct SetFeeConfig<'info> {
+    #[account(
+        seeds = [POOL_SEED],
+        bump = pool.bump
+    )]
+    pub pool: Account<'info, Pool>,
+
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = 8 + FeeConfig::INIT_SPACE,
+        seeds = [FEE_CONFIG_SEED],
+        bump
+    )]
+    pub fee_config: Account<'info, FeeConfig>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct SetSupportedUsdcMint<'info> {
     #[account(
         seeds = [POOL_SEED],
@@ -1199,14 +1461,46 @@ pub struct SetSupportedUsdcMint<'info> {
     pub supported_usdc_config: Account<'info, SupportedUsdcConfig>,
 
     #[account(
+        address = supported_usdc_config.mint @ ErrorCode::InvalidUsdcMint,
+        mint::decimals = TOKEN_DECIMALS,
+        mint::token_program = current_usdc_token_program
+    )]
+    pub current_supported_usdc_mint: InterfaceAccount<'info, Mint>,
+
+    #[account(
+        token::mint = current_supported_usdc_mint,
+        token::authority = pool,
+        token::token_program = current_usdc_token_program,
+        address = canonical_pool_usdc_vault(
+            pool.key(),
+            current_supported_usdc_mint.key(),
+            current_usdc_token_program.key()
+        ) @ ErrorCode::InvalidPoolUsdcVault
+    )]
+    pub current_pool_usdc: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
         mint::decimals = TOKEN_DECIMALS,
         mint::token_program = usdc_token_program
     )]
     pub usdc_mint: InterfaceAccount<'info, Mint>,
 
+    #[account(
+        token::mint = usdc_mint,
+        token::authority = pool,
+        token::token_program = usdc_token_program,
+        address = canonical_pool_usdc_vault(
+            pool.key(),
+            usdc_mint.key(),
+            usdc_token_program.key()
+        ) @ ErrorCode::InvalidPoolUsdcVault
+    )]
+    pub next_pool_usdc: InterfaceAccount<'info, TokenAccount>,
+
     #[account(mut)]
     pub admin: Signer<'info>,
 
+    pub current_usdc_token_program: Interface<'info, TokenInterface>,
     pub usdc_token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
@@ -1247,6 +1541,12 @@ pub struct FileClaim<'info> {
         mint::token_program = token_program
     )]
     pub brent_mint: InterfaceAccount<'info, Mint>,
+
+    #[account(
+        seeds = [FEE_CONFIG_SEED],
+        bump = fee_config.bump
+    )]
+    pub fee_config: Account<'info, FeeConfig>,
 
     #[account(mut)]
     pub user: Signer<'info>,
@@ -1437,8 +1737,11 @@ pub struct InitMintMetadata<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
 
-    /// CHECK: Metaplex metadata PDA
-    #[account(mut)]
+    /// CHECK: Metaplex metadata PDA derived from the bRENT mint
+    #[account(
+        mut,
+        address = canonical_metadata_account(brent_mint.key()) @ ErrorCode::InvalidMetadataAccount
+    )]
     pub metadata: UncheckedAccount<'info>,
 
     /// CHECK: Validated by address constraint
@@ -1472,8 +1775,11 @@ pub struct UpdateMintMetadata<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
 
-    /// CHECK: Metaplex metadata PDA
-    #[account(mut)]
+    /// CHECK: Metaplex metadata PDA derived from the bRENT mint
+    #[account(
+        mut,
+        address = canonical_metadata_account(brent_mint.key()) @ ErrorCode::InvalidMetadataAccount
+    )]
     pub metadata: UncheckedAccount<'info>,
 
     /// CHECK: Validated by address constraint
@@ -1528,6 +1834,14 @@ pub struct PurchaseLimitConfig {
 #[derive(InitSpace)]
 pub struct SupportedUsdcConfig {
     pub mint: Pubkey,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct FeeConfig {
+    pub purchase_fee_bps: u16,
+    pub claim_fee_bps: u16,
     pub bump: u8,
 }
 
@@ -1669,6 +1983,15 @@ pub struct MintMetadataUpdatedEvent {
     pub timestamp: i64,
 }
 
+#[event]
+pub struct FeeConfigUpdatedEvent {
+    pub pool: Pubkey,
+    pub admin: Pubkey,
+    pub purchase_fee_bps: u16,
+    pub claim_fee_bps: u16,
+    pub timestamp: i64,
+}
+
 #[error_code]
 pub enum ErrorCode {
     #[msg("Invalid NAV value")]
@@ -1701,16 +2024,30 @@ pub enum ErrorCode {
     InvalidAmount,
     #[msg("Withdrawal is already closed")]
     WithdrawalAlreadyClosed,
+    #[msg("Supported USDC mint changes require an empty vault for the current configured mint")]
+    MintChangeRequiresEmptyVault,
+    #[msg("Supported USDC mint changes require a fully settled pool with no live exposure")]
+    MintChangeRequiresSettledPool,
+    #[msg("Duplicate claim account provided for settlement")]
+    DuplicateSettlementClaim,
+    #[msg("Arithmetic operation failed")]
+    ArithmeticError,
+    #[msg("Invalid metadata account for the bRENT mint")]
+    InvalidMetadataAccount,
+    #[msg("Fee must be between 0 and 10 percent")]
+    InvalidFeeBps,
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
         apply_master_cancellation, apply_master_close_withdrawal, apply_master_profit,
-        apply_master_repayment, calculate_claim_usdc_value, record_master_withdrawal,
-        validate_open_withdrawal, validate_purchase_limit, validate_settlement_pending_claims,
-        ErrorCode, Pool, PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal,
-        validate_supported_usdc_mint,
+        apply_master_repayment, calculate_claim_usdc_value, calculate_fee_amount,
+        record_master_withdrawal, validate_fee_bps, validate_initializer,
+        validate_open_withdrawal, validate_purchase_limit,
+        validate_settlement_pending_claims, validate_supported_usdc_mint,
+        validate_supported_usdc_mint_change, validate_unique_settlement_claim_accounts,
+        ErrorCode, Pool, PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal, SQUADS_MEMBER_1,
     };
     use anchor_lang::prelude::Pubkey;
 
@@ -1730,6 +2067,17 @@ mod tests {
             calculate_claim_usdc_value(250_000, 1_000_000, 1_000_000),
             Some(250_000)
         );
+    }
+
+    #[test]
+    fn fee_bps_rejects_values_above_cap() {
+        let err = validate_fee_bps(1_001).unwrap_err();
+        assert_eq!(err, ErrorCode::InvalidFeeBps.into());
+    }
+
+    #[test]
+    fn fee_amount_rounds_down_in_basis_points() {
+        assert_eq!(calculate_fee_amount(1_234_567, 125).unwrap(), 15_432);
     }
 
     #[test]
@@ -1753,7 +2101,8 @@ mod tests {
             bump: 0,
         };
 
-        record_master_withdrawal(&mut pool, &mut withdrawal, 1_250_000, [9; 32], 17, 1234);
+        record_master_withdrawal(&mut pool, &mut withdrawal, 1_250_000, [9; 32], 17, 1234)
+            .unwrap();
 
         assert_eq!(pool.nav, original_nav);
         assert_eq!(pool.withdrawal_counter, 4);
@@ -1785,7 +2134,7 @@ mod tests {
             bump: 0,
         };
 
-        apply_master_repayment(&mut pool, &mut withdrawal, 900_000);
+        apply_master_repayment(&mut pool, &mut withdrawal, 900_000).unwrap();
 
         assert_eq!(pool.nav, 8_000_000);
         assert_eq!(withdrawal.remaining, 0);
@@ -1812,7 +2161,7 @@ mod tests {
             bump: 0,
         };
 
-        apply_master_repayment(&mut pool, &mut withdrawal, 400_000);
+        apply_master_repayment(&mut pool, &mut withdrawal, 400_000).unwrap();
 
         assert_eq!(pool.nav, original_nav);
         assert_eq!(withdrawal.remaining, 0);
@@ -2119,6 +2468,115 @@ mod tests {
         let err = validate_supported_usdc_mint(&supported_usdc_config, &Pubkey::new_unique())
             .unwrap_err();
         assert_eq!(err, ErrorCode::InvalidUsdcMint.into());
+    }
+
+    #[test]
+    fn initializer_validation_accepts_bootstrap_authority() {
+        assert!(validate_initializer(&SQUADS_MEMBER_1).is_ok());
+    }
+
+    #[test]
+    fn initializer_validation_rejects_other_signers() {
+        let err = validate_initializer(&Pubkey::new_unique()).unwrap_err();
+        assert_eq!(err, ErrorCode::Unauthorized.into());
+    }
+
+    #[test]
+    fn supported_usdc_mint_change_allows_noop_update() {
+        let pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 5_000_000,
+            total_brent_supply: 5_000_000,
+            total_pending_claims: 1_000_000,
+            claim_counter: 0,
+            withdrawal_counter: 0,
+            bump: 255,
+        };
+        let mint = Pubkey::new_unique();
+
+        assert!(validate_supported_usdc_mint_change(&pool, &mint, &mint, 7_500_000).is_ok());
+    }
+
+    #[test]
+    fn supported_usdc_mint_change_rejects_non_empty_vault() {
+        let pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 0,
+            total_brent_supply: 0,
+            total_pending_claims: 0,
+            claim_counter: 0,
+            withdrawal_counter: 0,
+            bump: 255,
+        };
+
+        let err = validate_supported_usdc_mint_change(
+            &pool,
+            &Pubkey::new_unique(),
+            &Pubkey::new_unique(),
+            1,
+        )
+        .unwrap_err();
+        assert_eq!(err, ErrorCode::MintChangeRequiresEmptyVault.into());
+    }
+
+    #[test]
+    fn supported_usdc_mint_change_rejects_live_pool_state() {
+        let pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 5_000_000,
+            total_brent_supply: 5_000_000,
+            total_pending_claims: 0,
+            claim_counter: 0,
+            withdrawal_counter: 0,
+            bump: 255,
+        };
+
+        let err = validate_supported_usdc_mint_change(
+            &pool,
+            &Pubkey::new_unique(),
+            &Pubkey::new_unique(),
+            0,
+        )
+        .unwrap_err();
+        assert_eq!(err, ErrorCode::MintChangeRequiresSettledPool.into());
+    }
+
+    #[test]
+    fn supported_usdc_mint_change_rejects_pending_claims() {
+        let pool = Pool {
+            master_wallet: Pubkey::new_unique(),
+            nav: 0,
+            total_brent_supply: 0,
+            total_pending_claims: 5_000,
+            claim_counter: 0,
+            withdrawal_counter: 0,
+            bump: 255,
+        };
+
+        let err = validate_supported_usdc_mint_change(
+            &pool,
+            &Pubkey::new_unique(),
+            &Pubkey::new_unique(),
+            0,
+        )
+        .unwrap_err();
+        assert_eq!(err, ErrorCode::MintChangeRequiresSettledPool.into());
+    }
+
+    #[test]
+    fn settlement_claim_set_allows_unique_claim_accounts() {
+        let claim_keys = vec![Pubkey::new_unique(), Pubkey::new_unique()];
+
+        assert!(validate_unique_settlement_claim_accounts(&claim_keys).is_ok());
+    }
+
+    #[test]
+    fn settlement_claim_set_rejects_duplicate_claim_accounts() {
+        let duplicate = Pubkey::new_unique();
+        let claim_keys = vec![duplicate, duplicate];
+
+        let err = validate_unique_settlement_claim_accounts(&claim_keys).unwrap_err();
+        assert_eq!(err, ErrorCode::DuplicateSettlementClaim.into());
     }
 
     #[test]

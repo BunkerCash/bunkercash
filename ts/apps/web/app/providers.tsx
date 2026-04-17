@@ -5,9 +5,14 @@ import { Provider as JotaiProvider } from "jotai";
 import { SolanaProvider } from "@/providers/SolanaProvider";
 import { ToastProvider } from "@/components/ui/ToastContext";
 
-function getWalletEnv(): "mainnet-beta" | "devnet" | "testnet" {
+function getWalletEnv(): "mainnet-beta" | "devnet" | "testnet" | "localnet" {
   const env = process.env.NEXT_PUBLIC_SOLANA_CLUSTER;
-  if (env === "mainnet-beta" || env === "devnet" || env === "testnet") {
+  if (
+    env === "mainnet-beta" ||
+    env === "devnet" ||
+    env === "testnet" ||
+    env === "localnet"
+  ) {
     return env;
   }
   return "testnet";

@@ -1,12 +1,12 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import type { PoolDataResponse } from "@/lib/solana-server";
+import { useOptionalWallet } from "@/hooks/useOptionalWallet";
 
 export function useIsAdmin() {
-  const wallet = useWallet();
-  const { publicKey } = wallet;
+  const wallet = useOptionalWallet();
+  const publicKey = wallet?.publicKey ?? null;
   const [isAdmin, setIsAdmin] = useState(false);
   const [isSquadsMember, setIsSquadsMember] = useState(false);
   const [loading, setLoading] = useState(true);

@@ -31,11 +31,7 @@ export async function GET(request: Request) {
     const page = await listSupportRequestsPage({ cursor, limit });
     return NextResponse.json(page);
   } catch (error: unknown) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Failed to fetch support requests";
-
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[support-requests] Failed:", error instanceof Error ? error.message : error);
+    return NextResponse.json({ error: "Failed to fetch support requests" }, { status: 500 });
   }
 }

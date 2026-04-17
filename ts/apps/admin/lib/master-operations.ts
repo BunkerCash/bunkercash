@@ -1,4 +1,6 @@
 const USDC_DECIMALS = 6;
+const BASIS_POINTS_DECIMALS = 2;
+const MAX_FEE_BPS = 1_000;
 
 interface ParseUsdcInputOptions {
   allowZero?: boolean;
@@ -25,6 +27,32 @@ export function parseUsdcInput(
 
   if (result > BigInt(0)) return result;
   return options.allowZero ? result : null;
+}
+
+export function formatPercentFromBps(raw: number | bigint): string {
+  const value = typeof raw === "bigint" ? Number(raw) : raw;
+  const whole = Math.trunc(value / 100);
+  const frac = Math.abs(value % 100);
+  const formatted = `${whole}.${frac.toString().padStart(BASIS_POINTS_DECIMALS, "0")}`;
+  return formatted.replace(/\.?0+$/, "");
+}
+
+export function parseFeePercentInput(
+  value: string,
+  options: { allowZero?: boolean; maxBps?: number } = {},
+): number | null {
+  const trimmed = value.trim();
+  const match = /^(\d+)(?:\.(\d{0,2}))?$/.exec(trimmed);
+  if (!match) return null;
+
+  const whole = Number(match[1]);
+  const frac = Number((match[2] ?? "").padEnd(BASIS_POINTS_DECIMALS, "0").slice(0, BASIS_POINTS_DECIMALS));
+  const bps = whole * 100 + frac;
+  const maxBps = options.maxBps ?? MAX_FEE_BPS;
+
+  if (bps > maxBps) return null;
+  if (bps > 0) return bps;
+  return options.allowZero ? bps : null;
 }
 
 export function metadataBytesToHex(bytes: Iterable<number>): string {

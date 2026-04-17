@@ -109,6 +109,10 @@ function isBlockhashNotFoundError(error: unknown): boolean {
   return /blockhash not found/i.test(getErrorText(error));
 }
 
+function isAlreadyProcessedError(error: unknown): boolean {
+  return /already been processed/i.test(getErrorText(error));
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -305,8 +309,31 @@ export function SettlementCard() {
 
           tx.add(settleIx);
 
-          return await (program.provider as ProviderLike).sendAndConfirm(tx);
+          // Fetch a fresh blockhash for each attempt to avoid stale blockhash reuse
+          const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+          tx.recentBlockhash = blockhash;
+          tx.feePayer = publicKey;
+
+          if (!signTransaction) throw new Error("Wallet does not support signTransaction");
+          const signed = await signTransaction(tx);
+          const rawTx = signed.serialize();
+
+          const sig = await connection.sendRawTransaction(rawTx, {
+            skipPreflight: false,
+            preflightCommitment: "confirmed",
+          });
+
+          await connection.confirmTransaction(
+            { signature: sig, blockhash, lastValidBlockHeight },
+            "confirmed",
+          );
+
+          return sig;
         } catch (e: unknown) {
+          if (isAlreadyProcessedError(e)) {
+            console.info("settle_claims: transaction already processed (likely succeeded on a prior attempt)");
+            return "already-processed";
+          }
           lastError = e;
           if (!isBlockhashNotFoundError(e) || attempt === 3) {
             throw e;
@@ -322,10 +349,18 @@ export function SettlementCard() {
     for (const batch of batches) {
       try {
         const sig = await sendSettlementBatch(batch);
-        succeeded.push(sig);
+        if (sig !== "already-processed") {
+          succeeded.push(sig);
+        }
         settledClaims += batch.length;
         setProgress((prev) => ({ current: prev.current + batch.length, total: prev.total }));
       } catch (e: unknown) {
+        if (isAlreadyProcessedError(e)) {
+          console.info("settle_claims: batch already processed on-chain, treating as success");
+          settledClaims += batch.length;
+          setProgress((prev) => ({ current: prev.current + batch.length, total: prev.total }));
+          continue;
+        }
         console.error("Failed to settle claim batch:", e);
         if (e instanceof SendTransactionError) {
           const logs = await e.getLogs(connection);
@@ -348,7 +383,7 @@ export function SettlementCard() {
     setResults({ settledClaims, failedClaims, signatures: succeeded });
     setSettling(false);
     await Promise.all([refreshClaims(), refreshVault(), fetchPoolPendingClaims()]);
-  }, [canBatchSafely, connection, exceedsSingleTransactionLimit, fetchPoolPendingClaims, payoutVault, program, publicKey, refreshClaims, refreshVault, settlementPlan, usdcMint, usdcTokenProgram, poolPda, supportedUsdcConfigPda]);
+  }, [canBatchSafely, connection, exceedsSingleTransactionLimit, fetchPoolPendingClaims, payoutVault, program, publicKey, signTransaction, refreshClaims, refreshVault, settlementPlan, usdcMint, usdcTokenProgram, poolPda, supportedUsdcConfigPda]);
 
   const loading = claimsLoading || vaultLoading;
   const canSettle =

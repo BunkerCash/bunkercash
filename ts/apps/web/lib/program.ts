@@ -60,6 +60,14 @@ export function getSupportedUsdcConfigPda(programId: PublicKey = PROGRAM_ID): Pu
   return pda
 }
 
+export function getFeeConfigPda(programId: PublicKey = PROGRAM_ID): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [Buffer.from('fee_config')],
+    programId
+  )
+  return pda
+}
+
 export function getPoolSignerPda(poolPda: PublicKey, programId: PublicKey = PROGRAM_ID): PublicKey {
   void programId
   return poolPda

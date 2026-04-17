@@ -1,20 +1,21 @@
 'use client'
 
 import { useMyTransactions } from "@/hooks/useMyTransactions";
-import { useWallet } from "@solana/wallet-adapter-react";
 import { useConnection } from "@solana/wallet-adapter-react";
 import { getClusterFromEndpoint } from "@/lib/constants";
 import type { Transaction } from "@/types";
 import { ArrowUpIcon, ArrowRightIcon } from "@heroicons/react/24/outline";
+import { useOptionalWallet } from "@/hooks/useOptionalWallet";
 
 const TX_LABEL: Record<Transaction["type"], string> = {
-  investment: "Acquire",
-  withdrawal: "Request",
+  investment: "Buy",
+  withdrawal: "Sell",
 };
 
 export function PoolTransactions() {
   const { transactions, loading, error, refresh } = useMyTransactions();
-  const { publicKey } = useWallet();
+  const wallet = useOptionalWallet();
+  const publicKey = wallet?.publicKey ?? null;
   const { connection } = useConnection();
 
   const cluster = getClusterFromEndpoint(connection.rpcEndpoint ?? "");

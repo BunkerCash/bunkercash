@@ -9,16 +9,11 @@ import {
   Wallet,
   Globe,
   Percent,
+  Coins,
   MessageSquareMore,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import dynamic from "next/dynamic";
-
-const WalletMultiButton = dynamic(
-  async () =>
-    (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton,
-  { ssr: false }
-);
+import { AdminWalletButton } from "@/components/admin-wallet-button";
 
 const navItems = [
   {
@@ -26,6 +21,12 @@ const navItems = [
     label: "Event Log",
     icon: Zap,
     iconColor: "text-yellow-400",
+  },
+  {
+    href: "/dashboard/mint-setup",
+    label: "Mint Setup",
+    icon: Coins,
+    iconColor: "text-[#00FFB2]",
   },
   {
     href: "/dashboard/purchase-limits",
@@ -111,7 +112,7 @@ export function Sidebar() {
       </nav>
 
       <div className="px-4 pb-5">
-        <WalletMultiButton
+        <AdminWalletButton
           style={{
             width: "100%",
             height: "38px",
@@ -121,7 +122,6 @@ export function Sidebar() {
             background: "transparent",
             border: "1px solid #27272a",
             color: "#d4d4d8",
-            justifyContent: "center",
             padding: "0 12px",
           }}
         />

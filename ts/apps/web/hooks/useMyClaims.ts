@@ -1,19 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useWallet } from "@solana/wallet-adapter-react";
 import type { ClaimsResponse, SerializedClaim } from "@/lib/solana-server";
+import { useOptionalWallet } from "@/hooks/useOptionalWallet";
 
 export type Claim = SerializedClaim;
 
 export function useMyClaims() {
-  const wallet = useWallet();
+  const wallet = useOptionalWallet();
   const [claims, setClaims] = useState<Claim[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchClaims = useCallback(async () => {
-    if (!wallet.publicKey) {
+    if (!wallet?.publicKey) {
       setClaims([]);
       return;
     }
@@ -38,7 +38,7 @@ export function useMyClaims() {
     } finally {
       setLoading(false);
     }
-  }, [wallet.publicKey]);
+  }, [wallet?.publicKey]);
 
   useEffect(() => {
     void fetchClaims();

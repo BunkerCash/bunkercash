@@ -49,7 +49,7 @@
     "@radix-ui/react-tooltip": "=1.2.8",
     "@solana/spl-token": "=0.4.9",
     "@solana/wallet-adapter-phantom": "=0.9.28",
-    "@solana/wallet-adapter-react": "=0.15.35",
+    "@solana/wallet-adapter-react": "=0.15.39",
     "@solana/wallet-adapter-react-ui": "=0.9.35",
     "@solana/web3.js": "=1.98.4",
     "@sqds/multisig": "=2.1.4",

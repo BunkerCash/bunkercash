@@ -2,14 +2,17 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import type { Idl, Program } from '@coral-xyz/anchor'
-import { useConnection, useWallet } from '@solana/wallet-adapter-react'
+import { useConnection } from '@solana/wallet-adapter-react'
 import { PublicKey, SendTransactionError, SystemProgram, Transaction, type TransactionInstruction } from '@solana/web3.js'
 import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import {
   getBunkercashMintPda,
+  getFeeConfigPda,
   getPoolPda,
   getPurchaseLimitConfigPda,
   getSupportedUsdcConfigPda,
+  fetchConfiguredUsdcMint,
+  fetchMintTokenProgram,
   getProgram,
   type ProgramWallet,
   PROGRAM_ID,
@@ -21,6 +24,7 @@ import { BN } from '@coral-xyz/anchor'
 import { useToast } from "@/components/ui/ToastContext";
 import { useSupportedUsdcMint } from "@/hooks/useSupportedUsdcMint";
 import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
+import { useOptionalWallet } from "@/hooks/useOptionalWallet";
 
 const USDC_DECIMALS = 6
 const USDC_SCALE = 10n ** BigInt(USDC_DECIMALS)
@@ -39,6 +43,11 @@ function derivePrice(navRaw: bigint, supplyRaw: bigint): number {
   return Number(navRaw) / Number(supplyRaw)
 }
 
+function formatPercentFromBps(bps: number): string {
+  const formatted = (bps / 100).toFixed(2)
+  return formatted.replace(/\.?0+$/, "")
+}
+
 /** Detect wallet rejection errors */
 function isWalletRejection(e: unknown): boolean {
   const msg = e instanceof Error ? e.message.toLowerCase() : String(e ?? '').toLowerCase()
@@ -53,11 +62,16 @@ interface PoolAccount {
   masterWallet: PublicKey;
   nav: Stringable;
   totalBrentSupply: Stringable;
+  totalPendingClaims: Stringable;
 }
 
 interface PurchaseLimitConfigAccount {
   purchaseLimitUsdc: Stringable;
   totalDepositedUsdc: Stringable;
+}
+
+interface FeeConfigAccount {
+  purchaseFeeBps: Stringable;
 }
 
 interface BuyPrimaryMethods {
@@ -70,6 +84,7 @@ interface BuyPrimaryMethods {
       brentMint: PublicKey;
       supportedUsdcConfig: PublicKey;
       purchaseLimitConfig: PublicKey;
+      feeConfig: PublicKey;
       usdcMint: PublicKey;
       user: PublicKey;
       usdcTokenProgram: PublicKey;
@@ -83,8 +98,10 @@ interface BuyPrimaryMethods {
 
 export function BuyPrimaryInterface() {
   const { connection } = useConnection()
-  const wallet = useWallet()
-  const { publicKey, signTransaction, signAllTransactions } = wallet
+  const wallet = useOptionalWallet()
+  const publicKey = wallet?.publicKey ?? null
+  const signTransaction = wallet?.signTransaction
+  const signAllTransactions = wallet?.signAllTransactions
   const { showToast } = useToast();
   const [usdcAmount, setUsdcAmount] = useState("");
   const [loading, setLoading] = useState(false);
@@ -98,6 +115,7 @@ export function BuyPrimaryInterface() {
     totalBrentSupply: bigint;
     purchaseLimitUsdc: bigint;
     totalDepositedUsdc: bigint;
+    purchaseFeeBps: number;
   } | null>(null);
   const [poolError, setPoolError] = useState<string | null>(null);
 
@@ -118,6 +136,7 @@ export function BuyPrimaryInterface() {
     () => getPurchaseLimitConfigPda(PROGRAM_ID),
     []
   );
+  const feeConfigPda = useMemo(() => getFeeConfigPda(PROGRAM_ID), []);
   const supportedUsdcConfigPda = useMemo(
     () => getSupportedUsdcConfigPda(PROGRAM_ID),
     []
@@ -136,10 +155,14 @@ export function BuyPrimaryInterface() {
         purchaseLimitConfig?: {
           fetch: (key: PublicKey) => Promise<PurchaseLimitConfigAccount>;
         };
+        feeConfig?: {
+          fetch: (key: PublicKey) => Promise<FeeConfigAccount>;
+        };
       }
       const state = await accountApi.pool.fetch(poolPda);
       let purchaseLimitUsdc = BigInt(0);
       let totalDepositedUsdc = BigInt(0);
+      let purchaseFeeBps = 0;
 
       if (accountApi.purchaseLimitConfig) {
         try {
@@ -154,19 +177,33 @@ export function BuyPrimaryInterface() {
         }
       }
 
+      if (accountApi.feeConfig) {
+        try {
+          const feeConfig = await accountApi.feeConfig.fetch(feeConfigPda);
+          purchaseFeeBps = Number(feeConfig.purchaseFeeBps.toString());
+        } catch {
+          purchaseFeeBps = 0;
+        }
+      }
+
+      const nav = BigInt(state.nav.toString())
+      const totalPendingClaims = BigInt(state.totalPendingClaims.toString())
+      const availableNav = nav > totalPendingClaims ? nav - totalPendingClaims : 0n
+
       setPoolState({
         masterWallet: state.masterWallet,
-        nav: BigInt(state.nav.toString()),
+        nav: availableNav,
         totalBrentSupply: BigInt(state.totalBrentSupply.toString()),
         purchaseLimitUsdc,
         totalDepositedUsdc,
+        purchaseFeeBps,
       });
       setPoolError(null);
     } catch {
       setPoolError("not_initialized");
       setPoolState(null);
     }
-  }, [program, poolPda, connection, purchaseLimitConfigPda]);
+  }, [program, poolPda, connection, purchaseLimitConfigPda, feeConfigPda]);
 
   useEffect(() => {
     void fetchPoolState();
@@ -234,11 +271,24 @@ export function BuyPrimaryInterface() {
 
   const tokenAmountRaw = useMemo(() => {
     if (!poolState || !usdcAmountRaw) return null;
+    const purchaseFeeRaw = (usdcAmountRaw * BigInt(poolState.purchaseFeeBps)) / 10_000n;
+    const netInvestmentRaw = usdcAmountRaw - purchaseFeeRaw;
+    if (netInvestmentRaw <= 0n) return null;
     if (poolState.totalBrentSupply === BigInt(0) || poolState.nav === BigInt(0)) {
-      return usdcAmountRaw;
+      return netInvestmentRaw;
     }
-    return (usdcAmountRaw * poolState.totalBrentSupply) / poolState.nav;
+    return (netInvestmentRaw * poolState.totalBrentSupply) / poolState.nav;
   }, [poolState, usdcAmountRaw]);
+
+  const purchaseFeeRaw = useMemo(() => {
+    if (!poolState || !usdcAmountRaw) return null;
+    return (usdcAmountRaw * BigInt(poolState.purchaseFeeBps)) / 10_000n;
+  }, [poolState, usdcAmountRaw]);
+
+  const netInvestmentRaw = useMemo(() => {
+    if (!usdcAmountRaw || purchaseFeeRaw == null) return null;
+    return usdcAmountRaw - purchaseFeeRaw;
+  }, [usdcAmountRaw, purchaseFeeRaw]);
 
   const tokenAmountUi =
     tokenAmountRaw != null ? toUi(tokenAmountRaw, USDC_DECIMALS) : "";
@@ -269,8 +319,11 @@ export function BuyPrimaryInterface() {
     if (usdcBalanceRaw != null && usdcAmountRaw > usdcBalanceRaw) {
       return "Insufficient USDC balance";
     }
+    if (tokenAmountRaw != null && tokenAmountRaw <= 0n) {
+      return "Amount is too small after fees and current pricing";
+    }
     return null;
-  }, [usdcAmount, usdcAmountRaw, usdcBalanceRaw, remainingPurchaseCapacityRaw]);
+  }, [usdcAmount, usdcAmountRaw, usdcBalanceRaw, remainingPurchaseCapacityRaw, tokenAmountRaw]);
 
   const handleBuy = async () => {
     if (!usdcMint) {
@@ -285,6 +338,7 @@ export function BuyPrimaryInterface() {
       return;
     }
     if (
+      !wallet ||
       !program ||
       !publicKey ||
       !poolState ||
@@ -311,26 +365,39 @@ export function BuyPrimaryInterface() {
     setTxSig(null);
     setLoading(true);
     try {
-      if (!supportsUsdcDeposits) {
+      // Resolve the configured settlement mint fresh at submit time so we do not
+      // build the transaction with stale client state after an admin-side mint change.
+      const configuredUsdcMint =
+        (await fetchConfiguredUsdcMint(connection)) ?? usdcMint;
+      const configuredUsdcTokenProgram = await fetchMintTokenProgram(
+        connection,
+        configuredUsdcMint,
+      );
+
+      if (
+        !configuredUsdcTokenProgram ||
+        (!configuredUsdcTokenProgram.equals(TOKEN_PROGRAM_ID) &&
+          !configuredUsdcTokenProgram.equals(TOKEN_2022_PROGRAM_ID))
+      ) {
         const msg =
-          "Configured USDC mint is not supported by this deployment.";
+          `Configured USDC mint ${configuredUsdcMint.toBase58()} is missing or owned by an unexpected token program on ${currentCluster}.`;
         setError(msg);
         showToast(msg, "error");
         return;
       }
 
       const userUsdc = getAssociatedTokenAddressSync(
-        usdcMint,
+        configuredUsdcMint,
         publicKey,
         false,
-        usdcTokenProgram,
+        configuredUsdcTokenProgram,
         ASSOCIATED_TOKEN_PROGRAM_ID,
       );
       const poolUsdcVault = getAssociatedTokenAddressSync(
-        usdcMint,
+        configuredUsdcMint,
         poolPda,
         true,
-        usdcTokenProgram,
+        configuredUsdcTokenProgram,
         ASSOCIATED_TOKEN_PROGRAM_ID,
       );
       const brentMintInfo = await connection.getAccountInfo(bunkercashMintPda);
@@ -354,8 +421,8 @@ export function BuyPrimaryInterface() {
           publicKey,
           userUsdc,
           publicKey,
-          usdcMint,
-          usdcTokenProgram,
+          configuredUsdcMint,
+          configuredUsdcTokenProgram,
           ASSOCIATED_TOKEN_PROGRAM_ID,
         );
       const createUserBunkercashAtaIx =
@@ -372,8 +439,8 @@ export function BuyPrimaryInterface() {
           publicKey,
           poolUsdcVault,
           poolPda,
-          usdcMint,
-          usdcTokenProgram,
+          configuredUsdcMint,
+          configuredUsdcTokenProgram,
           ASSOCIATED_TOKEN_PROGRAM_ID,
         );
 
@@ -388,9 +455,10 @@ export function BuyPrimaryInterface() {
           brentMint: bunkercashMintPda,
           supportedUsdcConfig: supportedUsdcConfigPda,
           purchaseLimitConfig: purchaseLimitConfigPda,
-          usdcMint,
+          feeConfig: feeConfigPda,
+          usdcMint: configuredUsdcMint,
           user: publicKey,
-          usdcTokenProgram,
+          usdcTokenProgram: configuredUsdcTokenProgram,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
@@ -565,6 +633,18 @@ export function BuyPrimaryInterface() {
               </span>
             </div>
           </div>
+          <div className="mt-4 rounded-xl border border-neutral-800 bg-neutral-950/40 p-4 text-sm">
+            <div className="flex justify-between text-neutral-400">
+              <span>Purchase fee</span>
+              <span>
+                {purchaseFeeRaw != null ? `${toUi(purchaseFeeRaw, USDC_DECIMALS)} USDC` : "0 USDC"} ({formatPercentFromBps(poolState.purchaseFeeBps)}%)
+              </span>
+            </div>
+            <div className="mt-2 flex justify-between text-white">
+              <span>Net investment</span>
+              <span>{netInvestmentRaw != null ? `${toUi(netInvestmentRaw, USDC_DECIMALS)} USDC` : "0 USDC"}</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -607,7 +687,7 @@ export function BuyPrimaryInterface() {
         }
         className="w-full rounded-xl bg-[#00FFB2] py-5 text-lg font-semibold text-black transition-all hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600"
       >
-        {loading ? "Processing…" : "Acquire Tokens"}
+        {loading ? "Processing…" : "Buy"}
       </button>
 
       <div className="text-center text-xs text-neutral-600 space-y-1">

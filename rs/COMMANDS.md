@@ -10,7 +10,7 @@ All commands assume you are in the `rs` directory and use the **pool admin** wal
 cd rs
 export ANCHOR_PROVIDER_URL=https://api.devnet.solana.com
 export ANCHOR_WALLET=~/.config/solana/id.json
-export USDC_MINT=Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx
+export USDC_MINT=DCM1oDQRSv9dn4xpZrXuX23yvivoFHSKKF1mjuCEcjdQ
 ```
 
 Or source the example env:
@@ -42,7 +42,7 @@ Creates the pool and Bunker Cash mint if they don’t exist. The wallet in `ANCH
 cd rs
 export ANCHOR_PROVIDER_URL=https://api.devnet.solana.com
 export ANCHOR_WALLET=~/.config/solana/id.json
-export USDC_MINT=Fr1JKnAfaspPUpsQBsYPfKmMak5tL6VXixibKJX5roJx
+export USDC_MINT=DCM1oDQRSv9dn4xpZrXuX23yvivoFHSKKF1mjuCEcjdQ
 npx ts-node -P tsconfig.json scripts/bootstrap-fixed-price.ts
 ```
 

@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useState } from "react"
-import { useConnection, useWallet } from "@solana/wallet-adapter-react"
+import { useConnection } from "@solana/wallet-adapter-react"
 import {
   TransactionMessage,
   VersionedTransaction,
@@ -14,6 +14,7 @@ import {
   getSquadsDashboardUrl,
   getClusterFromEndpoint,
 } from "@/lib/constants"
+import { useOptionalWallet } from "@/hooks/useOptionalWallet"
 
 export type SquadsSubmitResult = {
   /** Squads v4 transaction index */
@@ -56,7 +57,7 @@ function assertSquadsConfigured() {
  */
 export function useSquadsTransaction() {
   const { connection } = useConnection()
-  const wallet = useWallet()
+  const wallet = useOptionalWallet()
 
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -67,7 +68,7 @@ export function useSquadsTransaction() {
       instructions: TransactionInstruction[],
       memo?: string,
     ): Promise<SquadsSubmitResult | null> => {
-      if (!wallet.publicKey || !wallet.signAllTransactions) {
+      if (!wallet?.publicKey || !wallet.signAllTransactions) {
         setError("Wallet not connected")
         return null
       }

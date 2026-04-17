@@ -41,13 +41,17 @@ export function useSupportedUsdcMint() {
       const nextTokenProgram = nextMint
         ? await fetchMintTokenProgram(connection, nextMint)
         : null;
+      const nextError =
+        nextMint && !nextTokenProgram
+          ? `Configured USDC mint ${nextMint.toBase58()} is missing or owned by an unexpected program on the selected cluster.`
+          : null;
       if (
         isMountedRef.current &&
         requestIdRef.current === requestId
       ) {
         setUsdcMint(nextMint);
         setUsdcTokenProgram(nextTokenProgram);
-        setError(null);
+        setError(nextError);
       }
     } catch (error: unknown) {
       if (
