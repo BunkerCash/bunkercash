@@ -333,11 +333,11 @@ export function FeesCard() {
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#00FFB2]" />
           <div className="space-y-2 text-sm text-neutral-300">
             <p>
-              Purchase fees reduce the number of new bRENT tokens minted for a deposit. Claim fees reduce the USDC amount
-              added to a withdrawal request.
+              Purchase fees reduce the number of new BunkerCash tokens minted for a deposit. Claim fees are taken in
+              BunkerCash up-front when a withdrawal claim is filed and sent to the admin wallet.
             </p>
             <p className="text-neutral-500">
-              Both fee types are capped at 10% and stay inside the pool, which benefits the remaining token holders.
+              Both fee types are capped at 10%.
             </p>
           </div>
         </div>

@@ -1,7 +1,7 @@
 import { Buffer } from "buffer";
 import { Connection, PublicKey } from "@solana/web3.js";
 
-const CLAIM_CURRENT_SIZE = 66;
+const CLAIM_CURRENT_SIZE = 83;
 const CLAIM_DISCRIMINATOR = Buffer.from([155, 70, 22, 176, 123, 215, 246, 102]);
 
 export interface DecodedClaimAccount {
@@ -12,6 +12,9 @@ export interface DecodedClaimAccount {
   paidUsdc: string;
   remainingUsdc: string;
   processed: boolean;
+  cancelled: boolean;
+  bunkercashEscrow: string;
+  bunkercashRemaining: string;
   createdAt: string;
 }
 
@@ -41,9 +44,15 @@ function decodeClaimAccount(pubkey: PublicKey, data: Uint8Array): DecodedClaimAc
 
   const user = new PublicKey(data.slice(8, 40));
   const requestedRaw = readU64Le(data, 40);
+  const createdAt = readI64Le(data, 48);
+  const processedFlag = data[56] === 1;
   const paidRaw = readU64Le(data, 57);
+  const bunkercashEscrowRaw = readU64Le(data, 65);
+  const bunkercashRemainingRaw = readU64Le(data, 73);
+  const cancelled = data[81] === 1;
+
   const remainingRaw = requestedRaw > paidRaw ? requestedRaw - paidRaw : BigInt(0);
-  const processed = data[56] === 1 || remainingRaw === BigInt(0);
+  const processed = processedFlag || remainingRaw === BigInt(0);
 
   return {
     pubkey,
@@ -53,7 +62,10 @@ function decodeClaimAccount(pubkey: PublicKey, data: Uint8Array): DecodedClaimAc
     paidUsdc: paidRaw.toString(),
     remainingUsdc: remainingRaw.toString(),
     processed,
-    createdAt: readI64Le(data, 48).toString(),
+    cancelled,
+    bunkercashEscrow: bunkercashEscrowRaw.toString(),
+    bunkercashRemaining: bunkercashRemainingRaw.toString(),
+    createdAt: createdAt.toString(),
   };
 }
 

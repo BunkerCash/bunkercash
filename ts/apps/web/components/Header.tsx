@@ -11,7 +11,7 @@ import { PhantomConnectButton } from "@/components/wallet/PhantomConnectButton";
 export function Header() {
   const pathname = usePathname()
   const isHome = pathname === '/'
-  const isBrent = pathname === '/brent'
+  const isBunkerCash = pathname === '/bunkercash'
   const [mounted, setMounted] = useState(false)
   const wallet = useOptionalWallet()
 
@@ -39,13 +39,13 @@ export function Header() {
                 About
               </Link>
               <Link
-                href="/brent"
+                href="/bunkercash"
                 className={cn(
                   "transition-colors",
-                  isBrent ? "text-[#00FFB2]" : "text-neutral-400 hover:text-white"
+                  isBunkerCash ? "text-[#00FFB2]" : "text-neutral-400 hover:text-white"
                 )}
               >
-                bRENT
+                BunkerCash
               </Link>
             </nav>
           </div>
