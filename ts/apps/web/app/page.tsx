@@ -573,37 +573,6 @@ export default function Home() {
           overflow-y: auto;
           padding: 1rem;
         }
-
-        .hp-sell {
-          display: flex;
-          flex-direction: column;
-          gap: 1.1rem;
-          align-items: flex-start;
-        }
-        .hp-sell p {
-          margin: 0;
-          color: rgba(255, 255, 255, 0.7);
-          line-height: 1.5;
-          font-size: 0.92rem;
-        }
-        .hp-sell-btn {
-          display: inline-flex;
-          align-items: center;
-          gap: 0.4rem;
-          padding: 0.75rem 1.25rem;
-          background: linear-gradient(135deg, #ff2bd6, #ff4d4d);
-          color: #fff;
-          font-weight: 700;
-          border-radius: 10px;
-          text-decoration: none;
-          letter-spacing: 0.02em;
-          box-shadow: 0 10px 30px -8px rgba(255, 43, 214, 0.55);
-          transition: transform 0.15s ease, box-shadow 0.2s ease;
-        }
-        .hp-sell-btn:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 14px 36px -6px rgba(255, 43, 214, 0.7);
-        }
         @media (max-width: 640px) {
           .hp-modal-backdrop {
             padding: 0.75rem;
