@@ -25,10 +25,10 @@ mod governance_keys {
 
 use governance_keys::{SQUADS_MEMBER_1, SQUADS_MEMBER_2, SQUADS_MEMBER_3, SQUADS_MEMBER_4};
 
-declare_id!("G5Vb57tzpH1FvqrqDiPqNeZka7VbexAYWnPW5EmwF3Ld");
+declare_id!("82dniBUUXSFNEhQ9vpjce1tQXLkX7EyHLL7FEuCGHtH4");
 
 const POOL_SEED: &[u8] = b"pool";
-const BRENT_MINT_SEED: &[u8] = b"bunkercash_mint";
+const BUNKERCASH_MINT_SEED: &[u8] = b"bunkercash_mint";
 const CLAIM_SEED: &[u8] = b"claim";
 const PURCHASE_LIMIT_SEED: &[u8] = b"purchase_limit";
 const SUPPORTED_USDC_CONFIG_SEED: &[u8] = b"supported_usdc_config";
@@ -86,17 +86,17 @@ fn validate_initializer(initializer: &Pubkey) -> Result<()> {
 }
 
 fn calculate_claim_usdc_value(
-    brent_amount: u64,
+    bunkercash_amount: u64,
     nav: u64,
-    total_brent_supply: u64,
+    total_bunkercash_supply: u64,
 ) -> Option<u64> {
-    if brent_amount == 0 || nav == 0 || total_brent_supply == 0 {
+    if bunkercash_amount == 0 || nav == 0 || total_bunkercash_supply == 0 {
         return None;
     }
 
-    let usdc_value = (brent_amount as u128)
+    let usdc_value = (bunkercash_amount as u128)
         .checked_mul(nav as u128)?
-        .checked_div(total_brent_supply as u128)? as u64;
+        .checked_div(total_bunkercash_supply as u128)? as u64;
 
     if usdc_value == 0 {
         return None;
@@ -109,12 +109,12 @@ fn canonical_pool_usdc_vault(pool: Pubkey, usdc_mint: Pubkey, token_program: Pub
     get_associated_token_address_with_program_id(&pool, &usdc_mint, &token_program)
 }
 
-fn canonical_metadata_account(brent_mint: Pubkey) -> Pubkey {
+fn canonical_metadata_account(bunkercash_mint: Pubkey) -> Pubkey {
     Pubkey::find_program_address(
         &[
             b"metadata",
             TOKEN_METADATA_PROGRAM_ID.as_ref(),
-            brent_mint.as_ref(),
+            bunkercash_mint.as_ref(),
         ],
         &TOKEN_METADATA_PROGRAM_ID,
     )
@@ -258,7 +258,7 @@ fn validate_supported_usdc_mint_change(
     // The program does not maintain a global open-withdrawal index, so require
     // a stronger quiescent state before changing the settlement mint.
     require!(
-        pool.nav == 0 && pool.total_brent_supply == 0,
+        pool.nav == 0 && pool.total_bunkercash_supply == 0,
         ErrorCode::MintChangeRequiresSettledPool
     );
 
@@ -359,7 +359,7 @@ pub mod bunkercash {
         let timestamp = Clock::get()?.unix_timestamp;
         pool.master_wallet = master_wallet;
         pool.nav = 0;
-        pool.total_brent_supply = 0;
+        pool.total_bunkercash_supply = 0;
         pool.total_pending_claims = 0;
         pool.claim_counter = 0;
         pool.withdrawal_counter = 0;
@@ -383,7 +383,7 @@ pub mod bunkercash {
         });
 
         msg!(
-            "bRENT pool initialized with master wallet {} and USDC mint {}",
+            "BunkerCash pool initialized with master wallet {} and USDC mint {}",
             master_wallet,
             usdc_mint_key
         );
@@ -416,7 +416,7 @@ pub mod bunkercash {
             .checked_sub(pool.total_pending_claims)
             .ok_or(ErrorCode::InvalidNAV)?;
 
-        let brent_to_mint = if pool.total_brent_supply == 0 {
+        let bunkercash_to_mint = if pool.total_bunkercash_supply == 0 {
             // Only allow 1:1 minting when no residual NAV exists.
             // Residual NAV (from fees etc.) with zero supply would give
             // the next depositor a windfall at existing holders' expense.
@@ -426,7 +426,7 @@ pub mod bunkercash {
             require!(available_nav_for_pricing > 0, ErrorCode::InvalidNAV);
             u64::try_from(
                 (net_usdc_amount as u128)
-                    .checked_mul(pool.total_brent_supply as u128)
+                    .checked_mul(pool.total_bunkercash_supply as u128)
                     .ok_or_else(arithmetic_error)?
                     .checked_div(available_nav_for_pricing as u128)
                     .ok_or_else(arithmetic_error)?,
@@ -449,9 +449,9 @@ pub mod bunkercash {
         )?;
 
         pool.nav = pool.nav.checked_add(usdc_amount).ok_or_else(arithmetic_error)?;
-        pool.total_brent_supply = pool
-            .total_brent_supply
-            .checked_add(brent_to_mint)
+        pool.total_bunkercash_supply = pool
+            .total_bunkercash_supply
+            .checked_add(bunkercash_to_mint)
             .ok_or_else(arithmetic_error)?;
         purchase_limit_config.total_deposited_usdc = purchase_limit_config
             .total_deposited_usdc
@@ -460,7 +460,7 @@ pub mod bunkercash {
 
         let pool_bump = pool.bump;
         let new_nav = pool.nav;
-        let new_total_brent_supply = pool.total_brent_supply;
+        let new_total_bunkercash_supply = pool.total_bunkercash_supply;
         let timestamp = Clock::get()?.unix_timestamp;
 
         let seeds = &[
@@ -473,27 +473,27 @@ pub mod bunkercash {
             CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
                 anchor_spl::token_2022::MintToChecked {
-                    mint: ctx.accounts.brent_mint.to_account_info(),
-                    to: ctx.accounts.user_brent.to_account_info(),
+                    mint: ctx.accounts.bunkercash_mint.to_account_info(),
+                    to: ctx.accounts.user_bunkercash.to_account_info(),
                     authority: pool.to_account_info(),
                 },
                 signer,
             ),
-            brent_to_mint,
-            ctx.accounts.brent_mint.decimals,
+            bunkercash_to_mint,
+            ctx.accounts.bunkercash_mint.decimals,
         )?;
 
         emit!(UsdcDepositedEvent {
             pool: pool.key(),
             user,
             usdc_amount,
-            brent_minted: brent_to_mint,
+            bunkercash_minted: bunkercash_to_mint,
             new_nav,
-            new_total_brent_supply,
+            new_total_bunkercash_supply,
             timestamp,
         });
 
-        msg!("Deposited {} USDC, minted {} bRENT. New NAV: {}", usdc_amount, brent_to_mint, new_nav);
+        msg!("Deposited {} USDC, minted {} BunkerCash. New NAV: {}", usdc_amount, bunkercash_to_mint, new_nav);
         Ok(())
     }
 
@@ -587,35 +587,35 @@ pub mod bunkercash {
         Ok(())
     }
 
-    pub fn create_brent_mint(ctx: Context<CreateBrentMint>) -> Result<()> {
+    pub fn create_bunkercash_mint(ctx: Context<CreateBunkercashMint>) -> Result<()> {
         let pool = &ctx.accounts.pool;
         require!(
             ctx.accounts.admin.key() == pool.master_wallet,
             ErrorCode::Unauthorized
         );
         require!(
-            ctx.accounts.brent_mint.data_is_empty(),
+            ctx.accounts.bunkercash_mint.data_is_empty(),
             ErrorCode::MintAlreadyInitialized
         );
 
         let rent = Rent::get()?;
         let mint_space = Token2022Mint::LEN;
         let mint_lamports = rent.minimum_balance(mint_space);
-        let mint_bump = ctx.bumps.brent_mint;
+        let mint_bump = ctx.bumps.bunkercash_mint;
         let mint_seeds = &[b"bunkercash_mint".as_ref(), &[mint_bump]];
         let mint_signer = &[&mint_seeds[..]];
 
         invoke_signed(
             &system_instruction::create_account(
                 &ctx.accounts.admin.key(),
-                &ctx.accounts.brent_mint.key(),
+                &ctx.accounts.bunkercash_mint.key(),
                 mint_lamports,
                 mint_space as u64,
                 &ctx.accounts.token_program.key(),
             ),
             &[
                 ctx.accounts.admin.to_account_info(),
-                ctx.accounts.brent_mint.to_account_info(),
+                ctx.accounts.bunkercash_mint.to_account_info(),
                 ctx.accounts.system_program.to_account_info(),
             ],
             mint_signer,
@@ -625,7 +625,7 @@ pub mod bunkercash {
             CpiContext::new(
                 ctx.accounts.token_program.to_account_info(),
                 anchor_spl::token_2022::InitializeMint2 {
-                    mint: ctx.accounts.brent_mint.to_account_info(),
+                    mint: ctx.accounts.bunkercash_mint.to_account_info(),
                 },
             ),
             6,
@@ -633,33 +633,46 @@ pub mod bunkercash {
             Some(&pool.key()),
         )?;
 
-        emit!(BrentMintCreatedEvent {
+        emit!(BunkercashMintCreatedEvent {
             pool: pool.key(),
             admin: ctx.accounts.admin.key(),
-            mint: ctx.accounts.brent_mint.key(),
+            mint: ctx.accounts.bunkercash_mint.key(),
             decimals: 6,
             timestamp: Clock::get()?.unix_timestamp,
         });
 
         msg!(
-            "bRENT mint created at {} with authority {}",
-            ctx.accounts.brent_mint.key(),
+            "BunkerCash mint created at {} with authority {}",
+            ctx.accounts.bunkercash_mint.key(),
             pool.key()
         );
         Ok(())
     }
 
-    // tokenclaims 
+    // tokenclaims
+    //
+    // Fee is charged in BunkerCash up front. The fee portion is sent to the
+    // admin wallet's BunkerCash ATA. The remaining (net) BunkerCash is locked
+    // in a pool-owned escrow ATA instead of being burned. Escrowed BunkerCash
+    // is treated as pre-committed to burn for NAV purposes (it is subtracted
+    // from `total_bunkercash_supply` at file time). It is burned on settlement
+    // proportional to the USDC actually paid out, or returned to the user if
+    // the claim is cancelled.
     pub fn file_claim(
         ctx: Context<FileClaim>,
-        brent_amount: u64,
+        bunkercash_amount: u64,
     ) -> Result<()> {
         let pool = &mut ctx.accounts.pool;
         let claim = &mut ctx.accounts.claim;
         let fee_config = &ctx.accounts.fee_config;
         let user = ctx.accounts.user.key();
 
-        require!(pool.nav > 0 && pool.total_brent_supply > 0, ErrorCode::InvalidNAV);
+        validate_non_zero_amount(bunkercash_amount)?;
+        require!(pool.nav > 0 && pool.total_bunkercash_supply > 0, ErrorCode::InvalidNAV);
+        require!(
+            ctx.accounts.master_wallet.key() == pool.master_wallet,
+            ErrorCode::InvalidMasterWallet
+        );
 
         let available_nav = pool
             .nav
@@ -667,34 +680,59 @@ pub mod bunkercash {
             .ok_or(ErrorCode::InvalidNAV)?;
         require!(available_nav > 0, ErrorCode::InvalidNAV);
 
-        let gross_usdc_value = calculate_claim_usdc_value(
-            brent_amount,
+        let fee_bunkercash = calculate_fee_amount(bunkercash_amount, fee_config.claim_fee_bps)?;
+        let net_bunkercash = bunkercash_amount
+            .checked_sub(fee_bunkercash)
+            .ok_or_else(arithmetic_error)?;
+        require!(net_bunkercash > 0, ErrorCode::ClaimAmountTooSmall);
+
+        // Pricing uses the net BunkerCash — the fee portion never becomes a
+        // USDC claim and so does not dilute the remaining holders.
+        let usdc_value = calculate_claim_usdc_value(
+            net_bunkercash,
             available_nav,
-            pool.total_brent_supply,
+            pool.total_bunkercash_supply,
         )
         .ok_or(ErrorCode::ClaimAmountTooSmall)?;
-        let claim_fee = calculate_fee_amount(gross_usdc_value, fee_config.claim_fee_bps)?;
-        let usdc_value = gross_usdc_value
-            .checked_sub(claim_fee)
-            .ok_or_else(arithmetic_error)?;
-        require!(usdc_value > 0, ErrorCode::ClaimAmountTooSmall);
 
-        anchor_spl::token_2022::burn_checked(
+        // Send the fee portion to the admin wallet's BunkerCash ATA.
+        if fee_bunkercash > 0 {
+            anchor_spl::token_2022::transfer_checked(
+                CpiContext::new(
+                    ctx.accounts.token_program.to_account_info(),
+                    anchor_spl::token_2022::TransferChecked {
+                        from: ctx.accounts.user_bunkercash.to_account_info(),
+                        to: ctx.accounts.master_bunkercash.to_account_info(),
+                        authority: ctx.accounts.user.to_account_info(),
+                        mint: ctx.accounts.bunkercash_mint.to_account_info(),
+                    },
+                ),
+                fee_bunkercash,
+                ctx.accounts.bunkercash_mint.decimals,
+            )?;
+        }
+
+        // Lock the net BunkerCash in the pool-owned escrow ATA.
+        anchor_spl::token_2022::transfer_checked(
             CpiContext::new(
                 ctx.accounts.token_program.to_account_info(),
-                anchor_spl::token_2022::BurnChecked {
-                    mint: ctx.accounts.brent_mint.to_account_info(),
-                    from: ctx.accounts.user_brent.to_account_info(),
+                anchor_spl::token_2022::TransferChecked {
+                    from: ctx.accounts.user_bunkercash.to_account_info(),
+                    to: ctx.accounts.pool_bunkercash_escrow.to_account_info(),
                     authority: ctx.accounts.user.to_account_info(),
+                    mint: ctx.accounts.bunkercash_mint.to_account_info(),
                 },
             ),
-            brent_amount,
-            ctx.accounts.brent_mint.decimals,
+            net_bunkercash,
+            ctx.accounts.bunkercash_mint.decimals,
         )?;
 
-        pool.total_brent_supply = pool
-            .total_brent_supply
-            .checked_sub(brent_amount)
+        // Escrowed BunkerCash is treated as pre-burned for supply accounting
+        // so NAV/per-token pricing stays consistent with the original burn-on-
+        // file semantics. The fee portion is not burned and stays in supply.
+        pool.total_bunkercash_supply = pool
+            .total_bunkercash_supply
+            .checked_sub(net_bunkercash)
             .ok_or_else(arithmetic_error)?;
         pool.total_pending_claims = pool
             .total_pending_claims
@@ -710,6 +748,9 @@ pub mod bunkercash {
         claim.timestamp = timestamp;
         claim.processed = false;
         claim.paid_amount = 0;
+        claim.bunkercash_escrow = net_bunkercash;
+        claim.bunkercash_remaining = net_bunkercash;
+        claim.cancelled = false;
         claim.bump = ctx.bumps.claim;
 
         emit!(ClaimFiledEvent {
@@ -717,14 +758,22 @@ pub mod bunkercash {
             claim: claim.key(),
             claim_id,
             user,
-            brent_amount,
+            bunkercash_amount,
+            fee_bunkercash,
+            net_bunkercash,
             usdc_amount: usdc_value,
             total_pending_claims: pool.total_pending_claims,
-            remaining_brent_supply: pool.total_brent_supply,
+            remaining_bunkercash_supply: pool.total_bunkercash_supply,
             timestamp,
         });
 
-        msg!("Filed claim for {} bRENT ({} USDC value)", brent_amount, usdc_value);
+        msg!(
+            "Filed claim: {} BunkerCash total, {} fee to admin, {} escrowed for {} USDC",
+            bunkercash_amount,
+            fee_bunkercash,
+            net_bunkercash,
+            usdc_value
+        );
         Ok(())
     }
 
@@ -753,12 +802,15 @@ pub mod bunkercash {
         )?;
 
         // Compute the remaining amount across the claims included in this run.
+        // Cancelled claims must be skipped — their BunkerCash escrow has already
+        // been returned to the user and their USDC-remaining has already been
+        // subtracted from `total_pending_claims`.
         let mut actual_total_remaining = 0u64;
         for (idx, claim_account_info) in ctx.remaining_accounts.iter().enumerate() {
             if idx % 2 == 0 {
                 let claim_data = claim_account_info.try_borrow_data()?;
                 let claim = Claim::try_deserialize(&mut &claim_data[..])?;
-                if claim.paid_amount < claim.usdc_amount {
+                if !claim.cancelled && claim.paid_amount < claim.usdc_amount {
                     actual_total_remaining = actual_total_remaining
                         .checked_add(claim.usdc_amount.saturating_sub(claim.paid_amount))
                         .ok_or_else(arithmetic_error)?;
@@ -818,7 +870,7 @@ pub mod bunkercash {
                 let mut claim_data = claim_account_info.try_borrow_mut_data()?;
                 let claim = Claim::try_deserialize(&mut &claim_data[..])?;
 
-                if claim.paid_amount < claim.usdc_amount {
+                if !claim.cancelled && claim.paid_amount < claim.usdc_amount {
                     let claim_usdc_amount = claim.usdc_amount;
                     let claim_paid_amount = claim.paid_amount;
                     let claim_remaining_amount = claim_usdc_amount.saturating_sub(claim.paid_amount);
@@ -854,6 +906,48 @@ pub mod bunkercash {
 
                     let remaining_after_payout = claim_remaining_amount.saturating_sub(payout);
 
+                    // Burn the proportional slice of escrowed BunkerCash. We
+                    // use original escrow / original usdc amounts so cumulative
+                    // integer-division truncations never allow the sum of
+                    // burned BunkerCash to exceed the original escrow. When the
+                    // claim is fully paid off we drain the remainder exactly so
+                    // no dust stays stranded in the pool escrow.
+                    let bunkercash_to_burn = if remaining_after_payout == 0 {
+                        claim.bunkercash_remaining
+                    } else if claim.usdc_amount == 0 {
+                        0
+                    } else {
+                        u64::try_from(
+                            (payout as u128)
+                                .checked_mul(claim.bunkercash_escrow as u128)
+                                .ok_or_else(arithmetic_error)?
+                                .checked_div(claim.usdc_amount as u128)
+                                .ok_or_else(arithmetic_error)?,
+                        )
+                        .map_err(|_| arithmetic_error())?
+                    };
+
+                    if bunkercash_to_burn > 0 {
+                        require!(
+                            bunkercash_to_burn <= claim.bunkercash_remaining,
+                            ErrorCode::ArithmeticError
+                        );
+
+                        anchor_spl::token_2022::burn_checked(
+                            CpiContext::new_with_signer(
+                                ctx.accounts.token_program.to_account_info(),
+                                anchor_spl::token_2022::BurnChecked {
+                                    mint: ctx.accounts.bunkercash_mint.to_account_info(),
+                                    from: ctx.accounts.pool_bunkercash_escrow.to_account_info(),
+                                    authority: pool.to_account_info(),
+                                },
+                                signer,
+                            ),
+                            bunkercash_to_burn,
+                            ctx.accounts.bunkercash_mint.decimals,
+                        )?;
+                    }
+
                     pool.nav = pool.nav.checked_sub(payout).ok_or_else(arithmetic_error)?;
                     claims_settled = claims_settled.checked_add(1).ok_or_else(arithmetic_error)?;
                     total_paid = total_paid.checked_add(payout).ok_or_else(arithmetic_error)?;
@@ -863,6 +957,10 @@ pub mod bunkercash {
                     updated_claim.paid_amount = claim_paid_amount
                         .checked_add(payout)
                         .ok_or_else(arithmetic_error)?;
+                    updated_claim.bunkercash_remaining = updated_claim
+                        .bunkercash_remaining
+                        .checked_sub(bunkercash_to_burn)
+                        .ok_or_else(arithmetic_error)?;
                     updated_claim.serialize(&mut &mut claim_data[8..])?;
 
                     emit!(ClaimSettledEvent {
@@ -871,11 +969,18 @@ pub mod bunkercash {
                         user: updated_claim.user,
                         original_usdc_amount: claim_usdc_amount,
                         paid_amount: payout,
+                        bunkercash_burned: bunkercash_to_burn,
                         payout_ratio_ppm: payout_ratio,
                         timestamp,
                     });
 
-                    msg!("Settled claim {} with payout {}/{} USDC", idx, payout, claim_usdc_amount);
+                    msg!(
+                        "Settled claim {} paid {}/{} USDC, burned {} BunkerCash",
+                        idx,
+                        payout,
+                        claim_usdc_amount,
+                        bunkercash_to_burn
+                    );
                 }
             }
         }
@@ -894,6 +999,80 @@ pub mod bunkercash {
             timestamp,
         });
 
+        Ok(())
+    }
+
+    // Cancel an open (or partially paid) claim. The remaining BunkerCash in the
+    // pool escrow is returned to the user. The remaining (unpaid) USDC is
+    // released back to the pool's available NAV by decrementing
+    // `total_pending_claims`, and the refunded BunkerCash is restored to
+    // `total_bunkercash_supply` so new deposits price correctly.
+    pub fn cancel_claim(ctx: Context<CancelClaim>) -> Result<()> {
+        let pool = &mut ctx.accounts.pool;
+        let claim = &mut ctx.accounts.claim;
+
+        require!(
+            claim.user == ctx.accounts.user.key(),
+            ErrorCode::InvalidClaimOwner
+        );
+        require!(!claim.cancelled, ErrorCode::ClaimAlreadyCancelled);
+        require!(!claim.processed, ErrorCode::ClaimAlreadyProcessed);
+
+        let refunded_bunkercash = claim.bunkercash_remaining;
+        let released_usdc = claim
+            .usdc_amount
+            .checked_sub(claim.paid_amount)
+            .ok_or_else(arithmetic_error)?;
+
+        let pool_bump = [pool.bump];
+        let seeds: &[&[u8]] = &[POOL_SEED, &pool_bump];
+        let signer = &[seeds];
+
+        if refunded_bunkercash > 0 {
+            anchor_spl::token_2022::transfer_checked(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    anchor_spl::token_2022::TransferChecked {
+                        from: ctx.accounts.pool_bunkercash_escrow.to_account_info(),
+                        to: ctx.accounts.user_bunkercash.to_account_info(),
+                        authority: pool.to_account_info(),
+                        mint: ctx.accounts.bunkercash_mint.to_account_info(),
+                    },
+                    signer,
+                ),
+                refunded_bunkercash,
+                ctx.accounts.bunkercash_mint.decimals,
+            )?;
+        }
+
+        pool.total_pending_claims = pool
+            .total_pending_claims
+            .checked_sub(released_usdc)
+            .ok_or_else(arithmetic_error)?;
+        pool.total_bunkercash_supply = pool
+            .total_bunkercash_supply
+            .checked_add(refunded_bunkercash)
+            .ok_or_else(arithmetic_error)?;
+
+        claim.cancelled = true;
+        claim.bunkercash_remaining = 0;
+
+        let timestamp = Clock::get()?.unix_timestamp;
+        emit!(ClaimCancelledEvent {
+            pool: pool.key(),
+            claim: claim.key(),
+            user: claim.user,
+            refunded_bunkercash,
+            released_usdc,
+            timestamp,
+        });
+
+        msg!(
+            "Cancelled claim {}: refunded {} BunkerCash, released {} USDC from pending",
+            claim.key(),
+            refunded_bunkercash,
+            released_usdc
+        );
         Ok(())
     }
 
@@ -1168,15 +1347,15 @@ pub mod bunkercash {
         );
 
         let pool_bump = [pool.bump];
-        let mint_bump = [ctx.bumps.brent_mint];
+        let mint_bump = [ctx.bumps.bunkercash_mint];
         let pool_signer_seeds: &[&[u8]] = &[POOL_SEED, &pool_bump];
-        let mint_signer_seeds: &[&[u8]] = &[BRENT_MINT_SEED, &mint_bump];
+        let mint_signer_seeds: &[&[u8]] = &[BUNKERCASH_MINT_SEED, &mint_bump];
         let signer_seeds: &[&[&[u8]]] = &[pool_signer_seeds, mint_signer_seeds];
 
         CreateV1CpiBuilder::new(&ctx.accounts.token_metadata_program.to_account_info())
             .metadata(&ctx.accounts.metadata.to_account_info())
             .master_edition(None)
-            .mint(&ctx.accounts.brent_mint.to_account_info(), true)
+            .mint(&ctx.accounts.bunkercash_mint.to_account_info(), true)
             .authority(&ctx.accounts.pool.to_account_info())
             .payer(&ctx.accounts.admin.to_account_info())
             .update_authority(&ctx.accounts.pool.to_account_info(), true)
@@ -1198,7 +1377,7 @@ pub mod bunkercash {
         emit!(MintMetadataInitializedEvent {
             pool: pool.key(),
             admin: ctx.accounts.admin.key(),
-            mint: ctx.accounts.brent_mint.key(),
+            mint: ctx.accounts.bunkercash_mint.key(),
             metadata: ctx.accounts.metadata.key(),
             name,
             symbol,
@@ -1244,7 +1423,7 @@ pub mod bunkercash {
         emit!(MintMetadataUpdatedEvent {
             pool: pool.key(),
             admin: ctx.accounts.admin.key(),
-            mint: ctx.accounts.brent_mint.key(),
+            mint: ctx.accounts.bunkercash_mint.key(),
             metadata: ctx.accounts.metadata.key(),
             name,
             symbol,
@@ -1338,11 +1517,11 @@ pub struct DepositUsdc<'info> {
 
     #[account(
         mut,
-        token::mint = brent_mint,
+        token::mint = bunkercash_mint,
         token::authority = user,
         token::token_program = token_program
     )]
-    pub user_brent: InterfaceAccount<'info, TokenAccount>,
+    pub user_bunkercash: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
         mut,
@@ -1355,14 +1534,14 @@ pub struct DepositUsdc<'info> {
 
     #[account(
         mut,
-        seeds = [BRENT_MINT_SEED],
+        seeds = [BUNKERCASH_MINT_SEED],
         bump,
         mint::authority = pool,
         mint::freeze_authority = pool,
         mint::decimals = TOKEN_DECIMALS,
         mint::token_program = token_program
     )]
-    pub brent_mint: InterfaceAccount<'info, Mint>,
+    pub bunkercash_mint: InterfaceAccount<'info, Mint>,
 
     #[account(
         seeds = [SUPPORTED_USDC_CONFIG_SEED],
@@ -1525,22 +1704,44 @@ pub struct FileClaim<'info> {
 
     #[account(
         mut,
-        token::mint = brent_mint,
+        token::mint = bunkercash_mint,
         token::authority = user,
         token::token_program = token_program
     )]
-    pub user_brent: InterfaceAccount<'info, TokenAccount>,
+    pub user_bunkercash: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
+        init_if_needed,
+        payer = user,
+        associated_token::mint = bunkercash_mint,
+        associated_token::authority = pool,
+        associated_token::token_program = token_program
+    )]
+    pub pool_bunkercash_escrow: InterfaceAccount<'info, TokenAccount>,
+
+    /// CHECK: Validated against `pool.master_wallet` inside the instruction.
+    #[account(address = pool.master_wallet @ ErrorCode::InvalidMasterWallet)]
+    pub master_wallet: UncheckedAccount<'info>,
+
+    #[account(
+        init_if_needed,
+        payer = user,
+        associated_token::mint = bunkercash_mint,
+        associated_token::authority = master_wallet,
+        associated_token::token_program = token_program
+    )]
+    pub master_bunkercash: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
         mut,
-        seeds = [BRENT_MINT_SEED],
+        seeds = [BUNKERCASH_MINT_SEED],
         bump,
         mint::authority = pool,
         mint::freeze_authority = pool,
         mint::decimals = TOKEN_DECIMALS,
         mint::token_program = token_program
     )]
-    pub brent_mint: InterfaceAccount<'info, Mint>,
+    pub bunkercash_mint: InterfaceAccount<'info, Mint>,
 
     #[account(
         seeds = [FEE_CONFIG_SEED],
@@ -1552,11 +1753,12 @@ pub struct FileClaim<'info> {
     pub user: Signer<'info>,
 
     pub token_program: Program<'info, Token2022>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
-pub struct CreateBrentMint<'info> {
+pub struct CreateBunkercashMint<'info> {
     #[account(
         seeds = [POOL_SEED],
         bump = pool.bump
@@ -1566,10 +1768,10 @@ pub struct CreateBrentMint<'info> {
     /// CHECK: Mint PDA created and initialized in this instruction
     #[account(
         mut,
-        seeds = [BRENT_MINT_SEED],
+        seeds = [BUNKERCASH_MINT_SEED],
         bump
     )]
-    pub brent_mint: AccountInfo<'info>,
+    pub bunkercash_mint: AccountInfo<'info>,
 
     #[account(mut)]
     pub admin: Signer<'info>,
@@ -1597,6 +1799,25 @@ pub struct SettleClaims<'info> {
     pub pool_usdc: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
+        mut,
+        seeds = [BUNKERCASH_MINT_SEED],
+        bump,
+        mint::authority = pool,
+        mint::freeze_authority = pool,
+        mint::decimals = TOKEN_DECIMALS,
+        mint::token_program = token_program
+    )]
+    pub bunkercash_mint: InterfaceAccount<'info, Mint>,
+
+    #[account(
+        mut,
+        associated_token::mint = bunkercash_mint,
+        associated_token::authority = pool,
+        associated_token::token_program = token_program
+    )]
+    pub pool_bunkercash_escrow: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
         seeds = [SUPPORTED_USDC_CONFIG_SEED],
         bump = supported_usdc_config.bump
     )]
@@ -1611,6 +1832,56 @@ pub struct SettleClaims<'info> {
     pub master_wallet: Signer<'info>,
 
     pub usdc_token_program: Interface<'info, TokenInterface>,
+    pub token_program: Program<'info, Token2022>,
+}
+
+#[derive(Accounts)]
+pub struct CancelClaim<'info> {
+    #[account(
+        mut,
+        seeds = [POOL_SEED],
+        bump = pool.bump
+    )]
+    pub pool: Account<'info, Pool>,
+
+    #[account(
+        mut,
+        has_one = user @ ErrorCode::InvalidClaimOwner
+    )]
+    pub claim: Account<'info, Claim>,
+
+    #[account(mut)]
+    pub user: Signer<'info>,
+
+    #[account(
+        mut,
+        token::mint = bunkercash_mint,
+        token::authority = user,
+        token::token_program = token_program
+    )]
+    pub user_bunkercash: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        associated_token::mint = bunkercash_mint,
+        associated_token::authority = pool,
+        associated_token::token_program = token_program
+    )]
+    pub pool_bunkercash_escrow: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        seeds = [BUNKERCASH_MINT_SEED],
+        bump,
+        mint::authority = pool,
+        mint::freeze_authority = pool,
+        mint::decimals = TOKEN_DECIMALS,
+        mint::token_program = token_program
+    )]
+    pub bunkercash_mint: InterfaceAccount<'info, Mint>,
+
+    pub token_program: Program<'info, Token2022>,
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -1729,18 +2000,18 @@ pub struct InitMintMetadata<'info> {
     /// CHECK: Mint PDA validated by seeds constraint
     #[account(
         mut,
-        seeds = [BRENT_MINT_SEED],
+        seeds = [BUNKERCASH_MINT_SEED],
         bump
     )]
-    pub brent_mint: AccountInfo<'info>,
+    pub bunkercash_mint: AccountInfo<'info>,
 
     #[account(mut)]
     pub admin: Signer<'info>,
 
-    /// CHECK: Metaplex metadata PDA derived from the bRENT mint
+    /// CHECK: Metaplex metadata PDA derived from the BunkerCash mint
     #[account(
         mut,
-        address = canonical_metadata_account(brent_mint.key()) @ ErrorCode::InvalidMetadataAccount
+        address = canonical_metadata_account(bunkercash_mint.key()) @ ErrorCode::InvalidMetadataAccount
     )]
     pub metadata: UncheckedAccount<'info>,
 
@@ -1767,18 +2038,18 @@ pub struct UpdateMintMetadata<'info> {
 
     /// CHECK: Mint PDA validated by seeds constraint
     #[account(
-        seeds = [BRENT_MINT_SEED],
+        seeds = [BUNKERCASH_MINT_SEED],
         bump
     )]
-    pub brent_mint: AccountInfo<'info>,
+    pub bunkercash_mint: AccountInfo<'info>,
 
     #[account(mut)]
     pub admin: Signer<'info>,
 
-    /// CHECK: Metaplex metadata PDA derived from the bRENT mint
+    /// CHECK: Metaplex metadata PDA derived from the BunkerCash mint
     #[account(
         mut,
-        address = canonical_metadata_account(brent_mint.key()) @ ErrorCode::InvalidMetadataAccount
+        address = canonical_metadata_account(bunkercash_mint.key()) @ ErrorCode::InvalidMetadataAccount
     )]
     pub metadata: UncheckedAccount<'info>,
 
@@ -1792,7 +2063,7 @@ pub struct UpdateMintMetadata<'info> {
 pub struct Pool {
     pub master_wallet: Pubkey,
     pub nav: u64,
-    pub total_brent_supply: u64,
+    pub total_bunkercash_supply: u64,
     pub total_pending_claims: u64,
     pub claim_counter: u64,
     pub withdrawal_counter: u64,
@@ -1807,6 +2078,11 @@ pub struct Claim {
     pub timestamp: i64,
     pub processed: bool,
     pub paid_amount: u64,
+    // Original BunkerCash locked in the pool escrow at file time (immutable).
+    pub bunkercash_escrow: u64,
+    // BunkerCash still held in the pool escrow for this claim.
+    pub bunkercash_remaining: u64,
+    pub cancelled: bool,
     pub bump: u8,
 }
 
@@ -1867,14 +2143,14 @@ pub struct UsdcDepositedEvent {
     pub pool: Pubkey,
     pub user: Pubkey,
     pub usdc_amount: u64,
-    pub brent_minted: u64,
+    pub bunkercash_minted: u64,
     pub new_nav: u64,
-    pub new_total_brent_supply: u64,
+    pub new_total_bunkercash_supply: u64,
     pub timestamp: i64,
 }
 
 #[event]
-pub struct BrentMintCreatedEvent {
+pub struct BunkercashMintCreatedEvent {
     pub pool: Pubkey,
     pub admin: Pubkey,
     pub mint: Pubkey,
@@ -1888,10 +2164,12 @@ pub struct ClaimFiledEvent {
     pub claim: Pubkey,
     pub claim_id: u64,
     pub user: Pubkey,
-    pub brent_amount: u64,
+    pub bunkercash_amount: u64,
+    pub fee_bunkercash: u64,
+    pub net_bunkercash: u64,
     pub usdc_amount: u64,
     pub total_pending_claims: u64,
-    pub remaining_brent_supply: u64,
+    pub remaining_bunkercash_supply: u64,
     pub timestamp: i64,
 }
 
@@ -1902,7 +2180,18 @@ pub struct ClaimSettledEvent {
     pub user: Pubkey,
     pub original_usdc_amount: u64,
     pub paid_amount: u64,
+    pub bunkercash_burned: u64,
     pub payout_ratio_ppm: u64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct ClaimCancelledEvent {
+    pub pool: Pubkey,
+    pub claim: Pubkey,
+    pub user: Pubkey,
+    pub refunded_bunkercash: u64,
+    pub released_usdc: u64,
     pub timestamp: i64,
 }
 
@@ -2016,7 +2305,7 @@ pub enum ErrorCode {
     PendingClaimsOutOfSync,
     #[msg("Bunker Cash mint PDA is already initialized")]
     MintAlreadyInitialized,
-    #[msg("Claim amount must burn a non-zero amount of bRENT for a non-zero USDC value")]
+    #[msg("Claim amount must escrow a non-zero amount of BunkerCash for a non-zero USDC value after fees")]
     ClaimAmountTooSmall,
     #[msg("Global purchase limit exceeded")]
     PurchaseLimitExceeded,
@@ -2032,10 +2321,18 @@ pub enum ErrorCode {
     DuplicateSettlementClaim,
     #[msg("Arithmetic operation failed")]
     ArithmeticError,
-    #[msg("Invalid metadata account for the bRENT mint")]
+    #[msg("Invalid metadata account for the BunkerCash mint")]
     InvalidMetadataAccount,
     #[msg("Fee must be between 0 and 10 percent")]
     InvalidFeeBps,
+    #[msg("Claim has already been cancelled")]
+    ClaimAlreadyCancelled,
+    #[msg("Claim has already been fully processed")]
+    ClaimAlreadyProcessed,
+    #[msg("Only the claim owner can cancel this claim")]
+    InvalidClaimOwner,
+    #[msg("Master wallet does not match the pool's master wallet")]
+    InvalidMasterWallet,
 }
 
 #[cfg(test)]
@@ -2085,7 +2382,7 @@ mod tests {
         let mut pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 7_500_000,
-            total_brent_supply: 7_500_000,
+            total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 3,
@@ -2119,7 +2416,7 @@ mod tests {
         let mut pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 7_500_000,
-            total_brent_supply: 7_500_000,
+            total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
@@ -2145,7 +2442,7 @@ mod tests {
         let mut pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 7_500_000,
-            total_brent_supply: 7_500_000,
+            total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
@@ -2172,7 +2469,7 @@ mod tests {
         let mut pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 7_500_000,
-            total_brent_supply: 7_500_000,
+            total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
@@ -2198,7 +2495,7 @@ mod tests {
         let pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 7_500_000,
-            total_brent_supply: 7_500_000,
+            total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
@@ -2224,7 +2521,7 @@ mod tests {
         let pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 7_500_000,
-            total_brent_supply: 7_500_000,
+            total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
@@ -2251,7 +2548,7 @@ mod tests {
         let pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 7_500_000,
-            total_brent_supply: 7_500_000,
+            total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
@@ -2294,7 +2591,7 @@ mod tests {
         let mut pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 7_500_000,
-            total_brent_supply: 7_500_000,
+            total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
@@ -2320,7 +2617,7 @@ mod tests {
         let mut pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 7_500_000,
-            total_brent_supply: 7_500_000,
+            total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
@@ -2346,7 +2643,7 @@ mod tests {
         let mut pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 7_500_000,
-            total_brent_supply: 7_500_000,
+            total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
@@ -2372,7 +2669,7 @@ mod tests {
         let mut pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 7_500_000,
-            total_brent_supply: 7_500_000,
+            total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
@@ -2405,7 +2702,7 @@ mod tests {
         let mut pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 7_500_000,
-            total_brent_supply: 7_500_000,
+            total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
@@ -2486,7 +2783,7 @@ mod tests {
         let pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 5_000_000,
-            total_brent_supply: 5_000_000,
+            total_bunkercash_supply: 5_000_000,
             total_pending_claims: 1_000_000,
             claim_counter: 0,
             withdrawal_counter: 0,
@@ -2502,7 +2799,7 @@ mod tests {
         let pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 0,
-            total_brent_supply: 0,
+            total_bunkercash_supply: 0,
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 0,
@@ -2524,7 +2821,7 @@ mod tests {
         let pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 5_000_000,
-            total_brent_supply: 5_000_000,
+            total_bunkercash_supply: 5_000_000,
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 0,
@@ -2546,7 +2843,7 @@ mod tests {
         let pool = Pool {
             master_wallet: Pubkey::new_unique(),
             nav: 0,
-            total_brent_supply: 0,
+            total_bunkercash_supply: 0,
             total_pending_claims: 5_000,
             claim_counter: 0,
             withdrawal_counter: 0,

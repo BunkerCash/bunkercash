@@ -169,7 +169,7 @@ export default function Home() {
           justify-content: center;
           padding: 2rem 1.25rem;
           overflow: hidden;
-          background: hsl(var(--background));
+          background: #000;
         }
 
         /* Cyber grid */

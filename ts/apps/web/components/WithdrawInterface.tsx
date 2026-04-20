@@ -52,6 +52,7 @@ interface Stringable {
 }
 
 interface PoolAccount {
+  masterWallet: PublicKey
   nav: Stringable
   totalBunkercashSupply: Stringable
   totalPendingClaims: Stringable
@@ -73,10 +74,14 @@ interface FileClaimMethods {
       pool: PublicKey
       claim: PublicKey
       user: PublicKey
-      userBrent: PublicKey
-      brentMint: PublicKey
+      userBunkercash: PublicKey
+      poolBunkercashEscrow: PublicKey
+      masterWallet: PublicKey
+      masterBunkercash: PublicKey
+      bunkercashMint: PublicKey
       feeConfig: PublicKey
       tokenProgram: PublicKey
+      associatedTokenProgram: PublicKey
       systemProgram: PublicKey
     }) => {
       instruction: () => Promise<TransactionInstruction>
@@ -130,6 +135,7 @@ export function WithdrawInterface() {
   const txInFlight = useRef(false);
   const [cancellingClaim, setCancellingClaim] = useState<string | null>(null);
   const [poolState, setPoolState] = useState<{
+    masterWallet: PublicKey
     nav: bigint
     totalBunkercashSupply: bigint
     claimCounter: bigint
@@ -182,6 +188,7 @@ export function WithdrawInterface() {
       const availableNav = nav > totalPendingClaims ? nav - totalPendingClaims : 0n
 
       setPoolState({
+        masterWallet: state.masterWallet,
         nav: availableNav,
         totalBunkercashSupply: BigInt(state.totalBunkercashSupply.toString()),
         claimCounter: BigInt(state.claimCounter.toString()),
@@ -239,9 +246,23 @@ export function WithdrawInterface() {
   }, [amountRaw, amountUi, netClaimUsdcRaw, tokenBalanceRaw])
 
   const displayError = error ?? inputError
+  const canSubmitSell = Boolean(
+    wallet && program && publicKey && connection && userBunkercashAta
+  );
 
   const submitDisabled =
-    submitting || !amountRaw || amountRaw <= 0n || !confirmed || !!inputError;
+    submitting ||
+    !canSubmitSell ||
+    !amountRaw ||
+    amountRaw <= 0n ||
+    !confirmed ||
+    !!inputError;
+
+  const submitButtonLabel = submitting
+    ? "Submitting…"
+    : !canSubmitSell
+      ? "Connect Wallet to Sell"
+      : "Sell";
 
   const handleRegisterSell = async () => {
     if (!wallet || !program || !publicKey || !connection || !userBunkercashAta)
@@ -279,6 +300,21 @@ export function WithdrawInterface() {
         [Buffer.from("claim"), publicKey.toBuffer(), idLe],
         PROGRAM_ID,
       );
+      const masterWallet = livePoolState.masterWallet;
+      const poolBunkercashEscrow = getAssociatedTokenAddressSync(
+        mintPda,
+        poolPda,
+        true,
+        TOKEN_2022_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+      );
+      const masterBunkercash = getAssociatedTokenAddressSync(
+        mintPda,
+        masterWallet,
+        true,
+        TOKEN_2022_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+      );
 
       const createUserAtaIx = createAssociatedTokenAccountIdempotentInstruction(
         publicKey,
@@ -296,10 +332,14 @@ export function WithdrawInterface() {
           pool: poolPda,
           claim: claimPda,
           user: publicKey,
-          userBrent: userBunkercashAta,
-          brentMint: mintPda,
+          userBunkercash: userBunkercashAta,
+          poolBunkercashEscrow,
+          masterWallet,
+          masterBunkercash,
+          bunkercashMint: mintPda,
           feeConfig: feeConfigPda,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .instruction();
@@ -548,6 +588,11 @@ export function WithdrawInterface() {
               {displayError}
             </div>
           )}
+          {!displayError && !canSubmitSell && (
+            <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-400">
+              Connect your wallet before submitting a sell request.
+            </div>
+          )}
           {txSig && (
             <div className="rounded-xl border border-[#00FFB2]/30 bg-[#00FFB2]/10 px-4 py-3 text-sm text-[#00FFB2]">
               Sell request submitted. Tx: {txSig.slice(0, 8)}…{txSig.slice(-8)}
@@ -559,7 +604,7 @@ export function WithdrawInterface() {
             disabled={submitDisabled}
             className="w-full rounded-xl bg-[#00FFB2] py-4 text-base font-semibold text-black transition-all hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600 sm:py-5 sm:text-lg"
           >
-            {submitting ? "Submitting…" : "Sell"}
+            {submitButtonLabel}
           </button>
         </div>
       ) : (
