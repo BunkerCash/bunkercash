@@ -1,5 +1,5 @@
-import PositionPageClient from "./PositionPageClient";
+import { redirect } from "next/navigation";
 
 export default function PositionPage() {
-  return <PositionPageClient />;
+  redirect("/wallet");
 }

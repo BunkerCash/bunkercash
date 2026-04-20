@@ -89,7 +89,6 @@ const dummyInstruction = {
 }
 
 // ── Import the hook (AFTER mocks are set up) ──────────────────────────────
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { useSquadsTransaction } = await import("../useSquadsTransaction")
 
 // ── Helpers ───────────────────────────────────────────────────────────────
