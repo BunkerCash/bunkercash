@@ -22,6 +22,7 @@ import {
 import { countFractionalDigits, parseUiAmountToBaseUnits } from '@/lib/amounts'
 import { useTokenBalance } from "@/hooks/useTokenBalance";
 import { useMyClaims } from "@/hooks/useMyClaims";
+import { invalidateTransactionCache } from "@/hooks/useMyTransactions";
 import { useToast } from "@/components/ui/ToastContext";
 import {
   Dialog,
@@ -297,10 +298,8 @@ export function WithdrawInterface() {
       await fetchTokenBalance();
       await fetchClaims();
       await fetchPoolState();
-      showToast(`Sell request submitted. Tx: ${sig.slice(0, 8)}…`, "success");
-      const { invalidateTransactionCache } =
-        await import("@/hooks/useMyTransactions");
       invalidateTransactionCache();
+      showToast(`Sell request submitted. Tx: ${sig.slice(0, 8)}…`, "success");
       setActiveView("history");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e ?? "");
@@ -312,8 +311,6 @@ export function WithdrawInterface() {
         setTxSig(null);
         await fetchTokenBalance();
         await fetchClaims();
-        const { invalidateTransactionCache } =
-          await import("@/hooks/useMyTransactions");
         invalidateTransactionCache();
         setActiveView("history");
         showToast("Sell request was already processed. Check History.", "success");
@@ -361,7 +358,7 @@ export function WithdrawInterface() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 sm:space-y-8">
       <div className="flex gap-2 bg-neutral-900 p-1 rounded-xl">
         <button
           onClick={() => setActiveView("register")}
@@ -386,7 +383,7 @@ export function WithdrawInterface() {
       </div>
 
       {activeView === "register" ? (
-        <div className="space-y-6">
+        <div className="space-y-5 sm:space-y-6">
           <div className="bg-neutral-900/50 rounded-xl p-4 border border-neutral-800">
             <p className="text-sm text-neutral-300 font-semibold mb-1">
               Irreversible action
@@ -401,8 +398,8 @@ export function WithdrawInterface() {
             </p>
           </div>
 
-          <div className="bg-neutral-900 rounded-2xl p-6 border border-neutral-800">
-            <div className="flex justify-between items-center mb-4">
+          <div className="bg-neutral-900 rounded-2xl border border-neutral-800 p-4 sm:p-6">
+            <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
               <span className="text-xs uppercase tracking-wider text-neutral-500">
                 Amount
               </span>
@@ -410,15 +407,15 @@ export function WithdrawInterface() {
                 Balance: {tokenBalanceUi} bRENT
               </span>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
               <input
                 type="text"
                 value={amountUi}
                 onChange={(e) => setAmountUi(e.target.value)}
                 placeholder="0.00"
-                className="bg-transparent text-3xl font-bold flex-1 outline-none placeholder:text-neutral-800"
+                className="min-w-0 flex-1 bg-transparent text-2xl font-bold outline-none placeholder:text-neutral-800 sm:text-3xl"
               />
-              <div className="flex items-center gap-2 bg-[#00FFB2]/10 border-2 border-[#00FFB2] px-5 py-3 rounded-xl">
+              <div className="inline-flex w-fit items-center gap-2 self-start rounded-xl border-2 border-[#00FFB2] bg-[#00FFB2]/10 px-4 py-2.5 sm:self-auto sm:px-5 sm:py-3">
                 <span className="font-semibold text-sm text-[#00FFB2]">
                   bRENT
                 </span>
@@ -437,17 +434,17 @@ export function WithdrawInterface() {
 
           {grossClaimUsdcRaw != null && claimFeeRaw != null && netClaimUsdcRaw != null && (
             <div className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-4 text-sm text-neutral-300">
-              <div className="flex justify-between">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <span>Gross sell value</span>
                 <span>{toUi(grossClaimUsdcRaw, 6)} USDC</span>
               </div>
-              <div className="mt-2 flex justify-between text-neutral-400">
+              <div className="mt-2 flex flex-col gap-1 text-neutral-400 sm:flex-row sm:items-center sm:justify-between">
                 <span>Claim fee</span>
                 <span>
                   {toUi(claimFeeRaw, 6)} USDC ({formatPercentFromBps(poolState?.claimFeeBps ?? 0)}%)
                 </span>
               </div>
-              <div className="mt-2 flex justify-between font-medium text-white">
+              <div className="mt-2 flex flex-col gap-1 font-medium text-white sm:flex-row sm:items-center sm:justify-between">
                 <span>Estimated net settlement</span>
                 <span>{toUi(netClaimUsdcRaw, 6)} USDC</span>
               </div>
@@ -488,7 +485,7 @@ export function WithdrawInterface() {
           <button
             onClick={handleOpenConfirmation}
             disabled={submitDisabled}
-            className="w-full bg-[#00FFB2] hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600 text-black font-semibold py-5 rounded-xl transition-all text-lg"
+            className="w-full rounded-xl bg-[#00FFB2] py-4 text-base font-semibold text-black transition-all hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600 sm:py-5 sm:text-lg"
           >
             {submitting ? "Submitting…" : "Sell"}
           </button>

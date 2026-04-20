@@ -23,6 +23,7 @@ import { ArrowDown, AlertCircle } from "lucide-react";
 import { BN } from '@coral-xyz/anchor'
 import { useToast } from "@/components/ui/ToastContext";
 import { useSupportedUsdcMint } from "@/hooks/useSupportedUsdcMint";
+import { invalidateTransactionCache } from "@/hooks/useMyTransactions";
 import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
 import { useOptionalWallet } from "@/hooks/useOptionalWallet";
 
@@ -478,12 +479,9 @@ export function BuyPrimaryInterface() {
 
       setTxSig(sig);
       setUsdcAmount("");
-      showToast(`Transaction submitted. Tx: ${sig.slice(0, 8)}…`, "success");
       void fetchPoolState();
-      // Invalidate transactions cache so Transactions tab fetches fresh data
-      const { invalidateTransactionCache } =
-        await import("@/hooks/useMyTransactions");
       invalidateTransactionCache();
+      showToast(`Transaction submitted. Tx: ${sig.slice(0, 8)}…`, "success");
     } catch (e: unknown) {
       if (isWalletRejection(e)) {
         setError("Transaction was rejected in your wallet.");
@@ -566,14 +564,14 @@ export function BuyPrimaryInterface() {
   }
 
   return (
-    <div className="space-y-8">
-      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-6">
-        <div className="grid grid-cols-2 gap-6">
+    <div className="space-y-6 sm:space-y-8">
+      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4 sm:p-6">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6">
           <div>
             <div className="mb-2 text-xs uppercase tracking-wider text-neutral-500">
               Reference Rate
             </div>
-            <div className="text-2xl font-bold text-[#00FFB2]">
+            <div className="text-xl font-bold text-[#00FFB2] sm:text-2xl">
               ${pricePerToken != null ? pricePerToken.toFixed(2) : "—"} per
               token
             </div>
@@ -582,14 +580,14 @@ export function BuyPrimaryInterface() {
             <div className="mb-2 text-xs uppercase tracking-wider text-neutral-500">
               Pricing Method
             </div>
-            <div className="text-2xl font-bold">Protocol-defined</div>
+            <div className="text-xl font-bold sm:text-2xl">Protocol-defined</div>
           </div>
         </div>
       </div>
 
       <div className="space-y-3">
-        <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
-          <div className="mb-4 flex items-center justify-between">
+        <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4 sm:p-6">
+          <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-xs uppercase tracking-wider text-neutral-500">
               You provide
             </span>
@@ -597,15 +595,15 @@ export function BuyPrimaryInterface() {
               Balance: {usdcBalance ?? "—"}
             </span>
           </div>
-          <div className="flex flex-1 items-center gap-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
             <input
               type="text"
               value={usdcAmount}
               onChange={(e) => setUsdcAmount(e.target.value)}
               placeholder="0.00"
-              className="flex-1 bg-transparent text-3xl font-bold outline-none placeholder:text-neutral-800"
+              className="min-w-0 flex-1 bg-transparent text-2xl font-bold outline-none placeholder:text-neutral-800 sm:text-3xl"
             />
-            <div className="flex items-center gap-2 rounded-xl border border-neutral-700 bg-neutral-800 px-5 py-3">
+            <div className="inline-flex w-fit items-center gap-2 self-start rounded-xl border border-neutral-700 bg-neutral-800 px-4 py-2.5 sm:self-auto sm:px-5 sm:py-3">
               <span className="text-sm font-semibold">USDC</span>
             </div>
           </div>
@@ -617,30 +615,30 @@ export function BuyPrimaryInterface() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
+        <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4 sm:p-6">
           <div className="mb-4 flex items-center justify-between">
             <span className="text-xs uppercase tracking-wider text-neutral-500">
               You receive
             </span>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="flex-1 bg-transparent text-3xl font-bold text-neutral-300">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+            <div className="min-w-0 flex-1 bg-transparent text-2xl font-bold text-neutral-300 sm:text-3xl">
               {tokenAmountUi || "0"}
             </div>
-            <div className="flex items-center gap-2 rounded-xl border-2 border-[#00FFB2] bg-[#00FFB2]/10 px-5 py-3">
+            <div className="inline-flex w-fit items-center gap-2 self-start rounded-xl border-2 border-[#00FFB2] bg-[#00FFB2]/10 px-4 py-2.5 sm:self-auto sm:px-5 sm:py-3">
               <span className="text-sm font-semibold text-[#00FFB2]">
                 Bunker Cash
               </span>
             </div>
           </div>
           <div className="mt-4 rounded-xl border border-neutral-800 bg-neutral-950/40 p-4 text-sm">
-            <div className="flex justify-between text-neutral-400">
+            <div className="flex flex-col gap-1 text-neutral-400 sm:flex-row sm:items-center sm:justify-between">
               <span>Purchase fee</span>
               <span>
                 {purchaseFeeRaw != null ? `${toUi(purchaseFeeRaw, USDC_DECIMALS)} USDC` : "0 USDC"} ({formatPercentFromBps(poolState.purchaseFeeBps)}%)
               </span>
             </div>
-            <div className="mt-2 flex justify-between text-white">
+            <div className="mt-2 flex flex-col gap-1 text-white sm:flex-row sm:items-center sm:justify-between">
               <span>Net investment</span>
               <span>{netInvestmentRaw != null ? `${toUi(netInvestmentRaw, USDC_DECIMALS)} USDC` : "0 USDC"}</span>
             </div>
@@ -685,7 +683,7 @@ export function BuyPrimaryInterface() {
           !usdcMint ||
           !supportsUsdcDeposits
         }
-        className="w-full rounded-xl bg-[#00FFB2] py-5 text-lg font-semibold text-black transition-all hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600"
+        className="w-full rounded-xl bg-[#00FFB2] py-4 text-base font-semibold text-black transition-all hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600 sm:py-5 sm:text-lg"
       >
         {loading ? "Processing…" : "Buy"}
       </button>
