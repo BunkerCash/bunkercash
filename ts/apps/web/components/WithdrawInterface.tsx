@@ -419,6 +419,11 @@ export function WithdrawInterface() {
   const handleCancelClaim = async (claimPubkey: string) => {
     if (!wallet || !program || !publicKey || !connection || !userBunkercashAta) return;
     if (cancellingClaim) return;
+    const claim = claims.find((entry) => entry.pubkey === claimPubkey);
+    const hasRemainingEscrow = claim?.bunkercashRemaining !== "0";
+    const isCancellable =
+      claim !== undefined && !claim.cancelled && !claim.processed && hasRemainingEscrow;
+    if (!isCancellable) return;
 
     setCancellingClaim(claimPubkey);
     try {
@@ -619,7 +624,8 @@ export function WithdrawInterface() {
             </div>
           ) : (
             claims.map((c) => {
-              const isCancellable = !c.cancelled && !c.processed;
+              const isCancellable =
+                !c.cancelled && !c.processed && c.bunkercashRemaining !== "0";
               const statusLabel = c.cancelled
                 ? "cancelled"
                 : c.processed
