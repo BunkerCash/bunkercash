@@ -1,0 +1,17 @@
+{
+  "name": "@bunkercash/metrics-data",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "scripts": {
+    "build": "echo 'metrics-data has no build step'",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@cloudflare/workers-types": "=4.20260317.1",
+    "vitest": "=4.0.18"
+  }
+}
