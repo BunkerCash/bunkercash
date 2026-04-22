@@ -1,7 +1,7 @@
 {
-  "name": "Bunker Cash",
+  "name": "BunkerCash",
   "symbol": "bRENT",
-  "description": "Bunker Cash token (fixed-price primary sale, escrow sell).",
+  "description": "BunkerCash token (fixed-price primary sale, escrow sell).",
   "image": "https://your-domain.com/bunkercash.svg",
   "external_url": "https://your-domain.com"
 }

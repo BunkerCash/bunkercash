@@ -10,8 +10,8 @@ import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTrans
 import type { PoolDataResponse } from "@/lib/solana-server";
 
 const TOKEN_METADATA_PROGRAM_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
-const DEFAULT_TOKEN_NAME = "bunkerCash";
-const DEFAULT_TOKEN_SYMBOL = "bunkerCash";
+const DEFAULT_TOKEN_NAME = "BunkerCash";
+const DEFAULT_TOKEN_SYMBOL = "BunkerCash";
 const DEFAULT_TOKEN_METADATA_URI =
   process.env.NEXT_PUBLIC_TOKEN_METADATA_URI ??
   "https://bunkercash-web.bunkercoin.workers.dev/bunkercash-metadata.json";
@@ -219,7 +219,7 @@ export function MintSetupCard() {
             <Coins className="h-4 w-4 text-[#00FFB2]" />
             Mint Setup
           </div>
-          <h1 className="text-xl font-semibold text-white">Bunker Cash Mint</h1>
+          <h1 className="text-xl font-semibold text-white">BunkerCash Mint</h1>
           <p className="mt-1 text-sm text-neutral-500">
             The acquire flow requires the on-chain `bunkercash_mint` PDA to exist. This is a one-time
             admin action signed by your Phantom wallet.
@@ -319,7 +319,7 @@ export function MintSetupCard() {
           className="inline-flex items-center gap-2 rounded-xl bg-[#00FFB2] px-4 py-2.5 text-sm font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {submittingAction === "mint" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Coins className="h-4 w-4" />}
-          Initialize Bunker Cash Mint
+          Initialize BunkerCash Mint
         </button>
 
         {!wallet.publicKey && <span className="text-sm text-neutral-500">Connect your admin Phantom wallet first.</span>}

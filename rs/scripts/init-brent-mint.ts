@@ -19,7 +19,7 @@ async function main() {
 
   const existing = await provider.connection.getAccountInfo(mintPda, "confirmed");
   if (existing) {
-    console.log("Bunker Cash mint already exists:", mintPda.toBase58());
+    console.log("BunkerCash mint already exists:", mintPda.toBase58());
     return;
   }
 

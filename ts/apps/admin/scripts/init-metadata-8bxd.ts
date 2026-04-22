@@ -51,7 +51,7 @@ async function main() {
   console.log("Signer:", signer.publicKey.toBase58());
 
   const sig = await (program.methods as any)
-    .initMintMetadata("Bunker Cash", "BNKR", "https://example.com/metadata.json")
+    .initMintMetadata("BunkerCash", "BNKR", "https://example.com/metadata.json")
     .accounts({
       pool: poolPda,
       bunkercashMint: mintPda,

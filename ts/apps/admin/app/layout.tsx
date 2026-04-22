@@ -10,8 +10,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Bunker Cash Admin",
-  description: "Admin dashboard for Bunker Cash",
+  title: "BunkerCash Admin",
+  description: "Admin dashboard for BunkerCash",
   icons: {
     icon: "/icon.png",
   },

@@ -1,7 +1,7 @@
 {
-  "name": "bunkerCash",
-  "symbol": "bunkerCash",
-  "description": "bunkerCash token metadata.",
+  "name": "BunkerCash",
+  "symbol": "BunkerCash",
+  "description": "BunkerCash token metadata.",
   "image": "https://bunkercash-web.bunkercoin.workers.dev/bunkercash.jpeg",
   "external_url": "https://bunkercash-web.bunkercoin.workers.dev",
   "seller_fee_basis_points": 0,
