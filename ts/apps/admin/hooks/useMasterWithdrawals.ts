@@ -13,7 +13,7 @@ import { withRateLimitRetry } from "@/lib/rpc-throttle";
 export interface MasterPoolState {
   masterWallet: PublicKey;
   nav: string;
-  totalBrentSupply: string;
+  totalBunkercashSupply: string;
   totalPendingClaims: string;
   claimCounter: string;
   withdrawalCounter: string;
@@ -68,7 +68,7 @@ function decodePoolAccount(data: Uint8Array): MasterPoolState {
   return {
     masterWallet: new PublicKey(data.subarray(8, 40)),
     nav: readU64Le(data, 40),
-    totalBrentSupply: readU64Le(data, 48),
+    totalBunkercashSupply: readU64Le(data, 48),
     totalPendingClaims: readU64Le(data, 56),
     claimCounter: readU64Le(data, 64),
     withdrawalCounter: readU64Le(data, 72),

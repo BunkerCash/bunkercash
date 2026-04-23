@@ -19,10 +19,10 @@ const DEFAULT_TOKEN_METADATA_URI =
 type InstructionLike = Transaction["instructions"][number];
 
 interface MintSetupMethods {
-  createBrentMint: () => {
+  createBunkercashMint: () => {
     accounts: (accounts: {
       pool: PublicKey;
-      brentMint: PublicKey;
+      bunkercashMint: PublicKey;
       admin: PublicKey;
       tokenProgram: PublicKey;
       systemProgram: PublicKey;
@@ -33,7 +33,7 @@ interface MintSetupMethods {
   initMintMetadata: (name: string, symbol: string, uri: string) => {
     accounts: (accounts: {
       pool: PublicKey;
-      brentMint: PublicKey;
+      bunkercashMint: PublicKey;
       admin: PublicKey;
       metadata: PublicKey;
       tokenMetadataProgram: PublicKey;
@@ -47,7 +47,7 @@ interface MintSetupMethods {
   updateMintMetadata: (name: string, symbol: string, uri: string) => {
     accounts: (accounts: {
       pool: PublicKey;
-      brentMint: PublicKey;
+      bunkercashMint: PublicKey;
       admin: PublicKey;
       metadata: PublicKey;
       tokenMetadataProgram: PublicKey;
@@ -128,10 +128,10 @@ export function MintSetupCard() {
     try {
       const methodsApi = program.methods as unknown as MintSetupMethods;
       const ix = await methodsApi
-        .createBrentMint()
+        .createBunkercashMint()
         .accounts({
           pool: poolPda,
-          brentMint: mintPda,
+          bunkercashMint: mintPda,
           admin: wallet.publicKey,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
@@ -176,14 +176,14 @@ export function MintSetupCard() {
       const builder = isMetadataInitialized
         ? methodsApi.updateMintMetadata(name, symbol, uri).accounts({
             pool: poolPda,
-            brentMint: mintPda,
+            bunkercashMint: mintPda,
             admin: wallet.publicKey,
             metadata: metadataPda,
             tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
           })
         : methodsApi.initMintMetadata(name, symbol, uri).accounts({
             pool: poolPda,
-            brentMint: mintPda,
+            bunkercashMint: mintPda,
             admin: wallet.publicKey,
             metadata: metadataPda,
             tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,

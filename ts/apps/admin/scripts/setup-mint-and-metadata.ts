@@ -99,17 +99,17 @@ async function main() {
   console.log("Admin (signer):", signer.publicKey.toBase58());
   console.log();
 
-  // Step 1: Create bRENT mint (if not already created)
+  // Step 1: Create BunkerCash mint (if not already created)
   const mintAccount = await connection.getAccountInfo(mintPda);
   if (mintAccount) {
-    console.log("Mint already exists, skipping create_brent_mint.");
+    console.log("Mint already exists, skipping create_bunkercash_mint.");
   } else {
-    console.log("Step 1: Creating bRENT mint...");
+    console.log("Step 1: Creating BunkerCash mint...");
     const sig1 = await (program.methods as any)
-      .createBrentMint()
+      .createBunkercashMint()
       .accounts({
         pool: poolPda,
-        brentMint: mintPda,
+        bunkercashMint: mintPda,
         admin: signer.publicKey,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
         systemProgram: PublicKey.default,
@@ -135,7 +135,7 @@ async function main() {
       .initMintMetadata(name, symbol, uri)
       .accounts({
         pool: poolPda,
-        brentMint: mintPda,
+        bunkercashMint: mintPda,
         admin: signer.publicKey,
         metadata: metadataPda,
         tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,

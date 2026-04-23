@@ -62,7 +62,7 @@ interface Stringable {
 interface PoolAccount {
   masterWallet: PublicKey;
   nav: Stringable;
-  totalBrentSupply: Stringable;
+  totalBunkercashSupply: Stringable;
   totalPendingClaims: Stringable;
 }
 
@@ -80,9 +80,9 @@ interface BuyPrimaryMethods {
     accounts: (accounts: {
       pool: PublicKey;
       userUsdc: PublicKey;
-      userBrent: PublicKey;
+      userBunkercash: PublicKey;
       poolUsdc: PublicKey;
-      brentMint: PublicKey;
+      bunkercashMint: PublicKey;
       supportedUsdcConfig: PublicKey;
       purchaseLimitConfig: PublicKey;
       feeConfig: PublicKey;
@@ -113,7 +113,7 @@ export function BuyPrimaryInterface() {
   const [poolState, setPoolState] = useState<{
     masterWallet: PublicKey;
     nav: bigint;
-    totalBrentSupply: bigint;
+    totalBunkercashSupply: bigint;
     purchaseLimitUsdc: bigint;
     totalDepositedUsdc: bigint;
     purchaseFeeBps: number;
@@ -194,7 +194,7 @@ export function BuyPrimaryInterface() {
       setPoolState({
         masterWallet: state.masterWallet,
         nav: availableNav,
-        totalBrentSupply: BigInt(state.totalBrentSupply.toString()),
+        totalBunkercashSupply: BigInt(state.totalBunkercashSupply.toString()),
         purchaseLimitUsdc,
         totalDepositedUsdc,
         purchaseFeeBps,
@@ -254,7 +254,7 @@ export function BuyPrimaryInterface() {
   }, [publicKey, connection, usdcMint, usdcTokenProgram]);
 
   const pricePerToken = poolState
-    ? derivePrice(poolState.nav, poolState.totalBrentSupply)
+    ? derivePrice(poolState.nav, poolState.totalBunkercashSupply)
     : null;
   const supportsUsdcDeposits =
     !!usdcTokenProgram &&
@@ -275,10 +275,10 @@ export function BuyPrimaryInterface() {
     const purchaseFeeRaw = (usdcAmountRaw * BigInt(poolState.purchaseFeeBps)) / 10_000n;
     const netInvestmentRaw = usdcAmountRaw - purchaseFeeRaw;
     if (netInvestmentRaw <= 0n) return null;
-    if (poolState.totalBrentSupply === BigInt(0) || poolState.nav === BigInt(0)) {
+    if (poolState.totalBunkercashSupply === BigInt(0) || poolState.nav === BigInt(0)) {
       return netInvestmentRaw;
     }
-    return (netInvestmentRaw * poolState.totalBrentSupply) / poolState.nav;
+    return (netInvestmentRaw * poolState.totalBunkercashSupply) / poolState.nav;
   }, [poolState, usdcAmountRaw]);
 
   const purchaseFeeRaw = useMemo(() => {
@@ -401,8 +401,8 @@ export function BuyPrimaryInterface() {
         configuredUsdcTokenProgram,
         ASSOCIATED_TOKEN_PROGRAM_ID,
       );
-      const brentMintInfo = await connection.getAccountInfo(bunkercashMintPda);
-      if (!brentMintInfo) {
+      const bunkercashMintInfo = await connection.getAccountInfo(bunkercashMintPda);
+      if (!bunkercashMintInfo) {
         const msg =
           "The Bunker Cash mint PDA is not initialized for this program yet.";
         setError(msg);
@@ -451,9 +451,9 @@ export function BuyPrimaryInterface() {
         .accounts({
           pool: poolPda,
           userUsdc,
-          userBrent: userBunkercash,
+          userBunkercash: userBunkercash,
           poolUsdc: poolUsdcVault,
-          brentMint: bunkercashMintPda,
+          bunkercashMint: bunkercashMintPda,
           supportedUsdcConfig: supportedUsdcConfigPda,
           purchaseLimitConfig: purchaseLimitConfigPda,
           feeConfig: feeConfigPda,

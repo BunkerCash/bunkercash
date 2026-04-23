@@ -1,5 +1,5 @@
 {
-  "address": "G5Vb57tzpH1FvqrqDiPqNeZka7VbexAYWnPW5EmwF3Ld",
+  "address": "82dniBUUXSFNEhQ9vpjce1tQXLkX7EyHLL7FEuCGHtH4",
   "metadata": {
     "name": "bunkercash",
     "version": "0.1.0",
@@ -8,16 +8,158 @@
   },
   "instructions": [
     {
-      "name": "create_brent_mint",
+      "name": "cancel_claim",
       "discriminator": [
-        213,
-        166,
-        71,
-        31,
-        110,
-        208,
-        112,
-        58
+        179,
+        1,
+        212,
+        49,
+        81,
+        144,
+        221,
+        140
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "claim",
+          "writable": true
+        },
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "claim"
+          ]
+        },
+        {
+          "name": "user_bunkercash",
+          "writable": true
+        },
+        {
+          "name": "pool_bunkercash_escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "bunkercash_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "bunkercash_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_bunkercash_mint",
+      "discriminator": [
+        197,
+        87,
+        232,
+        39,
+        247,
+        32,
+        42,
+        71
       ],
       "accounts": [
         {
@@ -37,7 +179,7 @@
           }
         },
         {
-          "name": "brent_mint",
+          "name": "bunkercash_mint",
           "writable": true,
           "pda": {
             "seeds": [
@@ -115,7 +257,7 @@
           "writable": true
         },
         {
-          "name": "user_brent",
+          "name": "user_bunkercash",
           "writable": true
         },
         {
@@ -123,7 +265,7 @@
           "writable": true
         },
         {
-          "name": "brent_mint",
+          "name": "bunkercash_mint",
           "writable": true,
           "pda": {
             "seeds": [
@@ -317,11 +459,128 @@
           }
         },
         {
-          "name": "user_brent",
+          "name": "user_bunkercash",
           "writable": true
         },
         {
-          "name": "brent_mint",
+          "name": "pool_bunkercash_escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "bunkercash_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "master_wallet"
+        },
+        {
+          "name": "master_bunkercash",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "master_wallet"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "bunkercash_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "bunkercash_mint",
           "writable": true,
           "pda": {
             "seeds": [
@@ -380,13 +639,17 @@
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
         {
-          "name": "brent_amount",
+          "name": "bunkercash_amount",
           "type": "u64"
         }
       ]
@@ -422,7 +685,7 @@
           }
         },
         {
-          "name": "brent_mint",
+          "name": "bunkercash_mint",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1633,6 +1896,91 @@
           "writable": true
         },
         {
+          "name": "bunkercash_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  110,
+                  107,
+                  101,
+                  114,
+                  99,
+                  97,
+                  115,
+                  104,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pool_bunkercash_escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "bunkercash_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
           "name": "supported_usdc_config",
           "pda": {
             "seeds": [
@@ -1674,6 +2022,10 @@
         },
         {
           "name": "usdc_token_program"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         }
       ],
       "args": [
@@ -1714,7 +2066,7 @@
           }
         },
         {
-          "name": "brent_mint",
+          "name": "bunkercash_mint",
           "pda": {
             "seeds": [
               {
@@ -1852,16 +2204,29 @@
   ],
   "events": [
     {
-      "name": "BrentMintCreatedEvent",
+      "name": "BunkercashMintCreatedEvent",
       "discriminator": [
-        241,
-        135,
-        76,
-        199,
-        247,
-        215,
-        140,
-        190
+        232,
+        131,
+        19,
+        179,
+        88,
+        131,
+        232,
+        101
+      ]
+    },
+    {
+      "name": "ClaimCancelledEvent",
+      "discriminator": [
+        237,
+        12,
+        171,
+        21,
+        27,
+        165,
+        172,
+        119
       ]
     },
     {
@@ -2093,7 +2458,7 @@
     {
       "code": 6011,
       "name": "ClaimAmountTooSmall",
-      "msg": "Claim amount must burn a non-zero amount of bRENT for a non-zero USDC value"
+      "msg": "Claim amount must escrow a non-zero amount of BunkerCash for a non-zero USDC value after fees"
     },
     {
       "code": 6012,
@@ -2133,17 +2498,37 @@
     {
       "code": 6019,
       "name": "InvalidMetadataAccount",
-      "msg": "Invalid metadata account for the bRENT mint"
+      "msg": "Invalid metadata account for the BunkerCash mint"
     },
     {
       "code": 6020,
       "name": "InvalidFeeBps",
       "msg": "Fee must be between 0 and 10 percent"
+    },
+    {
+      "code": 6021,
+      "name": "ClaimAlreadyCancelled",
+      "msg": "Claim has already been cancelled"
+    },
+    {
+      "code": 6022,
+      "name": "ClaimAlreadyProcessed",
+      "msg": "Claim has already been fully processed"
+    },
+    {
+      "code": 6023,
+      "name": "InvalidClaimOwner",
+      "msg": "Only the claim owner can cancel this claim"
+    },
+    {
+      "code": 6024,
+      "name": "InvalidMasterWallet",
+      "msg": "Master wallet does not match the pool's master wallet"
     }
   ],
   "types": [
     {
-      "name": "BrentMintCreatedEvent",
+      "name": "BunkercashMintCreatedEvent",
       "type": {
         "kind": "struct",
         "fields": [
@@ -2196,8 +2581,52 @@
             "type": "u64"
           },
           {
+            "name": "bunkercash_escrow",
+            "type": "u64"
+          },
+          {
+            "name": "bunkercash_remaining",
+            "type": "u64"
+          },
+          {
+            "name": "cancelled",
+            "type": "bool"
+          },
+          {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ClaimCancelledEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "claim",
+            "type": "pubkey"
+          },
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "refunded_bunkercash",
+            "type": "u64"
+          },
+          {
+            "name": "released_usdc",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
@@ -2224,7 +2653,15 @@
             "type": "pubkey"
           },
           {
-            "name": "brent_amount",
+            "name": "bunkercash_amount",
+            "type": "u64"
+          },
+          {
+            "name": "fee_bunkercash",
+            "type": "u64"
+          },
+          {
+            "name": "net_bunkercash",
             "type": "u64"
           },
           {
@@ -2236,7 +2673,7 @@
             "type": "u64"
           },
           {
-            "name": "remaining_brent_supply",
+            "name": "remaining_bunkercash_supply",
             "type": "u64"
           },
           {
@@ -2269,6 +2706,10 @@
           },
           {
             "name": "paid_amount",
+            "type": "u64"
+          },
+          {
+            "name": "bunkercash_burned",
             "type": "u64"
           },
           {
@@ -2629,7 +3070,7 @@
             "type": "u64"
           },
           {
-            "name": "total_brent_supply",
+            "name": "total_bunkercash_supply",
             "type": "u64"
           },
           {
@@ -2732,7 +3173,7 @@
             "type": "u64"
           },
           {
-            "name": "brent_minted",
+            "name": "bunkercash_minted",
             "type": "u64"
           },
           {
@@ -2740,7 +3181,7 @@
             "type": "u64"
           },
           {
-            "name": "new_total_brent_supply",
+            "name": "new_total_bunkercash_supply",
             "type": "u64"
           },
           {

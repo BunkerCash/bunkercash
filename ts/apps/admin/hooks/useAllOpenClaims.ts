@@ -7,10 +7,10 @@ export type OpenClaim = SerializedClaim
 
 function normalizeClaims(data: ClaimsResponse) {
   const reopenedClosed = data.open.filter(
-    (claim) => claim.processed || BigInt(claim.remainingUsdc) === BigInt(0)
+    (claim) => claim.processed || claim.cancelled || BigInt(claim.remainingUsdc) === BigInt(0)
   )
   const open = data.open.filter(
-    (claim) => !claim.processed && BigInt(claim.remainingUsdc) > BigInt(0)
+    (claim) => !claim.processed && !claim.cancelled && BigInt(claim.remainingUsdc) > BigInt(0)
   )
   const closed = [...data.closed, ...reopenedClosed]
   const totalRequested = open.reduce(

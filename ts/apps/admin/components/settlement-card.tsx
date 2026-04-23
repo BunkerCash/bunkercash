@@ -6,13 +6,14 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey, SendTransactionError, Transaction, type TransactionInstruction } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
   createAssociatedTokenAccountIdempotentInstruction,
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
 import { AlertCircle, CheckCircle2, Loader2, RefreshCw, Wallet } from "lucide-react";
 import { useAllOpenClaims, type OpenClaim } from "@/hooks/useAllOpenClaims";
 import { usePayoutVault } from "@/hooks/usePayoutVault";
-import { getProgram, getPoolPda, getPoolSignerPda, getReadonlyProgram, getSupportedUsdcConfigPda, PROGRAM_ID } from "@/lib/program";
+import { getBunkercashMintPda, getProgram, getPoolPda, getPoolSignerPda, getReadonlyProgram, getSupportedUsdcConfigPda, PROGRAM_ID } from "@/lib/program";
 import type { ProgramWallet } from "@/lib/program";
 import { useSupportedUsdcMint } from "@/hooks/useSupportedUsdcMint";
 
@@ -29,10 +30,13 @@ interface InstructionBuilder {
   accounts: (accounts: {
     pool: PublicKey;
     poolUsdc: PublicKey;
+    bunkercashMint: PublicKey;
+    poolBunkercashEscrow: PublicKey;
     supportedUsdcConfig: PublicKey;
     usdcMint: PublicKey;
     masterWallet: PublicKey;
     usdcTokenProgram: PublicKey;
+    tokenProgram: PublicKey;
   }) => {
     remainingAccounts: (accounts: AccountMetaLike[]) => {
       instruction: () => Promise<TransactionInstruction>;
@@ -140,6 +144,18 @@ export function SettlementCard() {
 
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), []);
   const poolSignerPda = useMemo(() => getPoolSignerPda(poolPda, PROGRAM_ID), [poolPda]);
+  const bunkercashMintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), []);
+  const poolBunkercashEscrow = useMemo(
+    () =>
+      getAssociatedTokenAddressSync(
+        bunkercashMintPda,
+        poolPda,
+        true,
+        TOKEN_2022_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+      ),
+    [bunkercashMintPda, poolPda],
+  );
   const program = useMemo(
     () =>
       publicKey && signTransaction && signAllTransactions
@@ -299,10 +315,13 @@ export function SettlementCard() {
             .accounts({
               pool: poolPda,
               poolUsdc: payoutVault,
+              bunkercashMint: bunkercashMintPda,
+              poolBunkercashEscrow,
               supportedUsdcConfig: supportedUsdcConfigPda,
               usdcMint,
               masterWallet: publicKey,
               usdcTokenProgram,
+              tokenProgram: TOKEN_2022_PROGRAM_ID,
             })
             .remainingAccounts(remainingAccounts)
             .instruction());
@@ -383,7 +402,7 @@ export function SettlementCard() {
     setResults({ settledClaims, failedClaims, signatures: succeeded });
     setSettling(false);
     await Promise.all([refreshClaims(), refreshVault(), fetchPoolPendingClaims()]);
-  }, [canBatchSafely, connection, exceedsSingleTransactionLimit, fetchPoolPendingClaims, payoutVault, program, publicKey, signTransaction, refreshClaims, refreshVault, settlementPlan, usdcMint, usdcTokenProgram, poolPda, supportedUsdcConfigPda]);
+  }, [bunkercashMintPda, canBatchSafely, connection, exceedsSingleTransactionLimit, fetchPoolPendingClaims, payoutVault, poolBunkercashEscrow, program, publicKey, signTransaction, refreshClaims, refreshVault, settlementPlan, usdcMint, usdcTokenProgram, poolPda, supportedUsdcConfigPda]);
 
   const loading = claimsLoading || vaultLoading;
   const canSettle =
@@ -665,7 +684,9 @@ export function SettlementCard() {
                     <td className="px-5 py-4 text-right text-sm text-neutral-300">
                       {formatTimestamp(claim.createdAt)}
                     </td>
-                    <td className="px-5 py-4 text-right text-sm text-[#00FFB2]">Settled</td>
+                    <td className={`px-5 py-4 text-right text-sm ${claim.cancelled ? "text-red-300" : "text-[#00FFB2]"}`}>
+                      {claim.cancelled ? "Cancelled" : "Settled"}
+                    </td>
                   </tr>
                 ))
               )}

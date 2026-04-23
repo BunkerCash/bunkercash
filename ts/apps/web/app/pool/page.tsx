@@ -172,7 +172,7 @@ const PoolStatus = () => {
                   ? renderLoading
                   : (
                     <span className="text-primary">
-                      {stats.circulatingSupply ?? "—"} bRENT
+                      {stats.circulatingSupply ?? "—"} BunkerCash
                     </span>
                   )
               }

@@ -34,7 +34,7 @@ interface Stringable {
 
 interface PoolAccountLike {
   nav: Stringable;
-  totalBrentSupply: Stringable;
+  totalBunkercashSupply: Stringable;
   totalPendingClaims: Stringable;
   masterWallet: PublicKey;
 }
@@ -58,6 +58,9 @@ export interface SerializedClaim {
   paidUsdc: string;
   remainingUsdc: string;
   processed: boolean;
+  cancelled: boolean;
+  bunkercashEscrow: string;
+  bunkercashRemaining: string;
   createdAt: string;
 }
 
@@ -92,6 +95,9 @@ function serializeClaim(claim: DecodedClaimAccount): SerializedClaim {
     paidUsdc: claim.paidUsdc,
     remainingUsdc: claim.remainingUsdc,
     processed: claim.processed,
+    cancelled: claim.cancelled,
+    bunkercashEscrow: claim.bunkercashEscrow,
+    bunkercashRemaining: claim.bunkercashRemaining,
     createdAt: claim.createdAt,
   };
 }
@@ -111,7 +117,7 @@ export async function fetchPoolData(): Promise<PoolDataResponse> {
 
   const poolAccount = await accountApi.pool.fetch(poolPda);
   let totalSupplyRaw =
-    Number(poolAccount.totalBrentSupply.toString()) / 10 ** BUNKERCASH_DECIMALS;
+    Number(poolAccount.totalBunkercashSupply.toString()) / 10 ** BUNKERCASH_DECIMALS;
   try {
     const mintInfo = await connection.getTokenSupply(mintPda, "confirmed");
     totalSupplyRaw =
@@ -187,7 +193,7 @@ export async function fetchAllClaims(): Promise<ClaimsResponse> {
   for (const claim of allClaims) {
     const serialized = serializeClaim(claim);
     const remainingUsdc = BigInt(claim.remainingUsdc);
-    if (claim.processed || remainingUsdc === BigInt(0)) {
+    if (claim.processed || claim.cancelled || remainingUsdc === BigInt(0)) {
       closed.push(serialized);
     } else {
       open.push(serialized);

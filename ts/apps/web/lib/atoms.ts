@@ -4,7 +4,6 @@ import { Withdrawal, Transaction, Loan } from "@/types";
 // Re-export types so they can be imported from atoms
 export type { Withdrawal, Transaction, Loan };
 
-export const selectedFundAtom = atom<"bRENT" | "bBUILD" | "bPRIME">("bRENT");
 export const withdrawalsAtom = atom<Withdrawal[]>([
   {
     id: "1",
@@ -65,4 +64,3 @@ export const loansAtom = atom<Loan[]>([
     outstanding: "$590,000",
   },
 ])
-
