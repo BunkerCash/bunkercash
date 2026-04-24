@@ -61,7 +61,7 @@ describe("upsertSnapshot", () => {
       errorsJson: null,
     };
     mockRun.mockResolvedValueOnce({});
-    mockFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(row);
+    mockFirst.mockResolvedValueOnce(row);
 
     const result = await upsertSnapshot(makeMockClient(), input);
     expect(result.snapshotDate).toBe("2025-06-14");
@@ -84,7 +84,7 @@ describe("upsertSnapshot", () => {
       isPartial: 1,
     };
     mockRun.mockResolvedValueOnce({});
-    mockFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(row);
+    mockFirst.mockResolvedValueOnce(row);
 
     const result = await upsertSnapshot(makeMockClient(), input);
     expect(result.isPartial).toBe(true);
@@ -97,7 +97,7 @@ describe("upsertSnapshot", () => {
     ).rejects.toThrow("Invalid snapshotDate");
   });
 
-  it("returns the existing snapshot without overwriting the same date", async () => {
+  it("overwrites an existing snapshot for the same date", async () => {
     const input: MetricSnapshotInput = { snapshotDate: "2025-06-14", navUsdc: 100 };
     const row = {
       id: 1,
@@ -107,15 +107,12 @@ describe("upsertSnapshot", () => {
       errorsJson: null,
     };
     mockRun.mockResolvedValue({});
-    mockFirst
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(row)
-      .mockResolvedValueOnce(row);
+    mockFirst.mockResolvedValue(row);
 
     await upsertSnapshot(makeMockClient(), input);
     await upsertSnapshot(makeMockClient(), input);
 
-    expect(mockRun).toHaveBeenCalledTimes(1);
+    expect(mockRun).toHaveBeenCalledTimes(2);
   });
 });
 

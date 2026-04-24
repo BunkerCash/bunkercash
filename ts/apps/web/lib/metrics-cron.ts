@@ -26,7 +26,6 @@ export async function runDailyCollection(options?: {
   isPartial: boolean;
 }> {
   const snapshotDate = options?.snapshotDate ?? previousUtcDate();
-  const input = await collectSnapshot(snapshotDate);
 
   const env =
     options?.env ??
@@ -36,13 +35,15 @@ export async function runDailyCollection(options?: {
   const client = createMetricsClient(db);
   try {
     const existing = await getSnapshotByDate(client, snapshotDate);
-    if (existing) {
+
+    if (existing && !existing.isPartial) {
       return {
         snapshotDate: existing.snapshotDate,
-        isPartial: existing.isPartial,
+        isPartial: false,
       };
     }
 
+    const input = await collectSnapshot(snapshotDate);
     const row = await upsertSnapshot(client, input);
     return { snapshotDate: row.snapshotDate, isPartial: row.isPartial };
   } finally {

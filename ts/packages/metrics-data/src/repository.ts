@@ -30,29 +30,29 @@ export async function upsertSnapshot(
     throw new Error(`Invalid snapshotDate: ${input.snapshotDate}`);
   }
 
-  const existing = await first<DailyMetricSnapshotRow>(
-    client.db
-      .prepare(
-        `SELECT id, snapshotDate, collectedAt, navUsdc, pendingClaimsUsdc, treasuryUsdc,
-          totalSupply, tokenPrice, pricePerToken, openClaimsCount, supportRequestCount,
-          holderCount, adminWallet, isPartial, errorsJson
-         FROM daily_metric_snapshots
-         WHERE snapshotDate = ?`
-      )
-      .bind(input.snapshotDate),
-  );
-  if (existing) {
-    return toSnapshot(existing);
-  }
-
   const now = new Date().toISOString();
+
   await client.db
     .prepare(
       `INSERT INTO daily_metric_snapshots (
         snapshotDate, collectedAt, navUsdc, pendingClaimsUsdc, treasuryUsdc,
         totalSupply, tokenPrice, pricePerToken, openClaimsCount,
         supportRequestCount, holderCount, adminWallet, isPartial, errorsJson
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(snapshotDate) DO UPDATE SET
+        collectedAt = excluded.collectedAt,
+        navUsdc = excluded.navUsdc,
+        pendingClaimsUsdc = excluded.pendingClaimsUsdc,
+        treasuryUsdc = excluded.treasuryUsdc,
+        totalSupply = excluded.totalSupply,
+        tokenPrice = excluded.tokenPrice,
+        pricePerToken = excluded.pricePerToken,
+        openClaimsCount = excluded.openClaimsCount,
+        supportRequestCount = excluded.supportRequestCount,
+        holderCount = excluded.holderCount,
+        adminWallet = excluded.adminWallet,
+        isPartial = excluded.isPartial,
+        errorsJson = excluded.errorsJson`
     )
     .bind(
       input.snapshotDate,
@@ -84,7 +84,7 @@ export async function upsertSnapshot(
       .bind(input.snapshotDate),
   );
   if (!row) {
-    throw new Error(`Failed to load snapshot after insert: ${input.snapshotDate}`);
+    throw new Error(`Failed to load snapshot after upsert: ${input.snapshotDate}`);
   }
   return toSnapshot(row);
 }
