@@ -28,5 +28,13 @@
       "id": "9abcd5888b5c436fba6f445f8ba68e98",
       "preview_id": "a6f9582a6f8444bea09b37128e00bb17"
     }
+  ],
+  "d1_databases": [
+    {
+      "binding": "METRICS_DB",
+      "database_id": "97cc29d2-b9e4-4430-83ce-bb1272e1d629",
+      "database_name": "bunkercash-metrics",
+      "migrations_dir": "../../packages/metrics-data/migrations"
+    }
   ]
 }

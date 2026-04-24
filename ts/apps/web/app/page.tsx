@@ -5,6 +5,7 @@ import { Layout } from "@/components/layout/Layout";
 import { BuyPrimaryInterface } from "@/components/BuyPrimaryInterface";
 import { WithdrawInterface } from "@/components/WithdrawInterface";
 import { DisclaimerBanner } from "@/components/ui/DisclaimerBanner";
+import { PriceChart } from "@/components/PriceChart";
 import { usePoolStats } from "@/hooks/usePoolStats";
 
 function fmt(value: string | null) {
@@ -77,6 +78,7 @@ export default function Home() {
             <div className="hp-price-sub">USDC per token</div>
           </div>
 
+
           {/* Action buttons */}
           <div className="hp-actions">
             <button
@@ -122,6 +124,10 @@ export default function Home() {
               </div>
             </div>
           </div>
+
+                    {/* Price chart */}
+          <PriceChart days={30} />
+
         </div>
 
         {/* Modal */}

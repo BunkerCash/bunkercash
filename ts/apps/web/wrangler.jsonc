@@ -1,6 +1,6 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "main": ".open-next/worker.js",
+  "main": "worker.js",
   "name": "bunkercash-web",
   "account_id": "9eb655a86ca1ba777efa7889d7eb93e6",
   "compatibility_date": "2024-09-23",
@@ -15,6 +15,9 @@
       "service": "bunkercash-web"
     }
   ],
+  "triggers": {
+    "crons": ["10 0 * * *"]
+  },
   "vars": {
     "NEXT_PUBLIC_SOLANA_RPC_URL": "https://api.testnet.solana.com",
     "NEXT_PUBLIC_SOLANA_CLUSTER": "testnet",
@@ -28,6 +31,14 @@
       "binding": "GEOBLOCKING_KV",
       "id": "9abcd5888b5c436fba6f445f8ba68e98",
       "preview_id": "a6f9582a6f8444bea09b37128e00bb17"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "METRICS_DB",
+      "database_id": "97cc29d2-b9e4-4430-83ce-bb1272e1d629",
+      "database_name": "bunkercash-metrics",
+      "migrations_dir": "../../packages/metrics-data/migrations"
     }
   ]
 }
