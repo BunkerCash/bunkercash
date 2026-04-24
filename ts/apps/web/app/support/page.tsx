@@ -5,7 +5,7 @@ import { SupportRequestForm } from "@/components/SupportRequestForm";
 import { getSupportContactDetails } from "@/lib/support-requests";
 
 export const metadata = {
-  title: "Support | Bunker Cash",
+  title: "Support | BunkerCash",
 };
 
 function buildTelHref(phone: string) {
@@ -38,7 +38,7 @@ export default async function SupportPage({ searchParams }: SupportPageProps) {
                 Support Request
               </div>
               <h1 className="max-w-2xl text-3xl font-semibold text-white sm:text-4xl">
-                Contact the Bunker Cash support team
+                Contact the BunkerCash support team
               </h1>
               <p className="mt-4 max-w-2xl text-sm leading-7 text-neutral-400 sm:text-base">
                 Use this page if access was blocked in error or if you need help

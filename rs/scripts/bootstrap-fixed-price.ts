@@ -2,8 +2,8 @@
  * Bootstrap the fixed-price BunkerCash pool on devnet.
  *
  * - Creates the `PoolState` PDA
- * - Creates the Token-2022 Bunker Cash mint PDA (mint authority = pool PDA)
- * - Creates required ATAs (user USDC, pool USDC vault, user Bunker Cash)
+ * - Creates the Token-2022 BunkerCash mint PDA (mint authority = pool PDA)
+ * - Creates required ATAs (user USDC, pool USDC vault, user BunkerCash)
  * - Optionally runs a test `buy_primary`
  *
  * Run:
@@ -107,7 +107,7 @@ async function main() {
 
   console.log("Pool PDA:", poolPda.toBase58());
   console.log("Pool signer PDA:", poolSignerPda.toBase58());
-  console.log("Bunker Cash mint PDA:", bunkercashMintPda.toBase58());
+  console.log("BunkerCash mint PDA:", bunkercashMintPda.toBase58());
   console.log("USDC mint:", usdcMint.toBase58());
 
   // Admin: use ADMIN_PUBKEY env (e.g. your Phantom address) if set; otherwise wallet that runs this script.
@@ -166,7 +166,7 @@ async function main() {
 
   console.log("User USDC ATA:", userUsdcAta.toBase58());
   console.log("Payout USDC vault ATA (Pool Signer):", payoutUsdcVaultAta.toBase58());
-  console.log("User Bunker Cash ATA:", userBunkercashAta.toBase58());
+  console.log("User BunkerCash ATA:", userBunkercashAta.toBase58());
 
   // Optional test buy (set TEST_BUY_USDC=2.5 to buy 2.5 USDC worth).
   if (process.env.TEST_BUY_USDC) {

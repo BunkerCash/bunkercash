@@ -45,7 +45,7 @@ export default function LoginPage() {
           <div className="w-16 h-16 rounded-2xl bg-[#00FFB2]/10 border border-[#00FFB2]/20 flex items-center justify-center mb-5">
             <Wallet className="w-7 h-7 text-[#00FFB2]" strokeWidth={1.5} />
           </div>
-          <h1 className="text-2xl font-bold text-white mb-1">Bunker Cash</h1>
+          <h1 className="text-2xl font-bold text-white mb-1">BunkerCash</h1>
           <p className="text-sm text-neutral-500">Admin Dashboard</p>
         </div>
 

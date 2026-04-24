@@ -934,7 +934,7 @@ export function MasterOperationsCard() {
           <div>
             <h2 className="text-sm font-medium text-white">Withdrawals</h2>
             <p className="mt-1 text-xs text-neutral-500">
-              Current withdrawal records stored in the Bunker Cash program.
+              Current withdrawal records stored in the BunkerCash program.
             </p>
           </div>
           <span className="text-xs text-neutral-500">

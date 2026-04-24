@@ -36,7 +36,7 @@ anchor deploy
 
 ## 3. Bootstrap pool (admin, first time only)
 
-Creates the pool and Bunker Cash mint if they don’t exist. The wallet in `ANCHOR_WALLET` becomes **pool admin** (stored in `PoolState.admin`).
+Creates the pool and BunkerCash mint if they don’t exist. The wallet in `ANCHOR_WALLET` becomes **pool admin** (stored in `PoolState.admin`).
 
 ```bash
 cd rs
@@ -56,7 +56,7 @@ TEST_BUY_USDC=2.5 npx ts-node -P tsconfig.json scripts/bootstrap-fixed-price.ts
 
 ## 4. User: Buy (buy_primary)
 
-User spends USDC and receives Bunker Cash at the current pool price.
+User spends USDC and receives BunkerCash at the current pool price.
 
 ### Via script (bootstrap script with test buy)
 
@@ -81,7 +81,7 @@ Use the bRENT/Buy UI: connect wallet, enter USDC amount, submit. The app calls `
 
 ## 5. User: Sell (register_sell)
 
-User locks Bunker Cash into the escrow vault and gets a claim. No burn; payouts happen when admin runs `process_claims`.
+User locks BunkerCash into the escrow vault and gets a claim. No burn; payouts happen when admin runs `process_claims`.
 
 ### Via script (base units; 9 decimals)
 
@@ -225,7 +225,7 @@ Optional: `TOP_N=20` to show top 20 by locked amount (default 10).
 ## Summary flow
 
 1. **Deploy** program and **bootstrap** pool (admin wallet becomes pool admin).
-2. **Users** buy (USDC → Bunker Cash) and sell (lock Bunker Cash → claim).
+2. **Users** buy (USDC → BunkerCash) and sell (lock BunkerCash → claim).
 3. **Admin** adds USDC to the payout vault (`add_liquidity` via e2e with `LIQ_USDC`).
 4. **Admin** runs `process_claims` (e2e or custom tool) to distribute USDC pro-rata to claimants.
 5. **Admin** can update price anytime (`update-price.ts`) and set token metadata once (`init:metadata`).

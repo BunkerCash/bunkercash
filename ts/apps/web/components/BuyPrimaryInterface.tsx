@@ -404,7 +404,7 @@ export function BuyPrimaryInterface() {
       const bunkercashMintInfo = await connection.getAccountInfo(bunkercashMintPda);
       if (!bunkercashMintInfo) {
         const msg =
-          "The Bunker Cash mint PDA is not initialized for this program yet.";
+          "The BunkerCash mint PDA is not initialized for this program yet.";
         setError(msg);
         showToast(msg, "error");
         return;
@@ -627,7 +627,7 @@ export function BuyPrimaryInterface() {
             </div>
             <div className="inline-flex w-fit items-center gap-2 self-start rounded-xl border-2 border-[#00FFB2] bg-[#00FFB2]/10 px-4 py-2.5 sm:self-auto sm:px-5 sm:py-3">
               <span className="text-sm font-semibold text-[#00FFB2]">
-                Bunker Cash
+                BunkerCash
               </span>
             </div>
           </div>

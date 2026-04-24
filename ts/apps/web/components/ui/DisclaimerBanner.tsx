@@ -34,7 +34,7 @@ export function DisclaimerBanner({
           </div>
 
           <p className="mt-1.5 text-xs leading-5 text-yellow-100/75 sm:text-sm">
-            Bunker Cash tokens are not investments or guaranteed stores of
+            BunkerCash tokens are not investments or guaranteed stores of
             value. Prices may change, sell requests are not guaranteed within a
             fixed timeframe, and you are responsible for your own decisions.
             Nothing here is financial or investment advice.

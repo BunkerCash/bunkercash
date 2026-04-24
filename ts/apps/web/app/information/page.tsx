@@ -13,7 +13,7 @@ const Information = () => {
               Documentation
             </h1>
             <p className="text-muted-foreground text-lg">
-              Documentation, restrictions, and risk disclosures for Bunker Cash.
+              Documentation, restrictions, and risk disclosures for BunkerCash.
             </p>
           </div>
 
@@ -39,7 +39,7 @@ const Information = () => {
               </div>
               <div className="space-y-4 text-muted-foreground">
                 <p className="leading-relaxed">
-                  Bunker Cash is an access-restricted digital token protocol.
+                  BunkerCash is an access-restricted digital token protocol.
                   The protocol does not provide ownership in assets, rights to
                   revenue, guaranteed liquidity, or guaranteed future value.
                 </p>
@@ -92,7 +92,7 @@ const Information = () => {
               </div>
               <div className="space-y-4 text-muted-foreground">
                 <p className="leading-relaxed">
-                  Bunker Cash tokens are digital protocol tokens only. They do
+                  BunkerCash tokens are digital protocol tokens only. They do
                   not represent any share, equity, debt, security, or other
                   financial instrument. Holding tokens does not create any
                   contractual relationship or entitlement to benefits, profits,

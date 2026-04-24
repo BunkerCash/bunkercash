@@ -77,7 +77,7 @@ async function main() {
   } else {
     console.log("Step 2: Creating metadata...");
     const sig = await (program.methods as any)
-      .initMintMetadata("Bunker Cash", "BNKR", "https://bunkercash.com/metadata.json")
+      .initMintMetadata("BunkerCash", "BNKR", "https://bunkercash.com/metadata.json")
       .accounts({
         pool: poolPda,
         bunkercashMint: mintPda,

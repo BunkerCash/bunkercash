@@ -2303,7 +2303,7 @@ pub enum ErrorCode {
     IncompleteSettlementSet,
     #[msg("On-chain pending claims are lower than the submitted claim set; sync pending claims before settling")]
     PendingClaimsOutOfSync,
-    #[msg("Bunker Cash mint PDA is already initialized")]
+    #[msg("BunkerCash mint PDA is already initialized")]
     MintAlreadyInitialized,
     #[msg("Claim amount must escrow a non-zero amount of BunkerCash for a non-zero USDC value after fees")]
     ClaimAmountTooSmall,

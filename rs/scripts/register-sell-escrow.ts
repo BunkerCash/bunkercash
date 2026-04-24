@@ -99,7 +99,7 @@ async function main() {
   console.log("Pool:", poolPda.toBase58());
   console.log("Pool signer:", poolSignerPda.toBase58());
   console.log("Mint:", bunkercashMintPda.toBase58());
-  console.log("User bunkercash ATA:", userBunkercashAta.toBase58());
+  console.log("User BunkerCash ATA:", userBunkercashAta.toBase58());
   console.log("Escrow vault ATA:", escrowVaultAta.toBase58());
   console.log("Claim PDA:", claimPda.toBase58());
   console.log("Selling token amount (base units):", tokenAmount.toString());
