@@ -77,7 +77,7 @@ export interface ClaimsResponse {
 const BUNKERCASH_DECIMALS = 6;
 const USDC_DECIMALS = 6;
 
-function getConnection(): Connection {
+export function getConnection(): Connection {
   const cluster = process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "devnet";
   const endpoint =
     process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||

@@ -8,6 +8,7 @@ import {
 
 export const runtime = "nodejs";
 
+// Public write: rate-limited support request submission.
 export async function POST(request: Request) {
   try {
     const body = await request.json();

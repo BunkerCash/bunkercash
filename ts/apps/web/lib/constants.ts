@@ -61,7 +61,7 @@ export function getSquadsDashboardUrl(
 export const USDC_MINTS: Record<string, string> = {};
 
 export function getClusterFromEndpoint(endpoint: string): ClusterType {
-  const envCluster = process.env.NEXT_PUBLIC_CLUSTER;
+  const envCluster = process.env.NEXT_PUBLIC_SOLANA_CLUSTER;
   if (envCluster) return envCluster as ClusterType;
 
   if (endpoint.includes('devnet')) return 'devnet';

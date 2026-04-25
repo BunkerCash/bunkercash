@@ -40,8 +40,12 @@ export async function getAuthorizedAdminWallets(): Promise<Set<string>> {
     adminWalletsFailureTs &&
     Date.now() - adminWalletsFailureTs < ADMIN_WALLETS_FAILURE_BACKOFF_MS
   ) {
-    const override = process.env.ADMIN_OVERRIDE_WALLET;
-    if (override) return new Set([override]);
+    if (adminWalletsCache) {
+      const wallets = new Set(adminWalletsCache.wallets);
+      const override = process.env.ADMIN_OVERRIDE_WALLET;
+      if (override) wallets.add(override);
+      return wallets;
+    }
     throw new Error("Admin wallet lookup temporarily unavailable");
   }
 
@@ -173,8 +177,8 @@ export async function authorizeGeoblockingUpdate(args: {
       return { ok: false as const, error: "Connected wallet is not authorized" };
     }
   } catch (e: unknown) {
-    const detail = e instanceof Error ? e.message : String(e ?? "");
-    return { ok: false as const, error: `Failed to verify admin authorization: ${detail}` };
+    console.error("[geoblocking-auth] Authorization verification failed:", e instanceof Error ? e.message : e);
+    return { ok: false as const, error: "Failed to verify admin authorization" };
   }
 
   return { ok: true as const };
@@ -217,7 +221,7 @@ export async function authorizeAdminAccess(args: {
     const authorizedWallets = await getAuthorizedAdminWallets();
     return { ok: true as const, isAdmin: authorizedWallets.has(wallet) };
   } catch (e: unknown) {
-    const detail = e instanceof Error ? e.message : String(e ?? "");
-    return { ok: false as const, error: `Failed to verify admin authorization: ${detail}` };
+    console.error("[admin-auth] Access verification failed:", e instanceof Error ? e.message : e);
+    return { ok: false as const, error: "Failed to verify admin authorization" };
   }
 }

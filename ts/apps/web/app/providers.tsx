@@ -15,7 +15,7 @@ function getWalletEnv(): "mainnet-beta" | "devnet" | "testnet" | "localnet" {
   ) {
     return env;
   }
-  return "testnet";
+  return "devnet";
 }
 
 export function Providers({ children }: { children: ReactNode }) {

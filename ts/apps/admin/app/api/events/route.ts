@@ -3,6 +3,8 @@ import { fetchRecentEvents, type EventsResponse } from "@/lib/solana-server";
 
 export const runtime = "nodejs";
 
+// Public read-only: serves on-chain event data already visible on Solana.
+// No admin auth required — dashboard hooks depend on unauthenticated access.
 export async function GET() {
   const start = performance.now();
   try {
