@@ -4,18 +4,10 @@ import type { ReactNode } from "react";
 import { Provider as JotaiProvider } from "jotai";
 import { SolanaProvider } from "@/providers/SolanaProvider";
 import { ToastProvider } from "@/components/ui/ToastContext";
+import { getConfiguredSolanaCluster } from "@/lib/solana-env";
 
 function getWalletEnv(): "mainnet-beta" | "devnet" | "testnet" | "localnet" {
-  const env = process.env.NEXT_PUBLIC_SOLANA_CLUSTER;
-  if (
-    env === "mainnet-beta" ||
-    env === "devnet" ||
-    env === "testnet" ||
-    env === "localnet"
-  ) {
-    return env;
-  }
-  return "devnet";
+  return getConfiguredSolanaCluster();
 }
 
 export function Providers({ children }: { children: ReactNode }) {

@@ -1,6 +1,7 @@
 
 import { PublicKey } from "@solana/web3.js";
 import { PROGRAM_ID as SQUADS_V4_PROGRAM_ID, getVaultPda as getSquadsV4VaultPda } from "@sqds/multisig";
+import { getConfiguredSolanaCluster } from "@/lib/solana-env";
 
 export type ClusterType = 'mainnet-beta' | 'devnet' | 'testnet' | 'localnet' | 'unknown';
 
@@ -61,7 +62,7 @@ export function getSquadsDashboardUrl(
 export const USDC_MINTS: Record<string, string> = {};
 
 export function getClusterFromEndpoint(endpoint: string): ClusterType {
-  const envCluster = process.env.NEXT_PUBLIC_SOLANA_CLUSTER;
+  const envCluster = getConfiguredSolanaCluster();
   if (envCluster) return envCluster as ClusterType;
 
   if (endpoint.includes('devnet')) return 'devnet';

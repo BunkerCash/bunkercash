@@ -9,6 +9,7 @@ import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
 import { PhantomWalletAdapter } from "@solana/wallet-adapter-phantom";
 import { clusterApiUrl } from "@solana/web3.js";
 import { createRateLimitedFetch } from "@/lib/rpc-throttle";
+import { getConfiguredRpcCluster } from "@/lib/solana-env";
 
 import "@solana/wallet-adapter-react-ui/styles.css";
 
@@ -17,7 +18,7 @@ export const SolanaProvider: FC<{ children: ReactNode }> = ({ children }) => {
     () =>
       process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
       process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
-      clusterApiUrl((process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "devnet") as Parameters<typeof clusterApiUrl>[0]),
+      clusterApiUrl(getConfiguredRpcCluster()),
     []
   );
   const wallets = useMemo(() => [new PhantomWalletAdapter()], []);

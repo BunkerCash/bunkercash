@@ -21,6 +21,7 @@ import {
 import { fetchDecodedClaimAccounts } from "@/lib/claim-accounts";
 import type { DecodedClaimAccount } from "@/lib/claim-accounts";
 import { getClusterFromEndpoint } from "@/lib/constants";
+import { getConfiguredRpcCluster } from "@/lib/solana-env";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -101,7 +102,7 @@ const BUNKERCASH_DECIMALS = 6;
 const USDC_DECIMALS = 6;
 
 function getRpcEndpoints(): string[] {
-  const cluster = (process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "devnet") as Parameters<typeof clusterApiUrl>[0];
+  const cluster = getConfiguredRpcCluster();
   const endpoints = [
     process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
       process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
