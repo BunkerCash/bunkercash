@@ -21,7 +21,7 @@ import {
 } from '@/lib/program'
 import { countFractionalDigits, parseUiAmountToBaseUnits } from '@/lib/amounts'
 import { useTokenBalance } from "@/hooks/useTokenBalance";
-import { useMyClaims } from "@/hooks/useMyClaims";
+import { markClaimCancelledOptimistic, useMyClaims } from "@/hooks/useMyClaims";
 import { invalidateTransactionCache } from "@/hooks/useMyTransactions";
 import { useToast } from "@/components/ui/ToastContext";
 import {
@@ -457,6 +457,7 @@ export function WithdrawInterface() {
         wallet,
         transaction: tx,
       });
+      markClaimCancelledOptimistic(claimPubkey);
       showToast(`Sell request cancelled. Tx: ${sig.slice(0, 8)}…`, "success");
       await fetchTokenBalance();
       await fetchClaims();
@@ -467,7 +468,15 @@ export function WithdrawInterface() {
         showToast("Transaction rejected by wallet", "warning");
       } else {
         const msg = e instanceof Error ? e.message : String(e ?? "");
-        showToast(msg || "Failed to cancel sell request", "error");
+        if (msg.includes("already been cancelled")) {
+          markClaimCancelledOptimistic(claimPubkey);
+          await fetchClaims();
+          await fetchPoolState();
+          invalidateTransactionCache();
+          showToast("Sell request was already cancelled. History updated.", "success");
+        } else {
+          showToast(msg || "Failed to cancel sell request", "error");
+        }
       }
     } finally {
       setCancellingClaim(null);
