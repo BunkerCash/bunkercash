@@ -84,7 +84,7 @@ async function rpcWithBlockhashRetry<T>(
     } catch (e) {
       lastErr = e;
       const msg = errText(e);
-      const isBlockhash = /blockhash not found/i.test(msg); // ddint like the solution from ai. 
+      const isBlockhash = /blockhash not found/i.test(msg);
       if (!isBlockhash || attempt === retries) throw e;
       console.warn(`${label}: Blockhash not found, retrying (${attempt}/${retries})...`);
       // small backoff helps devnet RPC consistency

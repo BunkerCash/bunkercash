@@ -1,7 +1,6 @@
-/**
- * Placeholder types for Bunkercoin Cash Anchor program
- * TODO: Generate proper types from IDL using anchor CLI
- */
+// placeholder types for the bunkercash anchor program
+// generated types from the idl live alongside the program; these are kept
+// for the few call sites that still import them.
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface BunkerCashProgram {
