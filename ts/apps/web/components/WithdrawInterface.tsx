@@ -21,7 +21,7 @@ import {
 } from '@/lib/program'
 import { countFractionalDigits, parseUiAmountToBaseUnits } from '@/lib/amounts'
 import { useTokenBalance } from "@/hooks/useTokenBalance";
-import { useMyClaims } from "@/hooks/useMyClaims";
+import { markClaimCancelledOptimistic, useMyClaims } from "@/hooks/useMyClaims";
 import { invalidateTransactionCache } from "@/hooks/useMyTransactions";
 import { useToast } from "@/components/ui/ToastContext";
 import {
@@ -240,7 +240,7 @@ export function WithdrawInterface() {
       return "Amount is too small to produce any USDC at the current reference value"
     }
     if (tokenBalanceRaw != null && amountRaw > tokenBalanceRaw) {
-      return "Amount exceeds your bRENT balance"
+      return "Amount exceeds your BNKR balance"
     }
     return null
   }, [amountRaw, amountUi, netClaimUsdcRaw, tokenBalanceRaw])
@@ -282,8 +282,8 @@ export function WithdrawInterface() {
       const sellAmount = new BN(amountRaw.toString())
 
       if (tokenBalanceRaw != null && amountRaw > tokenBalanceRaw) {
-        setError("Amount exceeds your bRENT balance");
-        showToast("Insufficient bRENT balance", "error");
+        setError("Amount exceeds your BNKR balance");
+        showToast("Insufficient BNKR balance", "error");
         txInFlight.current = false;
         setSubmitting(false);
         return;
@@ -457,6 +457,7 @@ export function WithdrawInterface() {
         wallet,
         transaction: tx,
       });
+      markClaimCancelledOptimistic(claimPubkey);
       showToast(`Sell request cancelled. Tx: ${sig.slice(0, 8)}…`, "success");
       await fetchTokenBalance();
       await fetchClaims();
@@ -467,7 +468,15 @@ export function WithdrawInterface() {
         showToast("Transaction rejected by wallet", "warning");
       } else {
         const msg = e instanceof Error ? e.message : String(e ?? "");
-        showToast(msg || "Failed to cancel sell request", "error");
+        if (msg.includes("already been cancelled")) {
+          markClaimCancelledOptimistic(claimPubkey);
+          await fetchClaims();
+          await fetchPoolState();
+          invalidateTransactionCache();
+          showToast("Sell request was already cancelled. History updated.", "success");
+        } else {
+          showToast(msg || "Failed to cancel sell request", "error");
+        }
       }
     } finally {
       setCancellingClaim(null);
@@ -522,7 +531,7 @@ export function WithdrawInterface() {
                 Amount
               </span>
               <span className="text-xs text-neutral-600">
-                Balance: {tokenBalanceUi} bRENT
+                Balance: {tokenBalanceUi} BNKR
               </span>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
@@ -535,7 +544,7 @@ export function WithdrawInterface() {
               />
               <div className="inline-flex w-fit items-center gap-2 self-start rounded-xl border-2 border-[#00FFB2] bg-[#00FFB2]/10 px-4 py-2.5 sm:self-auto sm:px-5 sm:py-3">
                 <span className="font-semibold text-sm text-[#00FFB2]">
-                  bRENT
+                  BNKR
                 </span>
               </div>
             </div>
@@ -554,11 +563,11 @@ export function WithdrawInterface() {
             <div className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-4 text-sm text-neutral-300">
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <span>Claim fee ({formatPercentFromBps(poolState?.claimFeeBps ?? 0)}%)</span>
-                <span>{toUi(feeBunkercashRaw, 6)} bRENT</span>
+                <span>{toUi(feeBunkercashRaw, 6)} BNKR</span>
               </div>
               <div className="mt-2 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <span>Escrowed amount</span>
-                <span>{toUi(netBunkercashRaw, 6)} bRENT</span>
+                <span>{toUi(netBunkercashRaw, 6)} BNKR</span>
               </div>
               {netClaimUsdcRaw != null && (
                 <div className="mt-2 flex flex-col gap-1 font-medium text-white sm:flex-row sm:items-center sm:justify-between">
@@ -673,9 +682,9 @@ export function WithdrawInterface() {
                   )}
                   {Number(c.bunkercashRemaining) > 0 && !c.cancelled && (
                     <div className="mt-1 flex justify-between text-sm">
-                      <span className="text-neutral-500">Escrowed bRENT</span>
+                      <span className="text-neutral-500">Escrowed BNKR</span>
                       <span className="text-neutral-300">
-                        {Number(c.bunkercashRemaining) / 1e6} bRENT
+                        {Number(c.bunkercashRemaining) / 1e6} BNKR
                       </span>
                     </div>
                   )}

@@ -15,8 +15,8 @@ import {
 } from "@solana/spl-token";
 import {
   getReadonlyProgram,
-  getPoolPda,
   getBunkercashMintPda,
+  getPoolPda,
   getPoolSignerPda,
   fetchMintTokenProgram,
   fetchConfiguredUsdcMint,
@@ -25,6 +25,7 @@ import {
 import { fetchDecodedClaimAccounts } from "@/lib/claim-accounts";
 import type { DecodedClaimAccount } from "@/lib/claim-accounts";
 import { getClusterFromEndpoint } from "@/lib/constants";
+import { getConfiguredRpcCluster } from "@/lib/solana-env";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -77,8 +78,8 @@ export interface ClaimsResponse {
 const BUNKERCASH_DECIMALS = 6;
 const USDC_DECIMALS = 6;
 
-function getConnection(): Connection {
-  const cluster = process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "devnet";
+export function getConnection(): Connection {
+  const cluster = getConfiguredRpcCluster();
   const endpoint =
     process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
     process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
@@ -109,23 +110,14 @@ export async function fetchPoolData(): Promise<PoolDataResponse> {
   const cluster = getClusterFromEndpoint(connection.rpcEndpoint ?? "");
   const program = getReadonlyProgram(connection);
   const poolPda = getPoolPda(PROGRAM_ID);
-  const mintPda = getBunkercashMintPda(PROGRAM_ID);
 
   const accountApi = program.account as {
     pool: { fetch: (pubkey: PublicKey) => Promise<PoolAccountLike> };
   };
 
   const poolAccount = await accountApi.pool.fetch(poolPda);
-  let totalSupplyRaw =
+  const totalSupplyRaw =
     Number(poolAccount.totalBunkercashSupply.toString()) / 10 ** BUNKERCASH_DECIMALS;
-  try {
-    const mintInfo = await connection.getTokenSupply(mintPda, "confirmed");
-    totalSupplyRaw =
-      Number(mintInfo.value.amount) / 10 ** BUNKERCASH_DECIMALS;
-  } catch {
-    // The mint PDA may not exist yet on a fresh deployment.
-    // Fall back to pool state so the public app can still load.
-  }
   const navUsdcRaw =
     Number(poolAccount.nav.toString()) / 10 ** USDC_DECIMALS;
   const pendingClaimsUsdcRaw =

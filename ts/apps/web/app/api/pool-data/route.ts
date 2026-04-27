@@ -8,6 +8,7 @@ const BINDING = "GEOBLOCKING_KV";
 const CACHE_KEY = "cache:pool_data";
 const TTL_SECONDS = 30;
 
+// Public read-only: on-chain pool state, KV-cached.
 export async function GET() {
   const start = performance.now();
   try {

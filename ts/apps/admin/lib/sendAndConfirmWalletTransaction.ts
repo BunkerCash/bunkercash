@@ -1,8 +1,9 @@
 import bs58 from "bs58"
 import { clusterApiUrl, type Commitment, Connection, PublicKey, Transaction } from "@solana/web3.js"
 import type { ProgramWallet } from "./program"
+import { getConfiguredRpcCluster } from "./solana-env"
 
-const CLUSTER = (process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "devnet") as Parameters<typeof clusterApiUrl>[0];
+const CLUSTER = getConfiguredRpcCluster();
 const FALLBACK_RPC_ENDPOINTS = [
   clusterApiUrl(CLUSTER),
   ...(CLUSTER === "testnet" ? ["https://solana-testnet-rpc.publicnode.com"] : []),

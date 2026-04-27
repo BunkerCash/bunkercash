@@ -9,11 +9,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { usePriceHistory, type PricePoint } from "@/hooks/usePriceHistory";
-
-function formatDate(dateStr: string) {
-  const [, m, d] = dateStr.split("-");
-  return `${m}/${d}`;
-}
+import { formatPriceChartDate } from "./priceChartFormat";
 
 function ChartTooltip({
   active,
@@ -123,7 +119,7 @@ export function PriceChart({ days = 30 }: { days?: number }) {
             </defs>
             <XAxis
               dataKey="date"
-              tickFormatter={formatDate}
+              tickFormatter={formatPriceChartDate}
               tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }}
               axisLine={false}
               tickLine={false}
@@ -213,5 +209,9 @@ const chartStyles = `
   }
   .hp-chart-loading {
     animation: blink 1.4s ease-in-out infinite;
+  }
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
   }
 `;

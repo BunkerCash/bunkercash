@@ -1,6 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 import idl from "./idl/bunker_cash.json";
+import { getConfiguredRpcCluster } from "@/lib/solana-env";
 
 export const PROGRAM_ID = new PublicKey("G5Vb57tzpH1FvqrqDiPqNeZka7VbexAYWnPW5EmwF3Ld");
 
@@ -10,7 +11,7 @@ export const PROGRAM_ID = new PublicKey("G5Vb57tzpH1FvqrqDiPqNeZka7VbexAYWnPW5Em
  * @returns Configured Anchor program
  */
 export function getProgram(wallet: anchor.Wallet) {
-  const cluster = (process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "devnet") as Parameters<typeof anchor.web3.clusterApiUrl>[0];
+  const cluster = getConfiguredRpcCluster();
   const endpoint =
     process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
     anchor.web3.clusterApiUrl(cluster);

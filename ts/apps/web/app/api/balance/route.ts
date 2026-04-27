@@ -8,6 +8,7 @@ export const runtime = "nodejs";
 const BINDING = "GEOBLOCKING_KV";
 const TTL_SECONDS = 15;
 
+// Public read-only: on-chain token balance for a given wallet, KV-cached.
 export async function GET(request: NextRequest) {
   const wallet = request.nextUrl.searchParams.get("wallet");
   if (!wallet) {

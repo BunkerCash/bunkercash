@@ -47,7 +47,7 @@ export const SolanaProvider: FC<SolanaProviderProps> = ({
       return configuredEndpoint;
     }
 
-    const env = config?.env ?? "testnet";
+    const env = config?.env ?? "devnet";
     if (env === "localnet") {
       return "http://127.0.0.1:8899";
     }

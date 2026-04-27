@@ -5,11 +5,12 @@ import { getBunkercashMintPda, PROGRAM_ID } from "@/lib/program";
 export async function fetchHolderCount(connection: Connection): Promise<number> {
   const mintPda = getBunkercashMintPda(PROGRAM_ID);
 
+  // Token-2022 accounts can exceed 165 bytes when extensions are present,
+  // so only filter by mint address — not by data size.
   const accounts = await connection.getParsedProgramAccounts(
     TOKEN_2022_PROGRAM_ID,
     {
       filters: [
-        { dataSize: 165 },
         { memcmp: { offset: 0, bytes: mintPda.toBase58() } },
       ],
     },

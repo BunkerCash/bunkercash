@@ -3,6 +3,8 @@ import { fetchFeeConfig, type FeeConfigResponse } from "@/lib/solana-server";
 
 export const runtime = "nodejs";
 
+// Public read-only: serves on-chain fee config already visible on Solana.
+// No admin auth required — FeesCard depends on unauthenticated access to display current state.
 export async function GET() {
   const start = performance.now();
   try {

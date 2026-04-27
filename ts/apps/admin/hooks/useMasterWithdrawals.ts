@@ -9,6 +9,7 @@ import {
   getReadonlyMasterProgram,
 } from "@/lib/master-program";
 import { withRateLimitRetry } from "@/lib/rpc-throttle";
+import { getConfiguredRpcCluster } from "@/lib/solana-env";
 
 export interface MasterPoolState {
   masterWallet: PublicKey;
@@ -46,7 +47,7 @@ interface RawMasterWithdrawalRecord {
 
 const CACHE_TTL = 30_000;
 const POOL_ACCOUNT_DISCRIMINATOR = 8;
-const CLUSTER = (process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "devnet") as Parameters<typeof clusterApiUrl>[0];
+const CLUSTER = getConfiguredRpcCluster();
 const FALLBACK_RPC_ENDPOINTS = [
   clusterApiUrl(CLUSTER),
   ...(CLUSTER === "testnet" ? ["https://solana-testnet-rpc.publicnode.com"] : []),

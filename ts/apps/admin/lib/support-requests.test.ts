@@ -3,9 +3,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const kvGetMock = vi.fn();
 const kvListMock = vi.fn();
 
-vi.mock("@bunkercash/cloudflare-kv", () => ({
-  kvGet: (...args: unknown[]) => kvGetMock(...args),
-  kvList: (...args: unknown[]) => kvListMock(...args),
+vi.mock("@opennextjs/cloudflare", () => ({
+  getCloudflareContext: vi.fn(() =>
+    Promise.resolve({
+      env: {
+        GEOBLOCKING_KV: {
+          get: (...args: unknown[]) => kvGetMock(...args),
+          list: (...args: unknown[]) => kvListMock(...args),
+        },
+      },
+    }),
+  ),
 }));
 
 const { listSupportRequestsPage } = await import("./support-requests");
@@ -55,7 +63,7 @@ describe("listSupportRequestsPage", () => {
         cursor: undefined,
       });
 
-    kvGetMock.mockImplementation(async (_binding: string, key: string) =>
+    kvGetMock.mockImplementation(async (key: string) =>
       makeRequestRecord(key),
     );
   });

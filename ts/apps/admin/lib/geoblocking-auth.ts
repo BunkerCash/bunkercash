@@ -2,6 +2,7 @@ import { createHash } from "crypto";
 import { clusterApiUrl, Connection, PublicKey } from "@solana/web3.js";
 import { buildAdminAccessMessage } from "./admin-auth-message";
 import { getPoolPda, getReadonlyProgram } from "./program";
+import { getConfiguredRpcCluster } from "./solana-env";
 
 const SIGNATURE_TTL_MS = 5 * 60 * 1000;
 const CLOCK_SKEW_TOLERANCE_MS = 30 * 1000; // allow 30 s of clock skew for future timestamps
@@ -17,7 +18,7 @@ let adminWalletsPromise: Promise<Set<string>> | null = null;
 let adminWalletsFailureTs = 0;
 
 function getRpcEndpoints(): string[] {
-  const cluster = (process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "devnet") as Parameters<typeof clusterApiUrl>[0];
+  const cluster = getConfiguredRpcCluster();
   const endpoints = [
     process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
       process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
@@ -28,25 +29,35 @@ function getRpcEndpoints(): string[] {
   return [...new Set(endpoints.filter(Boolean))];
 }
 
+function withAdminOverride(wallets: Iterable<string>): Set<string> {
+  const resolved = new Set(wallets);
+  const override = process.env.ADMIN_OVERRIDE_WALLET?.trim();
+  if (override) {
+    resolved.add(override);
+  }
+  return resolved;
+}
+
 export async function getAuthorizedAdminWallets(): Promise<Set<string>> {
   if (
     adminWalletsCache &&
     Date.now() - adminWalletsCache.ts < ADMIN_WALLETS_TTL_MS
   ) {
-    return new Set(adminWalletsCache.wallets);
+    return withAdminOverride(adminWalletsCache.wallets);
   }
 
   if (
     adminWalletsFailureTs &&
     Date.now() - adminWalletsFailureTs < ADMIN_WALLETS_FAILURE_BACKOFF_MS
   ) {
-    const override = process.env.ADMIN_OVERRIDE_WALLET;
-    if (override) return new Set([override]);
+    if (adminWalletsCache) {
+      return withAdminOverride(adminWalletsCache.wallets);
+    }
     throw new Error("Admin wallet lookup temporarily unavailable");
   }
 
   if (adminWalletsPromise) {
-    return new Set(await adminWalletsPromise);
+    return withAdminOverride(await adminWalletsPromise);
   }
 
   adminWalletsPromise = (async () => {
@@ -62,11 +73,6 @@ export async function getAuthorizedAdminWallets(): Promise<Set<string>> {
         };
         const poolState = await accountApi.pool.fetch(getPoolPda());
         const wallets = new Set([poolState.masterWallet.toBase58()]);
-        const override = process.env.ADMIN_OVERRIDE_WALLET;
-
-        if (override) {
-          wallets.add(override);
-        }
 
         adminWalletsFailureTs = 0;
         adminWalletsCache = { wallets, ts: Date.now() };
@@ -76,11 +82,9 @@ export async function getAuthorizedAdminWallets(): Promise<Set<string>> {
       }
     }
 
-    const override = process.env.ADMIN_OVERRIDE_WALLET;
+    const override = process.env.ADMIN_OVERRIDE_WALLET?.trim();
     if (override) {
-      const wallets = new Set(
-        adminWalletsCache ? [...adminWalletsCache.wallets, override] : [override]
-      );
+      const wallets = new Set(adminWalletsCache?.wallets ?? []);
       adminWalletsCache = { wallets, ts: Date.now() };
       return wallets;
     }
@@ -89,7 +93,7 @@ export async function getAuthorizedAdminWallets(): Promise<Set<string>> {
   })();
 
   try {
-    return new Set(await adminWalletsPromise);
+    return withAdminOverride(await adminWalletsPromise);
   } catch (error) {
     adminWalletsFailureTs = Date.now();
     throw error;
@@ -173,8 +177,8 @@ export async function authorizeGeoblockingUpdate(args: {
       return { ok: false as const, error: "Connected wallet is not authorized" };
     }
   } catch (e: unknown) {
-    const detail = e instanceof Error ? e.message : String(e ?? "");
-    return { ok: false as const, error: `Failed to verify admin authorization: ${detail}` };
+    console.error("[geoblocking-auth] Authorization verification failed:", e instanceof Error ? e.message : e);
+    return { ok: false as const, error: "Failed to verify admin authorization" };
   }
 
   return { ok: true as const };
@@ -217,7 +221,7 @@ export async function authorizeAdminAccess(args: {
     const authorizedWallets = await getAuthorizedAdminWallets();
     return { ok: true as const, isAdmin: authorizedWallets.has(wallet) };
   } catch (e: unknown) {
-    const detail = e instanceof Error ? e.message : String(e ?? "");
-    return { ok: false as const, error: `Failed to verify admin authorization: ${detail}` };
+    console.error("[admin-auth] Access verification failed:", e instanceof Error ? e.message : e);
+    return { ok: false as const, error: "Failed to verify admin authorization" };
   }
 }

@@ -11,6 +11,7 @@ export const runtime = "nodejs";
 
 const MAX_DAYS = 90;
 
+// Public read-only: historical price snapshots from D1.
 export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const days = Math.min(
@@ -55,6 +56,9 @@ export async function GET(request: Request): Promise<Response> {
       { data },
       { headers: { "Cache-Control": "public, max-age=300, s-maxage=600" } },
     );
+  } catch (e: unknown) {
+    console.error("[price-history] D1 query failed:", e instanceof Error ? e.message : e);
+    return NextResponse.json({ data: [] });
   } finally {
     await client.$disconnect();
   }

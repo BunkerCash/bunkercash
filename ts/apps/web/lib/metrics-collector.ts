@@ -1,5 +1,4 @@
-import { Connection } from "@solana/web3.js";
-import { fetchPoolData, fetchAllClaims } from "@/lib/solana-server";
+import { fetchPoolData, fetchAllClaims, getConnection } from "@/lib/solana-server";
 import { fetchHolderCount } from "@/lib/holder-count";
 import { kvList } from "@bunkercash/cloudflare-kv";
 import { SUPPORT_REQUEST_KEY_PREFIX } from "@bunkercash/support-requests";
@@ -7,15 +6,6 @@ import type {
   MetricSnapshotInput,
   CollectionError,
 } from "@bunkercash/metrics-data";
-
-function getConnection(): Connection {
-  const cluster = process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "devnet";
-  const endpoint =
-    process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
-    process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
-    `https://api.${cluster}.solana.com`;
-  return new Connection(endpoint, "confirmed");
-}
 
 async function countSupportRequestsForDate(
   snapshotDate: string,
