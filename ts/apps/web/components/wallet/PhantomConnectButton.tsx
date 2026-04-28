@@ -82,7 +82,7 @@ export function PhantomConnectButton({
           ? shortAddress(publicKey.toBase58())
           : connecting
             ? "Connecting..."
-            : "Connect Phantom"}
+            : "Connect Wallet"}
       </button>
       {error ? <p className="mt-2 text-xs text-red-400">{error}</p> : null}
     </div>
