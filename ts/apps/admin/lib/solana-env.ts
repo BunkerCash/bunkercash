@@ -24,3 +24,22 @@ export function getConfiguredRpcCluster(): SolanaCluster {
   const cluster = getConfiguredSolanaCluster();
   return cluster === "localnet" ? "devnet" : cluster;
 }
+
+// builds a helius rpc url for the given cluster
+function buildHeliusUrl(cluster: SolanaCluster, key: string): string {
+  const subdomain = cluster === "mainnet-beta" ? "mainnet" : cluster;
+  return `https://${subdomain}.helius-rpc.com/?api-key=${key}`;
+}
+
+// resolves the rpc endpoint to use server-side: helius if HELIUS_RPC_KEY is set,
+// otherwise the public env var, falling back to the cluster's default rpc.
+export function getServerRpcEndpoint(): string {
+  const cluster = getConfiguredRpcCluster();
+  const heliusKey = process.env.HELIUS_RPC_KEY;
+  if (heliusKey) return buildHeliusUrl(cluster, heliusKey);
+  return (
+    process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
+    process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
+    clusterApiUrl(cluster)
+  );
+}

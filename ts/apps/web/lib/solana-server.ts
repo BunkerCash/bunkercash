@@ -25,7 +25,7 @@ import {
 import { fetchDecodedClaimAccounts } from "@/lib/claim-accounts";
 import type { DecodedClaimAccount } from "@/lib/claim-accounts";
 import { getClusterFromEndpoint } from "@/lib/constants";
-import { getConfiguredRpcCluster } from "@/lib/solana-env";
+import { getServerRpcEndpoint } from "@/lib/solana-env";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -79,12 +79,7 @@ const BUNKERCASH_DECIMALS = 6;
 const USDC_DECIMALS = 6;
 
 export function getConnection(): Connection {
-  const cluster = getConfiguredRpcCluster();
-  const endpoint =
-    process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
-    process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
-    `https://api.${cluster}.solana.com`;
-  return new Connection(endpoint, "confirmed");
+  return new Connection(getServerRpcEndpoint(), "confirmed");
 }
 
 function serializeClaim(claim: DecodedClaimAccount): SerializedClaim {
