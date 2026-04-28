@@ -24,10 +24,10 @@ async function main() {
   }
 
   const signature = await (program.methods as any)
-    .createBrentMint()
+    .createBunkercashMint()
     .accounts({
       pool: poolPda,
-      brentMint: mintPda,
+      bunkercashMint: mintPda,
       admin: provider.wallet.publicKey,
       tokenProgram: new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"),
       systemProgram: SystemProgram.programId,

@@ -16,8 +16,10 @@
     }
   ],
   "vars": {
-    "NEXT_PUBLIC_SOLANA_RPC_URL": "https://api.testnet.solana.com",
-    "NEXT_PUBLIC_USDC_MINT": "DCM1oDQRSv9dn4xpZrXuX23yvivoFHSKKF1mjuCEcjdQ",
+    "NEXT_PUBLIC_SOLANA_RPC_URL": "https://api.devnet.solana.com",
+    "NEXT_PUBLIC_SOLANA_CLUSTER": "devnet",
+    "NEXT_PUBLIC_CLUSTER": "devnet",
+    "NEXT_PUBLIC_USDC_MINT": "2GCh5iHGbw2wwzTsQGxxm39bwwJ6wFsHdsf6ZBTyzpZ3",
     "NEXT_PUBLIC_TOKEN_METADATA_URI": "https://bunkercash-web.bunkercoin.workers.dev/bunkercash-metadata.json",
     "NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY": "HEzTX4LNQ7cjrXTt1vKXyEZGtc94TKRUc9kWNFexJSGz"
   },

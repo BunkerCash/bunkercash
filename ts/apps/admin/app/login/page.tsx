@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { AdminWalletButton } from "@/components/admin-wallet-button";
 
 export default function LoginPage() {
-  const { isAuthenticated, isLoading, isAdmin } = useAuth();
+  const { isAuthenticated, isLoading, isAdmin, adminAddress, error } = useAuth();
   const { connected } = useWallet();
   const router = useRouter();
 
@@ -63,10 +63,17 @@ export default function LoginPage() {
             }}
           />
 
-          {connected && !isLoading && !isAdmin && (
+          {connected && !isLoading && error && (
+            <p className="text-sm text-amber-400 text-center">
+              Unable to verify admin access right now. {error}
+            </p>
+          )}
+
+          {connected && !isLoading && !error && !isAdmin && (
             <p className="text-sm text-red-400 text-center">
               Connected wallet is not the pool admin. Please connect the admin
               wallet.
+              {adminAddress ? ` Current admin: ${adminAddress}` : ""}
             </p>
           )}
         </div>

@@ -7,21 +7,21 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-bunkercash = "82dniBUUXSFNEhQ9vpjce1tQXLkX7EyHLL7FEuCGHtH4"
+bunkercash = "Fp8b6p287TL5oPMwLVdwGys5phHNLcmTKNvVoGdCJS6g"
 
 [programs.testnet]
-bunkercash = "82dniBUUXSFNEhQ9vpjce1tQXLkX7EyHLL7FEuCGHtH4"
+bunkercash = "Fp8b6p287TL5oPMwLVdwGys5phHNLcmTKNvVoGdCJS6g"
 
 [programs.localnet]
-bunkercash = "82dniBUUXSFNEhQ9vpjce1tQXLkX7EyHLL7FEuCGHtH4"
+bunkercash = "Fp8b6p287TL5oPMwLVdwGys5phHNLcmTKNvVoGdCJS6g"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "testnet"
+cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-e2e = "bash -lc 'export USDC_MINT=DCM1oDQRSv9dn4xpZrXuX23yvivoFHSKKF1mjuCEcjdQ; npx ts-node -P tsconfig.json scripts/e2e-buy-sell.ts'"
+e2e = "bash -lc 'export USDC_MINT=2GCh5iHGbw2wwzTsQGxxm39bwwJ6wFsHdsf6ZBTyzpZ3; npx ts-node -P tsconfig.json scripts/e2e-buy-sell.ts'"
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"

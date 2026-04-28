@@ -25,7 +25,7 @@ mod governance_keys {
 
 use governance_keys::{SQUADS_MEMBER_1, SQUADS_MEMBER_2, SQUADS_MEMBER_3, SQUADS_MEMBER_4};
 
-declare_id!("82dniBUUXSFNEhQ9vpjce1tQXLkX7EyHLL7FEuCGHtH4");
+declare_id!("Fp8b6p287TL5oPMwLVdwGys5phHNLcmTKNvVoGdCJS6g");
 
 const POOL_SEED: &[u8] = b"pool";
 const BUNKERCASH_MINT_SEED: &[u8] = b"bunkercash_mint";

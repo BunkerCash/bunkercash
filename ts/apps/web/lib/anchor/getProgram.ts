@@ -3,7 +3,8 @@ import { PublicKey } from "@solana/web3.js";
 import idl from "./idl/bunker_cash.json";
 import { getConfiguredRpcCluster } from "@/lib/solana-env";
 
-export const PROGRAM_ID = new PublicKey("G5Vb57tzpH1FvqrqDiPqNeZka7VbexAYWnPW5EmwF3Ld");
+const idlWithAddress = idl as anchor.Idl & { address: string };
+export const PROGRAM_ID = new PublicKey(idlWithAddress.address);
 
 /**
  * Get Anchor program instance
@@ -24,5 +25,5 @@ export function getProgram(wallet: anchor.Wallet) {
     commitment: "confirmed",
   });
 
-  return new anchor.Program(idl as anchor.Idl, provider);
+  return new anchor.Program(idlWithAddress as anchor.Idl, provider);
 }
