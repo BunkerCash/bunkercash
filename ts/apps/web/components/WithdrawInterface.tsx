@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dialog";
 import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
 import { useOptionalWallet } from "@/hooks/useOptionalWallet";
+import { PhantomConnectButton } from "@/components/wallet/PhantomConnectButton";
 
 function isWalletRejection(e: unknown): boolean {
   const msg =
@@ -482,6 +483,15 @@ export function WithdrawInterface() {
       setCancellingClaim(null);
     }
   };
+
+  if (!publicKey) {
+    return (
+      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-8 text-center">
+        <p className="text-neutral-500">Connect your wallet to continue.</p>
+        <PhantomConnectButton className="mt-4 inline-flex items-center justify-center rounded-xl bg-[#00FFB2] px-6 py-3 text-sm font-semibold text-black transition-all hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600" />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6 sm:space-y-8">

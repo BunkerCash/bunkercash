@@ -101,10 +101,6 @@ export default function Home() {
           </div>
 
           <div className="hp-overview">
-            <p className="hp-overview-text">
-              Live pool pricing is shown above. Buy and sell open the real
-              transaction flows directly from the homepage.
-            </p>
             <div className="hp-stats">
               <div className="hp-stat">
                 <span className="hp-stat-label">Pool NAV</span>

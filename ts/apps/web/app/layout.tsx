@@ -15,8 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "BunkerCash",
-  description:
-    "Turn property yield into on-chain liquidity. Backed by overcollateralized property assets, transparently managed on Solana.",
+  description: "BunkerCash is an on-chain protocol on Solana.",
   icons: {
     icon: "/icon.png",
   },

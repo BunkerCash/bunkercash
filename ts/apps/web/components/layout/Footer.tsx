@@ -13,19 +13,13 @@ export const Footer = () => {
               href="/information"
               className="text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
-              Risk Notice
-            </Link>
-            <Link
-              href="/information"
-              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
               Terms
             </Link>
             <Link
-              href="/information"
+              href="/imprint"
               className="text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
-              Transparency
+              Imprint
             </Link>
           </div>
         </div>
