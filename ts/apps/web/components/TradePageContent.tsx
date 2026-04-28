@@ -28,6 +28,7 @@ interface TradePageContentProps {
   description: string;
   initialTab?: TradeTab;
   hiddenTabs?: TradeTab[];
+  showDisclaimer?: boolean;
 }
 
 export function TradePageContent({
@@ -35,6 +36,7 @@ export function TradePageContent({
   description,
   initialTab = "buy-primary",
   hiddenTabs = [],
+  showDisclaimer = true,
 }: TradePageContentProps) {
   const { stats } = usePoolStats();
 
@@ -46,7 +48,7 @@ export function TradePageContent({
     <Layout>
       <div className="container mx-auto px-4 py-12">
         <div className="mx-auto max-w-2xl">
-          <DisclaimerBanner className="mb-8" />
+          {showDisclaimer && <DisclaimerBanner className="mb-8" />}
 
           <div className="mb-10 text-center">
             <h1 className="mb-4 text-3xl font-bold text-foreground">{title}</h1>

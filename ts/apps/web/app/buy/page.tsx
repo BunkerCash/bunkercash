@@ -6,6 +6,7 @@ export default function BuyPage() {
       title="Buy"
       description="Eligible users may buy protocol tokens through the interface below, subject to access restrictions and available protocol parameters."
       hiddenTabs={["withdraw"]}
+      showDisclaimer={false}
     />
   );
 }
