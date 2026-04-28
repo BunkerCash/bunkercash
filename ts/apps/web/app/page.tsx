@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { BuyPrimaryInterface } from "@/components/BuyPrimaryInterface";
 import { WithdrawInterface } from "@/components/WithdrawInterface";
-import { DisclaimerBanner } from "@/components/ui/DisclaimerBanner";
 import { PriceChart } from "@/components/PriceChart";
 import { usePoolStats } from "@/hooks/usePoolStats";
 
@@ -53,8 +52,6 @@ export default function Home() {
         <div className="hp-scanlines" />
 
         <div className="hp-inner">
-          <DisclaimerBanner className="w-full" />
-
           {/* Price display */}
           <div className="hp-price">
             <div className="hp-price-label">
