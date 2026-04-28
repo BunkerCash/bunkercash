@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { BuyPrimaryInterface } from "@/components/BuyPrimaryInterface";
 import { WithdrawInterface } from "@/components/WithdrawInterface";
+import { DisclaimerBanner } from "@/components/ui/DisclaimerBanner";
 import { PriceChart } from "@/components/PriceChart";
 import { usePoolStats } from "@/hooks/usePoolStats";
 
@@ -52,6 +53,8 @@ export default function Home() {
         <div className="hp-scanlines" />
 
         <div className="hp-inner">
+          <DisclaimerBanner className="w-full" />
+
           {/* Price display */}
           <div className="hp-price">
             <div className="hp-price-label">
@@ -124,53 +127,6 @@ export default function Home() {
 
                     {/* Price chart */}
           <PriceChart days={30} />
-
-          <section
-            aria-label="Legal disclaimer"
-            className="w-full rounded-xl border border-white/8 bg-white/[0.02] px-5 py-5 sm:px-6 sm:py-6 space-y-3 text-xs leading-6 text-white/45"
-          >
-            <h3 className="text-[0.7rem] font-semibold uppercase tracking-[0.22em] text-white/55">
-              Disclaimer
-            </h3>
-            <p>
-              The acquisition and use of digital tokens involves risks and may
-              result in the total loss of the capital contributed. There is no
-              guarantee of any performance, return, or increase in value.
-            </p>
-            <p>This digital token is a community-based token.</p>
-            <p>
-              It does not represent a deposit, equity interest, participation
-              right, or any form of ownership, claim, or usage right,
-              particularly with respect to assets, profits, or revenues.
-            </p>
-            <p>
-              Contributed funds may be used at our sole discretion within the
-              scope of general project development. There is no entitlement to
-              any specific use of funds or to any influence over such use,
-              particularly with regard to specific projects or assets.
-            </p>
-            <p>
-              Any measures to support liquidity, including potential
-              contributions to a liquidity pool, are undertaken solely at our
-              discretion and may vary or may not occur at all. There is no
-              entitlement to the availability, scope, or timing of such
-              measures.
-            </p>
-            <p>
-              The token is not tied to any specific projects and does not
-              create any entitlement to financial performance, returns, or an
-              increase in value.
-            </p>
-            <p>
-              The information provided is for general informational purposes
-              only and does not constitute an offer, solicitation, or
-              recommendation.
-            </p>
-            <p>
-              Access may be restricted in certain regions, including the
-              European Union and the United States.
-            </p>
-          </section>
 
         </div>
 
