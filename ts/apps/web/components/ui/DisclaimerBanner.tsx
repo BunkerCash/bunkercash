@@ -28,16 +28,9 @@ export function DisclaimerBanner({
             Disclaimer
           </h2>
 
-          <div className="mt-1.5 text-xs leading-5 text-yellow-100/75 sm:text-sm">
-            <p>The acquisition and use of digital tokens involves risks and may result in the total loss of the capital contributed. There is no guarantee of any performance, return, or increase in value.</p>
-            <p>This digital token is a community-based token.</p>
-            <p>It does not represent a deposit, equity interest, participation right, or any form of ownership, claim, or usage right, particularly with respect to assets, profits, or revenues.</p>
-            <p>Contributed funds may be used at our sole discretion within the scope of general project development. There is no entitlement to any specific use of funds or to any influence over such use, particularly with regard to specific projects or assets.</p>
-            <p>Any measures to support liquidity, including potential contributions to a liquidity pool, are undertaken solely at our discretion and may vary or may not occur at all. There is no entitlement to the availability, scope, or timing of such measures.</p>
-            <p>The token is not tied to any specific projects and does not create any entitlement to financial performance, returns, or an increase in value.</p>
-            <p>The information provided is for general informational purposes only and does not constitute an offer, solicitation, or recommendation.</p>
-            <p>Access may be restricted in certain regions, including the European Union and the United States.</p>
-          </div>
+          <p className="mt-1.5 text-xs leading-5 text-yellow-100/75 sm:text-sm">
+            The acquisition and use of digital tokens involves risks and may result in the total loss of the capital contributed. There is no guarantee of any performance, return, or increase in value. This digital token is a community-based token. It does not represent a deposit, equity interest, participation right, or any form of ownership, claim, or usage right, particularly with respect to assets, profits, or revenues. Contributed funds may be used at our sole discretion within the scope of general project development. There is no entitlement to any specific use of funds or to any influence over such use, particularly with regard to specific projects or assets. Any measures to support liquidity, including potential contributions to a liquidity pool, are undertaken solely at our discretion and may vary or may not occur at all. There is no entitlement to the availability, scope, or timing of such measures. The token is not tied to any specific projects and does not create any entitlement to financial performance, returns, or an increase in value. The information provided is for general informational purposes only and does not constitute an offer, solicitation, or recommendation. Access may be restricted in certain regions, including the European Union and the United States.
+          </p>
         </div>
       </div>
     </div>
