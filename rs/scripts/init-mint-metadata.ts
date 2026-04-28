@@ -1,6 +1,6 @@
 import * as anchor from "@coral-xyz/anchor";
 import { AnchorProvider, Program, type Idl } from "@coral-xyz/anchor";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
+import { PublicKey, SystemProgram, SYSVAR_INSTRUCTIONS_PUBKEY } from "@solana/web3.js";
 
 let idlJson: { address: string } & Idl;
 try {
@@ -56,7 +56,7 @@ async function main() {
   const uri = requiredEnv("TOKEN_URI");
 
   console.log("Pool PDA:", poolPda.toBase58());
-  console.log("Brent mint:", mintPubkey.toBase58());
+  console.log("BunkerCash mint:", mintPubkey.toBase58());
   console.log("Metadata PDA:", metadataPda.toBase58());
   console.log("Name:", name);
   console.log("Symbol:", symbol);
@@ -66,12 +66,13 @@ async function main() {
     .initMintMetadata(name, symbol, uri)
     .accounts({
       pool: poolPda,
-      brent_mint: mintPubkey,
+      bunkercashMint: mintPubkey,
       admin: provider.wallet.publicKey,
       metadata: metadataPda,
-      token_metadata_program: TOKEN_METADATA_PROGRAM_ID,
-      token_program: new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"),
-      system_program: SystemProgram.programId,
+      tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
+      tokenProgram: new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"),
+      systemProgram: SystemProgram.programId,
+      sysvarInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
     })
     .rpc({ commitment: "confirmed" });
 
@@ -84,4 +85,3 @@ main()
     console.error(e);
     process.exit(1);
   });
-

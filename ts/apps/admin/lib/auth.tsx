@@ -16,6 +16,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAdmin: boolean;
   adminAddress: string | null;
+  error: string | null;
   logout: () => void;
 }
 
@@ -26,11 +27,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [adminAddress, setAdminAddress] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!connected || !publicKey) {
       setIsAdmin(false);
       setAdminAddress(null);
+      setError(null);
       setIsLoading(false);
       return;
     }
@@ -42,24 +45,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const walletAddr = publicKey.toBase58();
 
       try {
-        const res = await fetch("/api/pool-data");
-        if (!res.ok) throw new Error(`pool-data: ${res.status}`);
-        const data: PoolDataResponse = await res.json();
+        let data: PoolDataResponse | null = null;
+        let lastError: Error | null = null;
+
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          try {
+            const res = await fetch("/api/pool-data", { cache: "no-store" });
+            if (!res.ok) throw new Error(`pool-data: ${res.status}`);
+            data = (await res.json()) as PoolDataResponse;
+            break;
+          } catch (error: unknown) {
+            lastError =
+              error instanceof Error ? error : new Error("Failed to fetch pool data");
+
+            if (attempt < 2) {
+              await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+            }
+          }
+        }
+
+        if (!data) {
+          throw lastError ?? new Error("Failed to fetch pool data");
+        }
+
         const onChainAdmin = data.adminWallet;
+        if (!onChainAdmin) {
+          throw new Error("Pool admin address is missing from pool-data response");
+        }
 
         if (cancelled) return;
 
         setAdminAddress(onChainAdmin);
+        setError(null);
         if (walletAddr === onChainAdmin) {
           setIsAdmin(true);
           return;
         }
 
         setIsAdmin(false);
-      } catch {
+      } catch (error: unknown) {
         if (!cancelled) {
           setIsAdmin(false);
           setAdminAddress(null);
+          setError(
+            error instanceof Error
+              ? error.message
+              : "Unable to verify admin wallet"
+          );
         }
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -79,7 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ isAuthenticated, isLoading, isAdmin, adminAddress, logout }}
+      value={{ isAuthenticated, isLoading, isAdmin, adminAddress, error, logout }}
     >
       {children}
     </AuthContext.Provider>
