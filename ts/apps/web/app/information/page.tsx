@@ -123,11 +123,11 @@ const Information = () => {
                 </p>
                 <p className="leading-relaxed">
                   Real-world activities, including real-world assets, are not
-                  tokenized and are not represented on-chain. There is no direct
-                  or indirect connection between token holdings and any
-                  physical, financial, or business assets. The token exists
-                  solely as a digital instrument on the blockchain, completely
-                  separate from any off-chain operations.
+                  represented on-chain in any form. There is no direct or
+                  indirect connection between token holdings and any physical,
+                  financial, or business assets. The token exists solely as a
+                  digital instrument on the blockchain, completely separate
+                  from any off-chain operations.
                 </p>
                 <p className="leading-relaxed">
                   No content on this interface or in protocol documentation
