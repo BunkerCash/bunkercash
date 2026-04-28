@@ -26,9 +26,12 @@ export const Navbar = () => {
       <div className="container mx-auto px-4">
         <div className="flex h-16 items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg bg-primary/20 flex items-center justify-center">
-              <span className="text-primary font-bold text-lg">B</span>
-            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/icon-transparent.png"
+              alt="BunkerCash"
+              className="h-8 w-8 object-contain"
+            />
             <span className="font-semibold text-foreground">BunkerCash</span>
           </Link>
 

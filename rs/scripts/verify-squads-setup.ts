@@ -13,7 +13,7 @@
  *   export ANCHOR_PROVIDER_URL=https://api.devnet.solana.com
  *   export ANCHOR_WALLET=~/.config/solana/id.json
  *   export SQUADS_MULTISIG_PUBKEY=<your-multisig-pda>
- *   export USDC_MINT=2GCh5iHGbw2wwzTsQGxxm39bwwJ6wFsHdsf6ZBTyzpZ3
+ *   export USDC_MINT=4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
  *   npx ts-node -P tsconfig.json scripts/verify-squads-setup.ts
  */
 import { AnchorProvider, Program, type Idl } from "@coral-xyz/anchor"

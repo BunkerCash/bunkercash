@@ -23,5 +23,5 @@ cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-e2e = "bash -lc 'export USDC_MINT=2GCh5iHGbw2wwzTsQGxxm39bwwJ6wFsHdsf6ZBTyzpZ3; npx ts-node -P tsconfig.json scripts/e2e-buy-sell.ts'"
+e2e = "bash -lc 'export USDC_MINT=4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU; npx ts-node -P tsconfig.json scripts/e2e-buy-sell.ts'"
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"

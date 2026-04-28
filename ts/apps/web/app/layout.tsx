@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   title: "BunkerCash",
   description: "BunkerCash is an on-chain protocol on Solana.",
   icons: {
-    icon: "/icon.png",
+    icon: "/icon-favicon.png",
   },
 };
 

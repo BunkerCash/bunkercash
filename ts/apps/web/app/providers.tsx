@@ -21,7 +21,7 @@ export function Providers({ children }: { children: ReactNode }) {
           name: "BunkerCash",
           description: "BunkerCash - Tokenized Commodities",
           url: "https://bunkercash.io",
-          iconUrls: ["/icon.png"],
+          iconUrls: ["/icon-transparent.png"],
         },
         walletlistExplanation: {
           href: "https://station.jup.ag/docs/additional-topics/wallet-list",

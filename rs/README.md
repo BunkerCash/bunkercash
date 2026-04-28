@@ -44,7 +44,7 @@ Creates the pool and mint if needed, creates ATAs, and optionally runs a test bu
 cd rs
 export ANCHOR_PROVIDER_URL=https://api.devnet.solana.com
 export ANCHOR_WALLET=~/.config/solana/id.json
-export USDC_MINT=DCM1oDQRSv9dn4xpZrXuX23yvivoFHSKKF1mjuCEcjdQ
+export USDC_MINT=4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
 npx ts-node -P tsconfig.json scripts/bootstrap-fixed-price.ts
 # Optional: run a test buy (e.g. 2.5 USDC worth)
 TEST_BUY_USDC=2.5 npx ts-node -P tsconfig.json scripts/bootstrap-fixed-price.ts

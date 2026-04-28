@@ -6,7 +6,7 @@ export ANCHOR_PROVIDER_URL="$RPC"
 export ANCHOR_WALLET="${ANCHOR_WALLET:-$HOME/.config/solana/id.json}"
 
 # Custom Devnet USDC Mint (controlled by us)
-export USDC_MINT="2GCh5iHGbw2wwzTsQGxxm39bwwJ6wFsHdsf6ZBTyzpZ3"
+export USDC_MINT="4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
 
 echo "RPC=$RPC"
 echo "ANCHOR_WALLET=$ANCHOR_WALLET"
