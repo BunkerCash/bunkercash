@@ -21,6 +21,10 @@
   "triggers": {
     "crons": ["10 0 * * *"]
   },
+  "routes": [
+    { "pattern": "bunkercash.com", "custom_domain": true },
+    { "pattern": "www.bunkercash.com", "custom_domain": true }
+  ],
   "vars": {
     "NEXT_PUBLIC_SOLANA_RPC_URL": "https://api.devnet.solana.com",
     "NEXT_PUBLIC_SOLANA_CLUSTER": "devnet",
