@@ -86,7 +86,7 @@ export default function Home() {
               onClick={() => setModal("buy")}
             >
               <span className="hp-btn-label">BUY</span>
-              <span className="hp-btn-sub">Get $BUNKER</span>
+              <span className="hp-btn-sub">Get BunkerCash</span>
               <span className="hp-btn-arrow">→</span>
             </button>
 
@@ -143,7 +143,7 @@ export default function Home() {
                   <span
                     className={`hp-modal-dot hp-modal-dot--${modal}`}
                   />
-                  {modal === "buy" ? "Buy $BUNKER" : "Sell $BUNKER"}
+                  {modal === "buy" ? "Buy BunkerCash" : "Sell BunkerCash"}
                 </div>
                 <button
                   className="hp-modal-close"
