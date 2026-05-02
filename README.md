@@ -23,3 +23,8 @@ Next.js web app in `./ts/apps/web` for interacting with the on-chain program.
 - Rust
 - Bun
 - Yarn
+
+## License
+
+Except where a file or dependency is clearly marked otherwise, this repository
+is licensed under `BUSL-1.1`. See `./LICENSE`.
