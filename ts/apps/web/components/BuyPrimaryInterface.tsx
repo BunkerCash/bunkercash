@@ -32,6 +32,7 @@ const USDC_DECIMALS = 6
 const USDC_SCALE = 10n ** BigInt(USDC_DECIMALS)
 const MIN_USDC_AMOUNT_RAW = USDC_SCALE / 100n
 const MAX_USDC_AMOUNT_RAW = 1_000_000n * USDC_SCALE
+const MIN_SOL_LAMPORTS = 10_000_000
 
 function toUi(amount: bigint, decimals: number): string {
   const s = amount.toString().padStart(decimals + 1, '0')
@@ -54,6 +55,11 @@ function formatPercentFromBps(bps: number): string {
 function isWalletRejection(e: unknown): boolean {
   const msg = e instanceof Error ? e.message.toLowerCase() : String(e ?? '').toLowerCase()
   return msg.includes('user rejected') || msg.includes('user denied') || msg.includes('rejected the request')
+}
+
+function isInsufficientSolError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message.toLowerCase() : String(e ?? '').toLowerCase()
+  return msg.includes('no record of a prior credit') || msg.includes('insufficient funds for rent') || msg.includes('insufficient lamports')
 }
 
 interface Stringable {
@@ -367,6 +373,13 @@ export function BuyPrimaryInterface() {
     setTxSig(null);
     setLoading(true);
     try {
+      const solBalance = await connection.getBalance(publicKey);
+      if (solBalance < MIN_SOL_LAMPORTS) {
+        const msg = `Insufficient SOL for transaction fees. You have ${(solBalance / 1e9).toFixed(4)} SOL but need at least ~0.01 SOL to cover fees and account creation.`;
+        setError(msg);
+        showToast("Insufficient SOL for transaction fees", "error");
+        return;
+      }
       // Resolve the configured settlement mint fresh at submit time so we do not
       // build the transaction with stale client state after an admin-side mint change.
       const configuredUsdcMint =
@@ -487,6 +500,10 @@ export function BuyPrimaryInterface() {
       if (isWalletRejection(e)) {
         setError("Transaction was rejected in your wallet.");
         showToast("Transaction rejected by wallet", "warning");
+      } else if (isInsufficientSolError(e)) {
+        const msg = "Insufficient SOL for transaction fees. Please add SOL to your wallet to cover fees and account creation (~0.01 SOL minimum).";
+        setError(msg);
+        showToast("Insufficient SOL for transaction fees", "error");
       } else if (e instanceof SendTransactionError) {
         const logs = await e.getLogs(connection);
         if (logs?.length) {

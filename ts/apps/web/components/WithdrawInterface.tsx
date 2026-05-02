@@ -36,6 +36,8 @@ import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTrans
 import { useOptionalWallet } from "@/hooks/useOptionalWallet";
 import { PhantomConnectButton } from "@/components/wallet/PhantomConnectButton";
 
+const MIN_SOL_LAMPORTS = 10_000_000;
+
 function isWalletRejection(e: unknown): boolean {
   const msg =
     e instanceof Error
@@ -46,6 +48,11 @@ function isWalletRejection(e: unknown): boolean {
     msg.includes("user denied") ||
     msg.includes("rejected the request")
   );
+}
+
+function isInsufficientSolError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message.toLowerCase() : String(e ?? '').toLowerCase();
+  return msg.includes('no record of a prior credit') || msg.includes('insufficient funds for rent') || msg.includes('insufficient lamports');
 }
 
 interface Stringable {
@@ -276,6 +283,14 @@ export function WithdrawInterface() {
     setTxSig(null);
     setSubmitting(true);
     try {
+      const solBalance = await connection.getBalance(publicKey);
+      if (solBalance < MIN_SOL_LAMPORTS) {
+        const msg = `Insufficient SOL for transaction fees. You have ${(solBalance / 1e9).toFixed(4)} SOL but need at least ~0.01 SOL to cover fees and account creation.`;
+        setError(msg);
+        showToast("Insufficient SOL for transaction fees", "error");
+        return;
+      }
+
       if (inputError || amountRaw == null || amountRaw <= 0n) {
         throw new Error(inputError ?? "Amount must be greater than 0")
       }
@@ -366,6 +381,10 @@ export function WithdrawInterface() {
       if (isWalletRejection(e)) {
         setError("Transaction was rejected in your wallet.");
         showToast("Transaction rejected by wallet", "warning");
+      } else if (isInsufficientSolError(e)) {
+        const solMsg = "Insufficient SOL for transaction fees. Please add SOL to your wallet to cover fees and account creation (~0.01 SOL minimum).";
+        setError(solMsg);
+        showToast("Insufficient SOL for transaction fees", "error");
       } else if (msg.includes("already been processed")) {
         setError(null);
         setTxSig(null);
@@ -467,6 +486,8 @@ export function WithdrawInterface() {
     } catch (e: unknown) {
       if (isWalletRejection(e)) {
         showToast("Transaction rejected by wallet", "warning");
+      } else if (isInsufficientSolError(e)) {
+        showToast("Insufficient SOL for transaction fees. Add SOL to your wallet.", "error");
       } else {
         const msg = e instanceof Error ? e.message : String(e ?? "");
         if (msg.includes("already been cancelled")) {
