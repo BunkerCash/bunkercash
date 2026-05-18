@@ -105,3 +105,34 @@ export async function fetchDecodedClaimAccountsForProgram(
     .filter((claim): claim is DecodedClaimAccount => claim !== null)
     .sort((a, b) => Number(b.createdAt) - Number(a.createdAt));
 }
+
+export interface ClaimCoverageReport {
+  claimCounter: bigint;
+  discoveredCount: number;
+  activeCount: number;
+  totalRemainingUsdc: bigint;
+  poolTotalPendingClaims: bigint;
+  pendingDelta: bigint;
+}
+
+export function analyzeClaimCoverage(
+  claims: DecodedClaimAccount[],
+  claimCounter: bigint,
+  poolTotalPendingClaims: bigint,
+): ClaimCoverageReport {
+  const activeClaims = claims.filter((c) => !c.cancelled && !c.processed);
+  const totalRemainingUsdc = activeClaims.reduce(
+    (sum, c) => sum + BigInt(c.remainingUsdc),
+    BigInt(0),
+  );
+  const pendingDelta = poolTotalPendingClaims - totalRemainingUsdc;
+
+  return {
+    claimCounter,
+    discoveredCount: claims.length,
+    activeCount: activeClaims.length,
+    totalRemainingUsdc,
+    poolTotalPendingClaims,
+    pendingDelta,
+  };
+}

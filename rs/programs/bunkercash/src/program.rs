@@ -41,6 +41,7 @@ declare_id!("Fp8b6p287TL5oPMwLVdwGys5phHNLcmTKNvVoGdCJS6g");
 const POOL_SEED: &[u8] = b"pool";
 const BUNKERCASH_MINT_SEED: &[u8] = b"bunkercash_mint";
 const CLAIM_SEED: &[u8] = b"claim";
+const SETTLEMENT_SEED: &[u8] = b"settlement";
 const PURCHASE_LIMIT_SEED: &[u8] = b"purchase_limit";
 const SUPPORTED_USDC_CONFIG_SEED: &[u8] = b"supported_usdc_config";
 const FEE_CONFIG_SEED: &[u8] = b"fee_config";
@@ -114,6 +115,24 @@ fn calculate_claim_usdc_value(
     }
 
     Some(usdc_value)
+}
+
+fn compute_settlement_payout_ratio(
+    vault_balance: u64,
+    total_pending_claims: u64,
+) -> Result<u64> {
+    if total_pending_claims == 0 {
+        return Ok(0);
+    }
+    let claimable = vault_balance.min(total_pending_claims);
+    u64::try_from(
+        (claimable as u128)
+            .checked_mul(1_000_000)
+            .ok_or_else(arithmetic_error)?
+            .checked_div(total_pending_claims as u128)
+            .ok_or_else(arithmetic_error)?,
+    )
+    .map_err(|_| arithmetic_error())
 }
 
 fn canonical_pool_usdc_vault(pool: Pubkey, usdc_mint: Pubkey, token_program: Pubkey) -> Pubkey {
@@ -831,26 +850,25 @@ pub mod bunkercash {
 
         let pool_pending_before = pool.total_pending_claims;
         validate_settlement_pending_claims(pool_pending_before, actual_total_remaining)?;
-        let usdc_balance = accessor::amount(&ctx.accounts.pool_usdc.to_account_info())?;
-        require!(
-            !(usdc_balance < pool_pending_before && actual_total_remaining < pool_pending_before),
-            ErrorCode::IncompleteSettlementSet
-        );
 
-        let total_claimable = usdc_balance.min(actual_total_remaining);
-        let payout_ratio = if actual_total_remaining > 0 {
-            u64::try_from(
-                (total_claimable as u128)
-                    .checked_mul(1_000_000)
-                    .ok_or_else(arithmetic_error)?
-                    .checked_div(actual_total_remaining as u128)
-                    .ok_or_else(arithmetic_error)?,
-            )
-            .map_err(|_| arithmetic_error())?
-        } else {
-            0
-        };
+        let settlement = &mut ctx.accounts.settlement_state;
+        let payout_ratio = settlement.payout_ratio_ppm;
+        let total_claimable = settlement.vault_snapshot.min(settlement.pending_snapshot);
         let timestamp = Clock::get()?.unix_timestamp;
+
+        if actual_total_remaining > 0
+            && actual_total_remaining < pool_pending_before.saturating_sub(settlement.total_settled_usdc)
+        {
+            emit!(SettlementCoverageWarningEvent {
+                pool: pool.key(),
+                pending_snapshot: settlement.pending_snapshot,
+                submitted_claims_total: actual_total_remaining,
+                missing_claims_total: pool_pending_before
+                    .saturating_sub(settlement.total_settled_usdc)
+                    .saturating_sub(actual_total_remaining),
+                timestamp,
+            });
+        }
 
         if total_claimable == 0 {
             emit!(ClaimsSettledEvent {
@@ -997,6 +1015,10 @@ pub mod bunkercash {
         }
 
         pool.total_pending_claims = pool_pending_before.checked_sub(total_paid).ok_or_else(arithmetic_error)?;
+        settlement.total_settled_usdc = settlement
+            .total_settled_usdc
+            .checked_add(total_paid)
+            .ok_or_else(arithmetic_error)?;
 
         emit!(ClaimsSettledEvent {
             pool: pool.key(),
@@ -1028,6 +1050,7 @@ pub mod bunkercash {
         );
         require!(!claim.cancelled, ErrorCode::ClaimAlreadyCancelled);
         require!(!claim.processed, ErrorCode::ClaimAlreadyProcessed);
+        require!(claim.paid_amount == 0, ErrorCode::CannotCancelPartiallyPaidClaim);
 
         let refunded_bunkercash = claim.bunkercash_remaining;
         let released_usdc = claim
@@ -1087,6 +1110,81 @@ pub mod bunkercash {
         Ok(())
     }
 
+    pub fn open_settlement(ctx: Context<OpenSettlement>) -> Result<()> {
+        validate_supported_usdc_mint(
+            &ctx.accounts.supported_usdc_config,
+            &ctx.accounts.usdc_mint.key(),
+        )?;
+
+        let pool = &ctx.accounts.pool;
+        let settlement = &mut ctx.accounts.settlement_state;
+
+        require!(
+            ctx.accounts.master_wallet.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+        require!(
+            pool.total_pending_claims > 0,
+            ErrorCode::NoPendingClaims
+        );
+
+        let usdc_balance = accessor::amount(&ctx.accounts.pool_usdc.to_account_info())?;
+        let payout_ratio = compute_settlement_payout_ratio(usdc_balance, pool.total_pending_claims)?;
+        let timestamp = Clock::get()?.unix_timestamp;
+
+        settlement.pool = pool.key();
+        settlement.vault_snapshot = usdc_balance;
+        settlement.pending_snapshot = pool.total_pending_claims;
+        settlement.payout_ratio_ppm = payout_ratio;
+        settlement.total_settled_usdc = 0;
+        settlement.timestamp = timestamp;
+        settlement.bump = ctx.bumps.settlement_state;
+
+        emit!(SettlementOpenedEvent {
+            pool: pool.key(),
+            master_wallet: ctx.accounts.master_wallet.key(),
+            vault_snapshot: usdc_balance,
+            pending_snapshot: pool.total_pending_claims,
+            payout_ratio_ppm: payout_ratio,
+            timestamp,
+        });
+
+        msg!(
+            "Settlement opened: vault={}, pending={}, ratio={}ppm",
+            usdc_balance,
+            pool.total_pending_claims,
+            payout_ratio
+        );
+        Ok(())
+    }
+
+    pub fn close_settlement(ctx: Context<CloseSettlement>) -> Result<()> {
+        let pool = &ctx.accounts.pool;
+        let settlement = &ctx.accounts.settlement_state;
+
+        require!(
+            ctx.accounts.master_wallet.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+
+        let timestamp = Clock::get()?.unix_timestamp;
+
+        emit!(SettlementClosedEvent {
+            pool: pool.key(),
+            master_wallet: ctx.accounts.master_wallet.key(),
+            total_settled_usdc: settlement.total_settled_usdc,
+            remaining_pending_claims: pool.total_pending_claims,
+            timestamp,
+        });
+
+        msg!(
+            "Settlement closed: settled={} USDC, remaining_pending={}",
+            settlement.total_settled_usdc,
+            pool.total_pending_claims
+        );
+        Ok(())
+    }
+
     pub fn master_withdraw(
         ctx: Context<MasterWithdraw>,
         amount: u64,
@@ -1097,6 +1195,10 @@ pub mod bunkercash {
             &ctx.accounts.usdc_mint.key(),
         )?;
         validate_non_zero_amount(amount)?;
+        require!(
+            ctx.accounts.settlement_check.data_is_empty(),
+            ErrorCode::WithdrawalBlockedDuringSettlement
+        );
 
         let pool = &mut ctx.accounts.pool;
         let withdrawal = &mut ctx.accounts.withdrawal;
@@ -1840,6 +1942,14 @@ pub struct SettleClaims<'info> {
     )]
     pub usdc_mint: InterfaceAccount<'info, Mint>,
 
+    #[account(
+        mut,
+        seeds = [SETTLEMENT_SEED, pool.key().as_ref()],
+        bump = settlement_state.bump,
+        has_one = pool @ ErrorCode::NoActiveSettlement
+    )]
+    pub settlement_state: Account<'info, SettlementState>,
+
     pub master_wallet: Signer<'info>,
 
     pub usdc_token_program: Interface<'info, TokenInterface>,
@@ -1896,6 +2006,71 @@ pub struct CancelClaim<'info> {
 }
 
 #[derive(Accounts)]
+pub struct OpenSettlement<'info> {
+    #[account(
+        seeds = [POOL_SEED],
+        bump = pool.bump
+    )]
+    pub pool: Account<'info, Pool>,
+
+    #[account(
+        token::mint = usdc_mint,
+        token::authority = pool,
+        token::token_program = usdc_token_program,
+        address = canonical_pool_usdc_vault(pool.key(), usdc_mint.key(), usdc_token_program.key()) @ ErrorCode::InvalidPoolUsdcVault
+    )]
+    pub pool_usdc: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
+        seeds = [SUPPORTED_USDC_CONFIG_SEED],
+        bump = supported_usdc_config.bump
+    )]
+    pub supported_usdc_config: Account<'info, SupportedUsdcConfig>,
+
+    #[account(
+        mint::decimals = TOKEN_DECIMALS,
+        mint::token_program = usdc_token_program
+    )]
+    pub usdc_mint: InterfaceAccount<'info, Mint>,
+
+    #[account(
+        init,
+        payer = master_wallet,
+        space = 8 + SettlementState::INIT_SPACE,
+        seeds = [SETTLEMENT_SEED, pool.key().as_ref()],
+        bump
+    )]
+    pub settlement_state: Account<'info, SettlementState>,
+
+    #[account(mut)]
+    pub master_wallet: Signer<'info>,
+
+    pub usdc_token_program: Interface<'info, TokenInterface>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct CloseSettlement<'info> {
+    #[account(
+        seeds = [POOL_SEED],
+        bump = pool.bump
+    )]
+    pub pool: Account<'info, Pool>,
+
+    #[account(
+        mut,
+        close = master_wallet,
+        seeds = [SETTLEMENT_SEED, pool.key().as_ref()],
+        bump = settlement_state.bump,
+        has_one = pool @ ErrorCode::NoActiveSettlement
+    )]
+    pub settlement_state: Account<'info, SettlementState>,
+
+    #[account(mut)]
+    pub master_wallet: Signer<'info>,
+}
+
+#[derive(Accounts)]
 pub struct MasterWithdraw<'info> {
     #[account(
         mut,
@@ -1941,6 +2116,14 @@ pub struct MasterWithdraw<'info> {
         mint::token_program = usdc_token_program
     )]
     pub usdc_mint: InterfaceAccount<'info, Mint>,
+
+    /// CHECK: Only checked for existence. If the SettlementState PDA is
+    /// initialized, a settlement epoch is active and withdrawals are blocked.
+    #[account(
+        seeds = [SETTLEMENT_SEED, pool.key().as_ref()],
+        bump
+    )]
+    pub settlement_check: UncheckedAccount<'info>,
 
     #[account(mut)]
     pub master_wallet: Signer<'info>,
@@ -2132,6 +2315,18 @@ pub struct FeeConfig {
     pub bump: u8,
 }
 
+#[account]
+#[derive(InitSpace)]
+pub struct SettlementState {
+    pub pool: Pubkey,
+    pub vault_snapshot: u64,
+    pub pending_snapshot: u64,
+    pub payout_ratio_ppm: u64,
+    pub total_settled_usdc: u64,
+    pub timestamp: i64,
+    pub bump: u8,
+}
+
 #[event]
 pub struct MasterWithdrawalEvent {
     pub withdrawal_id: u64,
@@ -2292,6 +2487,34 @@ pub struct FeeConfigUpdatedEvent {
     pub timestamp: i64,
 }
 
+#[event]
+pub struct SettlementOpenedEvent {
+    pub pool: Pubkey,
+    pub master_wallet: Pubkey,
+    pub vault_snapshot: u64,
+    pub pending_snapshot: u64,
+    pub payout_ratio_ppm: u64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct SettlementClosedEvent {
+    pub pool: Pubkey,
+    pub master_wallet: Pubkey,
+    pub total_settled_usdc: u64,
+    pub remaining_pending_claims: u64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct SettlementCoverageWarningEvent {
+    pub pool: Pubkey,
+    pub pending_snapshot: u64,
+    pub submitted_claims_total: u64,
+    pub missing_claims_total: u64,
+    pub timestamp: i64,
+}
+
 #[error_code]
 pub enum ErrorCode {
     #[msg("Invalid NAV value")]
@@ -2310,8 +2533,6 @@ pub enum ErrorCode {
     Unauthorized,
     #[msg("Repayment amount exceeds withdrawal remaining balance")]
     RepaymentExceedsWithdrawal,
-    #[msg("Settlement must include the full open-claim set when the pool vault cannot cover all claims")]
-    IncompleteSettlementSet,
     #[msg("On-chain pending claims are lower than the submitted claim set; sync pending claims before settling")]
     PendingClaimsOutOfSync,
     #[msg("BunkerCash mint PDA is already initialized")]
@@ -2344,6 +2565,14 @@ pub enum ErrorCode {
     InvalidClaimOwner,
     #[msg("Master wallet does not match the pool's master wallet")]
     InvalidMasterWallet,
+    #[msg("Cannot cancel a claim that has received partial payment")]
+    CannotCancelPartiallyPaidClaim,
+    #[msg("No active settlement epoch; call open_settlement first")]
+    NoActiveSettlement,
+    #[msg("Pool has no pending claims to settle")]
+    NoPendingClaims,
+    #[msg("Cannot withdraw while a settlement epoch is active")]
+    WithdrawalBlockedDuringSettlement,
 }
 
 #[cfg(test)]
@@ -2351,8 +2580,8 @@ mod tests {
     use super::{
         apply_master_cancellation, apply_master_close_withdrawal, apply_master_profit,
         apply_master_repayment, calculate_claim_usdc_value, calculate_fee_amount,
-        record_master_withdrawal, validate_fee_bps, validate_initializer,
-        validate_open_withdrawal, validate_purchase_limit,
+        compute_settlement_payout_ratio, record_master_withdrawal, validate_fee_bps,
+        validate_initializer, validate_open_withdrawal, validate_purchase_limit,
         validate_settlement_pending_claims, validate_supported_usdc_mint,
         validate_supported_usdc_mint_change, validate_unique_settlement_claim_accounts,
         ErrorCode, Pool, PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal, SQUADS_MEMBER_1,
@@ -2891,5 +3120,37 @@ mod tests {
     fn settlement_rejects_claim_sets_larger_than_tracked_pending_total() {
         let err = validate_settlement_pending_claims(500_000, 700_000).unwrap_err();
         assert_eq!(err, ErrorCode::PendingClaimsOutOfSync.into());
+    }
+
+    #[test]
+    fn settlement_ratio_fully_funded() {
+        assert_eq!(
+            compute_settlement_payout_ratio(1_000_000, 500_000).unwrap(),
+            1_000_000
+        );
+    }
+
+    #[test]
+    fn settlement_ratio_half_funded() {
+        assert_eq!(
+            compute_settlement_payout_ratio(250_000, 500_000).unwrap(),
+            500_000
+        );
+    }
+
+    #[test]
+    fn settlement_ratio_zero_pending() {
+        assert_eq!(
+            compute_settlement_payout_ratio(1_000_000, 0).unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn settlement_ratio_exact_coverage() {
+        assert_eq!(
+            compute_settlement_payout_ratio(500_000, 500_000).unwrap(),
+            1_000_000
+        );
     }
 }
