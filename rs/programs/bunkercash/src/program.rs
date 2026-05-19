@@ -862,16 +862,21 @@ pub mod bunkercash {
             ctx.remaining_accounts,
         )?;
 
-        // Compute the remaining amount across the claims included in this run.
-        // Cancelled claims must be skipped — their BunkerCash escrow has already
-        // been returned to the user and their USDC-remaining has already been
-        // subtracted from `total_pending_claims`.
+        // Only claims that existed before the settlement epoch opened are
+        // eligible.  Without this gate a master wallet could file a large
+        // post-epoch claim, settle only it, and satisfy the completeness
+        // check while paying nothing to original claimants.
+        let epoch_timestamp = ctx.accounts.settlement_state.timestamp;
+
         let mut actual_total_remaining = 0u64;
         for (idx, claim_account_info) in ctx.remaining_accounts.iter().enumerate() {
             if idx % 2 == 0 {
                 let claim_data = claim_account_info.try_borrow_data()?;
                 let claim = Claim::try_deserialize(&mut &claim_data[..])?;
-                if !claim.cancelled && claim.paid_amount < claim.usdc_amount {
+                if !claim.cancelled
+                    && claim.paid_amount < claim.usdc_amount
+                    && claim.timestamp < epoch_timestamp
+                {
                     actual_total_remaining = actual_total_remaining
                         .checked_add(claim.usdc_amount.saturating_sub(claim.paid_amount))
                         .ok_or_else(arithmetic_error)?;
@@ -933,7 +938,10 @@ pub mod bunkercash {
                 let mut claim_data = claim_account_info.try_borrow_mut_data()?;
                 let claim = Claim::try_deserialize(&mut &claim_data[..])?;
 
-                if !claim.cancelled && claim.paid_amount < claim.usdc_amount {
+                if !claim.cancelled
+                    && claim.paid_amount < claim.usdc_amount
+                    && claim.timestamp < epoch_timestamp
+                {
                     let claim_usdc_amount = claim.usdc_amount;
                     let claim_paid_amount = claim.paid_amount;
                     let claim_remaining_amount = claim_usdc_amount.saturating_sub(claim.paid_amount);
