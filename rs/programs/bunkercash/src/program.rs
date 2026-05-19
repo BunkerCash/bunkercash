@@ -312,7 +312,7 @@ fn validate_settlement_completeness(
     total_cancelled_usdc: u64,
     payout_ratio_ppm: u64,
     pool_total_pending_claims: u64,
-    claim_counter: u64,
+    claims_settled_count: u64,
 ) -> Result<()> {
     if pool_total_pending_claims == 0 {
         return Ok(());
@@ -325,9 +325,11 @@ fn validate_settlement_completeness(
             / 1_000_000,
     )
     .map_err(|_| arithmetic_error())?;
+    // Each settled claim can lose at most 1 micro-USDC to floor division,
+    // so claims_settled_count is the exact upper bound on rounding error.
     require!(
         total_settled_usdc
-            .checked_add(claim_counter)
+            .checked_add(claims_settled_count)
             .ok_or_else(arithmetic_error)?
             >= expected_payout,
         ErrorCode::SettlementIncomplete
@@ -1051,6 +1053,10 @@ pub mod bunkercash {
             .total_settled_usdc
             .checked_add(total_paid)
             .ok_or_else(arithmetic_error)?;
+        settlement.claims_settled_count = settlement
+            .claims_settled_count
+            .checked_add(claims_settled)
+            .ok_or_else(arithmetic_error)?;
 
         emit!(ClaimsSettledEvent {
             pool: pool.key(),
@@ -1187,6 +1193,7 @@ pub mod bunkercash {
         settlement.payout_ratio_ppm = payout_ratio;
         settlement.total_settled_usdc = 0;
         settlement.total_cancelled_usdc = 0;
+        settlement.claims_settled_count = 0;
         settlement.timestamp = timestamp;
         settlement.bump = ctx.bumps.settlement_state;
 
@@ -1223,7 +1230,7 @@ pub mod bunkercash {
             settlement.total_cancelled_usdc,
             settlement.payout_ratio_ppm,
             pool.total_pending_claims,
-            pool.claim_counter,
+            settlement.claims_settled_count,
         )?;
 
         let timestamp = Clock::get()?.unix_timestamp;
@@ -2394,6 +2401,7 @@ pub struct SettlementState {
     pub payout_ratio_ppm: u64,
     pub total_settled_usdc: u64,
     pub total_cancelled_usdc: u64,
+    pub claims_settled_count: u64,
     pub timestamp: i64,
     pub bump: u8,
 }
@@ -3237,7 +3245,7 @@ mod tests {
             0,           // cancelled
             500_000,     // ratio 50%
             500_000,     // pool pending (remaining from partial payouts)
-            10,          // claim_counter
+            10,          // claims_settled_count
         )
         .is_ok());
     }
@@ -3250,7 +3258,7 @@ mod tests {
             0,           // no cancellations
             500_000,     // ratio 50%
             750_000,     // pool pending
-            10,          // claim_counter
+            5,           // claims_settled_count
         )
         .is_err());
     }
@@ -3263,7 +3271,7 @@ mod tests {
             200_000,     // 200K cancelled
             500_000,     // ratio 50%
             400_000,     // pool pending (remaining from partial payouts)
-            10,          // claim_counter
+            8,           // claims_settled_count
         )
         .is_ok());
     }
@@ -3276,7 +3284,7 @@ mod tests {
             1_000_000,   // all cancelled
             500_000,     // ratio 50%
             0,           // pool pending = 0
-            10,          // claim_counter
+            0,           // claims_settled_count
         )
         .is_ok());
     }
@@ -3289,8 +3297,24 @@ mod tests {
             0,           // no cancellations
             1_000_000,   // ratio 100%
             0,           // pool pending = 0
-            10,          // claim_counter
+            10,          // claims_settled_count
         )
         .is_ok());
+    }
+
+    #[test]
+    fn completeness_rejects_zero_settled_with_large_count() {
+        // Regression: old code used pool.claim_counter (historical count)
+        // as tolerance. A pool with 1M lifetime claims could close with
+        // zero USDC settled. Now uses claims_settled_count (epoch-scoped).
+        assert!(validate_settlement_completeness(
+            0,           // zero settled
+            1_000_000,   // pending_snapshot
+            0,           // no cancellations
+            500_000,     // ratio 50%
+            1_000_000,   // pool pending (nothing settled)
+            0,           // claims_settled_count = 0 (nothing was settled)
+        )
+        .is_err());
     }
 }
