@@ -306,6 +306,35 @@ fn validate_settlement_pending_claims(
     Ok(())
 }
 
+fn validate_settlement_completeness(
+    total_settled_usdc: u64,
+    pending_snapshot: u64,
+    total_cancelled_usdc: u64,
+    payout_ratio_ppm: u64,
+    pool_total_pending_claims: u64,
+    claim_counter: u64,
+) -> Result<()> {
+    if pool_total_pending_claims == 0 {
+        return Ok(());
+    }
+    let adjusted_pending = pending_snapshot.saturating_sub(total_cancelled_usdc);
+    let expected_payout = u64::try_from(
+        (adjusted_pending as u128)
+            .checked_mul(payout_ratio_ppm as u128)
+            .ok_or_else(arithmetic_error)?
+            / 1_000_000,
+    )
+    .map_err(|_| arithmetic_error())?;
+    require!(
+        total_settled_usdc
+            .checked_add(claim_counter)
+            .ok_or_else(arithmetic_error)?
+            >= expected_payout,
+        ErrorCode::SettlementIncomplete
+    );
+    Ok(())
+}
+
 fn validate_unique_settlement_claim_accounts(claim_keys: &[Pubkey]) -> Result<()> {
     let mut seen_claim_keys = Vec::with_capacity(claim_keys.len());
 
@@ -856,15 +885,18 @@ pub mod bunkercash {
         let total_claimable = settlement.vault_snapshot.min(settlement.pending_snapshot);
         let timestamp = Clock::get()?.unix_timestamp;
 
+        let unsettled_before_batch = settlement.pending_snapshot
+            .saturating_sub(settlement.total_settled_usdc)
+            .saturating_sub(settlement.total_cancelled_usdc);
+
         if actual_total_remaining > 0
-            && actual_total_remaining < pool_pending_before.saturating_sub(settlement.total_settled_usdc)
+            && actual_total_remaining < unsettled_before_batch
         {
             emit!(SettlementCoverageWarningEvent {
                 pool: pool.key(),
                 pending_snapshot: settlement.pending_snapshot,
                 submitted_claims_total: actual_total_remaining,
-                missing_claims_total: pool_pending_before
-                    .saturating_sub(settlement.total_settled_usdc)
+                missing_claims_total: unsettled_before_batch
                     .saturating_sub(actual_total_remaining),
                 timestamp,
             });
@@ -1091,6 +1123,23 @@ pub mod bunkercash {
         claim.cancelled = true;
         claim.bunkercash_remaining = 0;
 
+        let settlement_ai = ctx.accounts.settlement_state.to_account_info();
+        if !settlement_ai.data_is_empty() {
+            let mut settlement = {
+                let data = settlement_ai.try_borrow_data()?;
+                SettlementState::try_deserialize(&mut &data[..])
+                    .map_err(|_| error!(ErrorCode::NoActiveSettlement))?
+            };
+            settlement.total_cancelled_usdc = settlement
+                .total_cancelled_usdc
+                .checked_add(released_usdc)
+                .ok_or_else(arithmetic_error)?;
+            let mut buf = Vec::new();
+            settlement.try_serialize(&mut buf)?;
+            let mut data = settlement_ai.try_borrow_mut_data()?;
+            data[..buf.len()].copy_from_slice(&buf);
+        }
+
         let timestamp = Clock::get()?.unix_timestamp;
         emit!(ClaimCancelledEvent {
             pool: pool.key(),
@@ -1137,6 +1186,7 @@ pub mod bunkercash {
         settlement.pending_snapshot = pool.total_pending_claims;
         settlement.payout_ratio_ppm = payout_ratio;
         settlement.total_settled_usdc = 0;
+        settlement.total_cancelled_usdc = 0;
         settlement.timestamp = timestamp;
         settlement.bump = ctx.bumps.settlement_state;
 
@@ -1167,19 +1217,30 @@ pub mod bunkercash {
             ErrorCode::Unauthorized
         );
 
+        validate_settlement_completeness(
+            settlement.total_settled_usdc,
+            settlement.pending_snapshot,
+            settlement.total_cancelled_usdc,
+            settlement.payout_ratio_ppm,
+            pool.total_pending_claims,
+            pool.claim_counter,
+        )?;
+
         let timestamp = Clock::get()?.unix_timestamp;
 
         emit!(SettlementClosedEvent {
             pool: pool.key(),
             master_wallet: ctx.accounts.master_wallet.key(),
             total_settled_usdc: settlement.total_settled_usdc,
+            total_cancelled_usdc: settlement.total_cancelled_usdc,
             remaining_pending_claims: pool.total_pending_claims,
             timestamp,
         });
 
         msg!(
-            "Settlement closed: settled={} USDC, remaining_pending={}",
+            "Settlement closed: settled={} USDC, cancelled={} USDC, remaining_pending={}",
             settlement.total_settled_usdc,
+            settlement.total_cancelled_usdc,
             pool.total_pending_claims
         );
         Ok(())
@@ -2003,6 +2064,15 @@ pub struct CancelClaim<'info> {
 
     pub token_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
+
+    /// CHECK: Settlement PDA — validated by seeds. Updated if initialized
+    /// to track USDC cancelled during an active settlement epoch.
+    #[account(
+        mut,
+        seeds = [SETTLEMENT_SEED, pool.key().as_ref()],
+        bump
+    )]
+    pub settlement_state: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -2323,6 +2393,7 @@ pub struct SettlementState {
     pub pending_snapshot: u64,
     pub payout_ratio_ppm: u64,
     pub total_settled_usdc: u64,
+    pub total_cancelled_usdc: u64,
     pub timestamp: i64,
     pub bump: u8,
 }
@@ -2502,6 +2573,7 @@ pub struct SettlementClosedEvent {
     pub pool: Pubkey,
     pub master_wallet: Pubkey,
     pub total_settled_usdc: u64,
+    pub total_cancelled_usdc: u64,
     pub remaining_pending_claims: u64,
     pub timestamp: i64,
 }
@@ -2573,6 +2645,8 @@ pub enum ErrorCode {
     NoPendingClaims,
     #[msg("Cannot withdraw while a settlement epoch is active")]
     WithdrawalBlockedDuringSettlement,
+    #[msg("Settlement epoch is incomplete; settle all eligible claims before closing")]
+    SettlementIncomplete,
 }
 
 #[cfg(test)]
@@ -2582,9 +2656,10 @@ mod tests {
         apply_master_repayment, calculate_claim_usdc_value, calculate_fee_amount,
         compute_settlement_payout_ratio, record_master_withdrawal, validate_fee_bps,
         validate_initializer, validate_open_withdrawal, validate_purchase_limit,
-        validate_settlement_pending_claims, validate_supported_usdc_mint,
-        validate_supported_usdc_mint_change, validate_unique_settlement_claim_accounts,
-        ErrorCode, Pool, PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal, SQUADS_MEMBER_1,
+        validate_settlement_completeness, validate_settlement_pending_claims,
+        validate_supported_usdc_mint, validate_supported_usdc_mint_change,
+        validate_unique_settlement_claim_accounts, ErrorCode, Pool, PurchaseLimitConfig,
+        SupportedUsdcConfig, Withdrawal, SQUADS_MEMBER_1,
     };
     use anchor_lang::prelude::Pubkey;
 
@@ -3152,5 +3227,70 @@ mod tests {
             compute_settlement_payout_ratio(500_000, 500_000).unwrap(),
             1_000_000
         );
+    }
+
+    #[test]
+    fn completeness_passes_honest_full_settlement() {
+        assert!(validate_settlement_completeness(
+            500_000,     // total_settled
+            1_000_000,   // pending_snapshot
+            0,           // cancelled
+            500_000,     // ratio 50%
+            500_000,     // pool pending (remaining from partial payouts)
+            10,          // claim_counter
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn completeness_rejects_selective_settlement() {
+        assert!(validate_settlement_completeness(
+            250_000,     // settled only half the claims
+            1_000_000,   // pending_snapshot
+            0,           // no cancellations
+            500_000,     // ratio 50%
+            750_000,     // pool pending
+            10,          // claim_counter
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn completeness_passes_with_cancellations() {
+        assert!(validate_settlement_completeness(
+            400_000,     // settled 800K at 50%
+            1_000_000,   // pending_snapshot
+            200_000,     // 200K cancelled
+            500_000,     // ratio 50%
+            400_000,     // pool pending (remaining from partial payouts)
+            10,          // claim_counter
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn completeness_passes_all_cancelled() {
+        assert!(validate_settlement_completeness(
+            0,           // nothing settled
+            1_000_000,   // pending_snapshot
+            1_000_000,   // all cancelled
+            500_000,     // ratio 50%
+            0,           // pool pending = 0
+            10,          // claim_counter
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn completeness_passes_fully_funded() {
+        assert!(validate_settlement_completeness(
+            1_000_000,   // settled everything at 100%
+            1_000_000,   // pending_snapshot
+            0,           // no cancellations
+            1_000_000,   // ratio 100%
+            0,           // pool pending = 0
+            10,          // claim_counter
+        )
+        .is_ok());
     }
 }
