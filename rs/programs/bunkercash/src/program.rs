@@ -1136,14 +1136,21 @@ pub mod bunkercash {
                 SettlementState::try_deserialize(&mut &data[..])
                     .map_err(|_| error!(ErrorCode::NoActiveSettlement))?
             };
-            settlement.total_cancelled_usdc = settlement
-                .total_cancelled_usdc
-                .checked_add(released_usdc)
-                .ok_or_else(arithmetic_error)?;
-            let mut buf = Vec::new();
-            settlement.try_serialize(&mut buf)?;
-            let mut data = settlement_ai.try_borrow_mut_data()?;
-            data[..buf.len()].copy_from_slice(&buf);
+            // Only track cancellations of claims that existed before the
+            // epoch opened. Post-epoch claims are not in pending_snapshot,
+            // so counting them would let an attacker inflate
+            // total_cancelled_usdc past pending_snapshot and zero out
+            // the completeness check.
+            if claim.timestamp < settlement.timestamp {
+                settlement.total_cancelled_usdc = settlement
+                    .total_cancelled_usdc
+                    .checked_add(released_usdc)
+                    .ok_or_else(arithmetic_error)?;
+                let mut buf = Vec::new();
+                settlement.try_serialize(&mut buf)?;
+                let mut data = settlement_ai.try_borrow_mut_data()?;
+                data[..buf.len()].copy_from_slice(&buf);
+            }
         }
 
         let timestamp = Clock::get()?.unix_timestamp;
