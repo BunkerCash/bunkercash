@@ -1031,6 +1031,10 @@ pub mod bunkercash {
                         .bunkercash_remaining
                         .checked_sub(bunkercash_to_burn)
                         .ok_or_else(arithmetic_error)?;
+                    // Stamp the claim with this epoch's timestamp so the
+                    // `timestamp < epoch_timestamp` filter rejects it if
+                    // re-submitted in a later batch of the same epoch.
+                    updated_claim.timestamp = epoch_timestamp;
                     updated_claim.serialize(&mut &mut claim_data[8..])?;
 
                     emit!(ClaimSettledEvent {
@@ -3339,4 +3343,17 @@ mod tests {
         // Even though pool.total_pending_claims would be 0 in the real
         // attack, the function no longer sees that value at all.
     }
+
+    // Regression note — multi-batch re-submission attack
+    //
+    // Attack: submit the same claim in multiple settle_claims batches within
+    // one epoch to inflate total_settled_usdc and drain the vault toward one
+    // claimant while the completeness check still passes.
+    //
+    // Fix: settle_claims sets `claim.timestamp = epoch_timestamp` after
+    // paying a claim.  The loop filter `claim.timestamp < epoch_timestamp`
+    // rejects re-submissions in later batches of the same epoch.  Next
+    // epoch has a later timestamp, so the claim becomes eligible again.
+    //
+    // Full integration test required (CPI context + remaining_accounts).
 }
