@@ -311,13 +311,12 @@ fn validate_settlement_completeness(
     pending_snapshot: u64,
     total_cancelled_usdc: u64,
     payout_ratio_ppm: u64,
-    pool_total_pending_claims: u64,
     claims_settled_count: u64,
 ) -> Result<()> {
-    if pool_total_pending_claims == 0 {
+    let adjusted_pending = pending_snapshot.saturating_sub(total_cancelled_usdc);
+    if adjusted_pending == 0 {
         return Ok(());
     }
-    let adjusted_pending = pending_snapshot.saturating_sub(total_cancelled_usdc);
     let expected_payout = u64::try_from(
         (adjusted_pending as u128)
             .checked_mul(payout_ratio_ppm as u128)
@@ -1244,7 +1243,6 @@ pub mod bunkercash {
             settlement.pending_snapshot,
             settlement.total_cancelled_usdc,
             settlement.payout_ratio_ppm,
-            pool.total_pending_claims,
             settlement.claims_settled_count,
         )?;
 
@@ -3259,7 +3257,6 @@ mod tests {
             1_000_000,   // pending_snapshot
             0,           // cancelled
             500_000,     // ratio 50%
-            500_000,     // pool pending (remaining from partial payouts)
             10,          // claims_settled_count
         )
         .is_ok());
@@ -3272,7 +3269,6 @@ mod tests {
             1_000_000,   // pending_snapshot
             0,           // no cancellations
             500_000,     // ratio 50%
-            750_000,     // pool pending
             5,           // claims_settled_count
         )
         .is_err());
@@ -3285,7 +3281,6 @@ mod tests {
             1_000_000,   // pending_snapshot
             200_000,     // 200K cancelled
             500_000,     // ratio 50%
-            400_000,     // pool pending (remaining from partial payouts)
             8,           // claims_settled_count
         )
         .is_ok());
@@ -3298,7 +3293,6 @@ mod tests {
             1_000_000,   // pending_snapshot
             1_000_000,   // all cancelled
             500_000,     // ratio 50%
-            0,           // pool pending = 0
             0,           // claims_settled_count
         )
         .is_ok());
@@ -3311,7 +3305,6 @@ mod tests {
             1_000_000,   // pending_snapshot
             0,           // no cancellations
             1_000_000,   // ratio 100%
-            0,           // pool pending = 0
             10,          // claims_settled_count
         )
         .is_ok());
@@ -3319,17 +3312,31 @@ mod tests {
 
     #[test]
     fn completeness_rejects_zero_settled_with_large_count() {
-        // Regression: old code used pool.claim_counter (historical count)
-        // as tolerance. A pool with 1M lifetime claims could close with
-        // zero USDC settled. Now uses claims_settled_count (epoch-scoped).
         assert!(validate_settlement_completeness(
             0,           // zero settled
             1_000_000,   // pending_snapshot
             0,           // no cancellations
             500_000,     // ratio 50%
-            1_000_000,   // pool pending (nothing settled)
-            0,           // claims_settled_count = 0 (nothing was settled)
+            0,           // claims_settled_count
         )
         .is_err());
+    }
+
+    #[test]
+    fn completeness_rejects_post_epoch_cancel_bypass() {
+        // Regression: old code checked pool.total_pending_claims == 0 as
+        // early return. A post-epoch claim+cancel could zero the live
+        // counter without touching total_cancelled_usdc, bypassing the
+        // payout check. Now we gate on adjusted_pending (snapshot-derived).
+        assert!(validate_settlement_completeness(
+            250_000,     // only half settled
+            1_000_000,   // pending_snapshot
+            0,           // total_cancelled_usdc = 0 (post-epoch cancel skipped)
+            500_000,     // ratio 50%
+            5,           // claims_settled_count
+        )
+        .is_err());
+        // Even though pool.total_pending_claims would be 0 in the real
+        // attack, the function no longer sees that value at all.
     }
 }
