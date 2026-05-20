@@ -900,9 +900,10 @@ pub mod bunkercash {
             .saturating_sub(settlement.total_settled_usdc)
             .saturating_sub(settlement.total_cancelled_usdc);
 
-        if actual_total_remaining > 0
-            && actual_total_remaining < unsettled_before_batch
-        {
+        let batch_is_incomplete = actual_total_remaining > 0
+            && actual_total_remaining < unsettled_before_batch;
+
+        if batch_is_incomplete {
             emit!(SettlementCoverageWarningEvent {
                 pool: pool.key(),
                 pending_snapshot: settlement.pending_snapshot,
@@ -911,6 +912,22 @@ pub mod bunkercash {
                     .saturating_sub(actual_total_remaining),
                 timestamp,
             });
+
+            // When the vault is underfunded (payout_ratio < 100%), all
+            // claimants must take a proportional haircut in the same batch.
+            // Allowing a partial batch here lets the master wallet pay
+            // preferred claimants their full epoch share and then walk away
+            // from the rest — the per-batch warning is observable but
+            // `close_settlement`'s completeness check only triggers if the
+            // master tries to close. Hard-fail here so the only way to make
+            // forward progress in an underfunded epoch is to include every
+            // eligible claim. Fully funded epochs (ratio == 1_000_000) can
+            // still batch freely because the unbatched claims will be paid
+            // in full whenever they are submitted.
+            require!(
+                payout_ratio >= 1_000_000,
+                ErrorCode::IncompleteSettlementSet
+            );
         }
 
         if total_claimable == 0 {
@@ -959,40 +976,29 @@ pub mod bunkercash {
                     )
                     .map_err(|_| arithmetic_error())?;
 
-                    if payout == 0 {
-                        continue;
-                    }
-
-                    let user_usdc = &ctx.remaining_accounts[idx + 1];
-
-                    token_interface::transfer_checked(
-                        CpiContext::new_with_signer(
-                            ctx.accounts.usdc_token_program.to_account_info(),
-                            token_interface::TransferChecked {
-                                from: ctx.accounts.pool_usdc.to_account_info(),
-                                to: user_usdc.to_account_info(),
-                                authority: pool.to_account_info(),
-                                mint: ctx.accounts.usdc_mint.to_account_info(),
-                            },
-                            signer,
-                        ),
-                        payout,
-                        ctx.accounts.usdc_mint.decimals,
-                    )?;
-
-                    let remaining_after_payout = claim_remaining_amount.saturating_sub(payout);
-
-                    // Burn the proportional slice of escrowed BunkerCash. We
-                    // use original escrow / original usdc amounts so cumulative
-                    // integer-division truncations never allow the sum of
-                    // burned BunkerCash to exceed the original escrow. When the
-                    // claim is fully paid off we drain the remainder exactly so
-                    // no dust stays stranded in the pool escrow.
-                    let bunkercash_to_burn = if remaining_after_payout == 0 {
+                    // Dust path: payout truncates to 0 (very small
+                    // remaining * payout_ratio). We still mark the claim as
+                    // processed-in-this-epoch and count it toward
+                    // claims_settled_count so the completeness check at
+                    // close_settlement can grant the +1 micro-USDC of slack
+                    // that covers this claim's tiny expected_payout share.
+                    // Skipping the stamp entirely (the old behavior) made
+                    // settle_claims silently re-process dust claims forever
+                    // and made close_settlement unreachable.
+                    let bunkercash_to_burn = if payout == 0 {
+                        0u64
+                    } else if claim_remaining_amount.saturating_sub(payout) == 0 {
+                        // Drain the remainder exactly on full payoff so no
+                        // dust BunkerCash stays stranded in pool escrow.
                         claim.bunkercash_remaining
                     } else if claim.usdc_amount == 0 {
                         0
                     } else {
+                        // Burn the proportional slice of escrowed BunkerCash.
+                        // We use original escrow / original usdc amounts so
+                        // cumulative integer-division truncations never allow
+                        // the sum of burned BunkerCash to exceed the original
+                        // escrow.
                         u64::try_from(
                             (payout as u128)
                                 .checked_mul(claim.bunkercash_escrow as u128)
@@ -1003,30 +1009,51 @@ pub mod bunkercash {
                         .map_err(|_| arithmetic_error())?
                     };
 
-                    if bunkercash_to_burn > 0 {
-                        require!(
-                            bunkercash_to_burn <= claim.bunkercash_remaining,
-                            ErrorCode::ArithmeticError
-                        );
+                    if payout > 0 {
+                        let user_usdc = &ctx.remaining_accounts[idx + 1];
 
-                        anchor_spl::token_2022::burn_checked(
+                        token_interface::transfer_checked(
                             CpiContext::new_with_signer(
-                                ctx.accounts.token_program.to_account_info(),
-                                anchor_spl::token_2022::BurnChecked {
-                                    mint: ctx.accounts.bunkercash_mint.to_account_info(),
-                                    from: ctx.accounts.pool_bunkercash_escrow.to_account_info(),
+                                ctx.accounts.usdc_token_program.to_account_info(),
+                                token_interface::TransferChecked {
+                                    from: ctx.accounts.pool_usdc.to_account_info(),
+                                    to: user_usdc.to_account_info(),
                                     authority: pool.to_account_info(),
+                                    mint: ctx.accounts.usdc_mint.to_account_info(),
                                 },
                                 signer,
                             ),
-                            bunkercash_to_burn,
-                            ctx.accounts.bunkercash_mint.decimals,
+                            payout,
+                            ctx.accounts.usdc_mint.decimals,
                         )?;
+
+                        if bunkercash_to_burn > 0 {
+                            require!(
+                                bunkercash_to_burn <= claim.bunkercash_remaining,
+                                ErrorCode::ArithmeticError
+                            );
+
+                            anchor_spl::token_2022::burn_checked(
+                                CpiContext::new_with_signer(
+                                    ctx.accounts.token_program.to_account_info(),
+                                    anchor_spl::token_2022::BurnChecked {
+                                        mint: ctx.accounts.bunkercash_mint.to_account_info(),
+                                        from: ctx.accounts.pool_bunkercash_escrow.to_account_info(),
+                                        authority: pool.to_account_info(),
+                                    },
+                                    signer,
+                                ),
+                                bunkercash_to_burn,
+                                ctx.accounts.bunkercash_mint.decimals,
+                            )?;
+                        }
+
+                        pool.nav = pool.nav.checked_sub(payout).ok_or_else(arithmetic_error)?;
+                        total_paid = total_paid.checked_add(payout).ok_or_else(arithmetic_error)?;
                     }
 
-                    pool.nav = pool.nav.checked_sub(payout).ok_or_else(arithmetic_error)?;
+                    let remaining_after_payout = claim_remaining_amount.saturating_sub(payout);
                     claims_settled = claims_settled.checked_add(1).ok_or_else(arithmetic_error)?;
-                    total_paid = total_paid.checked_add(payout).ok_or_else(arithmetic_error)?;
 
                     let mut updated_claim = claim;
                     updated_claim.processed = remaining_after_payout == 0;
@@ -1108,7 +1135,28 @@ pub mod bunkercash {
         );
         require!(!claim.cancelled, ErrorCode::ClaimAlreadyCancelled);
         require!(!claim.processed, ErrorCode::ClaimAlreadyProcessed);
-        require!(claim.paid_amount == 0, ErrorCode::CannotCancelPartiallyPaidClaim);
+
+        // If a settlement epoch is open, block cancellation only when this
+        // claim was already paid in *this* epoch. Letting a user cancel after
+        // receiving their epoch payout would cause the payout to land in
+        // `total_settled_usdc` AND the released remainder to land in
+        // `total_cancelled_usdc`, double-counting against `pending_snapshot`
+        // and effectively giving the canceller 100% recovery while others
+        // share the haircut. Cancellation outside an active epoch (including
+        // partial-paid claims left over from a prior, already-closed epoch)
+        // is allowed: it simply releases the unpaid remainder.
+        let settlement_ai = ctx.accounts.settlement_state.to_account_info();
+        if !settlement_ai.data_is_empty() {
+            let settlement_peek = {
+                let data = settlement_ai.try_borrow_data()?;
+                SettlementState::try_deserialize(&mut &data[..])
+                    .map_err(|_| error!(ErrorCode::NoActiveSettlement))?
+            };
+            require!(
+                claim.last_settled_epoch != settlement_peek.timestamp,
+                ErrorCode::CannotCancelPaidThisEpoch
+            );
+        }
 
         let refunded_bunkercash = claim.bunkercash_remaining;
         let released_usdc = claim
@@ -1149,7 +1197,6 @@ pub mod bunkercash {
         claim.cancelled = true;
         claim.bunkercash_remaining = 0;
 
-        let settlement_ai = ctx.accounts.settlement_state.to_account_info();
         if !settlement_ai.data_is_empty() {
             let mut settlement = {
                 let data = settlement_ai.try_borrow_data()?;
@@ -2678,8 +2725,8 @@ pub enum ErrorCode {
     InvalidClaimOwner,
     #[msg("Master wallet does not match the pool's master wallet")]
     InvalidMasterWallet,
-    #[msg("Cannot cancel a claim that has received partial payment")]
-    CannotCancelPartiallyPaidClaim,
+    #[msg("Cannot cancel a claim that was paid in the currently open settlement epoch; wait for the epoch to close")]
+    CannotCancelPaidThisEpoch,
     #[msg("No active settlement epoch; call open_settlement first")]
     NoActiveSettlement,
     #[msg("Pool has no pending claims to settle")]
@@ -2688,6 +2735,8 @@ pub enum ErrorCode {
     WithdrawalBlockedDuringSettlement,
     #[msg("Settlement epoch is incomplete; settle all eligible claims before closing")]
     SettlementIncomplete,
+    #[msg("Underfunded settlement batches must include every eligible claim so all claimants share the haircut proportionally")]
+    IncompleteSettlementSet,
 }
 
 #[cfg(test)]

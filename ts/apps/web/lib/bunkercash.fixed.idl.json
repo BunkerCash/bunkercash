@@ -2840,8 +2840,8 @@
     },
     {
       "code": 6024,
-      "name": "CannotCancelPartiallyPaidClaim",
-      "msg": "Cannot cancel a claim that has received partial payment"
+      "name": "CannotCancelPaidThisEpoch",
+      "msg": "Cannot cancel a claim that was paid in the currently open settlement epoch; wait for the epoch to close"
     },
     {
       "code": 6025,
@@ -2862,6 +2862,11 @@
       "code": 6028,
       "name": "SettlementIncomplete",
       "msg": "Settlement epoch is incomplete; settle all eligible claims before closing"
+    },
+    {
+      "code": 6029,
+      "name": "IncompleteSettlementSet",
+      "msg": "Underfunded settlement batches must include every eligible claim so all claimants share the haircut proportionally"
     }
   ],
   "types": [
