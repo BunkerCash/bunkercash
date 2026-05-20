@@ -811,6 +811,7 @@ pub mod bunkercash {
         claim.bunkercash_escrow = net_bunkercash;
         claim.bunkercash_remaining = net_bunkercash;
         claim.cancelled = false;
+        claim.last_settled_epoch = 0;
         claim.bump = ctx.bumps.claim;
 
         emit!(ClaimFiledEvent {
@@ -865,6 +866,9 @@ pub mod bunkercash {
         // eligible.  Without this gate a master wallet could file a large
         // post-epoch claim, settle only it, and satisfy the completeness
         // check while paying nothing to original claimants.
+        // `last_settled_epoch != epoch_timestamp` additionally rejects claims
+        // already paid in an earlier batch of this same epoch (multi-batch
+        // re-submission anti-replay).
         let epoch_timestamp = ctx.accounts.settlement_state.timestamp;
 
         let mut actual_total_remaining = 0u64;
@@ -875,6 +879,7 @@ pub mod bunkercash {
                 if !claim.cancelled
                     && claim.paid_amount < claim.usdc_amount
                     && claim.timestamp < epoch_timestamp
+                    && claim.last_settled_epoch != epoch_timestamp
                 {
                     actual_total_remaining = actual_total_remaining
                         .checked_add(claim.usdc_amount.saturating_sub(claim.paid_amount))
@@ -940,6 +945,7 @@ pub mod bunkercash {
                 if !claim.cancelled
                     && claim.paid_amount < claim.usdc_amount
                     && claim.timestamp < epoch_timestamp
+                    && claim.last_settled_epoch != epoch_timestamp
                 {
                     let claim_usdc_amount = claim.usdc_amount;
                     let claim_paid_amount = claim.paid_amount;
@@ -1031,10 +1037,13 @@ pub mod bunkercash {
                         .bunkercash_remaining
                         .checked_sub(bunkercash_to_burn)
                         .ok_or_else(arithmetic_error)?;
-                    // Stamp the claim with this epoch's timestamp so the
-                    // `timestamp < epoch_timestamp` filter rejects it if
-                    // re-submitted in a later batch of the same epoch.
-                    updated_claim.timestamp = epoch_timestamp;
+                    // Stamp the claim with this epoch's timestamp on a
+                    // dedicated marker field so the
+                    // `last_settled_epoch != epoch_timestamp` filter rejects
+                    // it if re-submitted in a later batch of the same epoch.
+                    // `timestamp` is left untouched so it remains the
+                    // canonical filing time for off-chain indexers.
+                    updated_claim.last_settled_epoch = epoch_timestamp;
                     updated_claim.serialize(&mut &mut claim_data[8..])?;
 
                     emit!(ClaimSettledEvent {
@@ -2363,6 +2372,8 @@ pub struct Pool {
 pub struct Claim {
     pub user: Pubkey,
     pub usdc_amount: u64,
+    // Immutable filing time. Set once at claim creation and never overwritten,
+    // so off-chain decoders can rely on this as the canonical createdAt.
     pub timestamp: i64,
     pub processed: bool,
     pub paid_amount: u64,
@@ -2371,6 +2382,11 @@ pub struct Claim {
     // BunkerCash still held in the pool escrow for this claim.
     pub bunkercash_remaining: u64,
     pub cancelled: bool,
+    // Settlement epoch in which this claim was last paid (matches the
+    // SettlementState.timestamp). Zero until the first payout. Used as an
+    // anti-replay marker so the same claim can't be paid twice within a single
+    // settlement epoch.
+    pub last_settled_epoch: i64,
     pub bump: u8,
 }
 
@@ -3350,10 +3366,12 @@ mod tests {
     // one epoch to inflate total_settled_usdc and drain the vault toward one
     // claimant while the completeness check still passes.
     //
-    // Fix: settle_claims sets `claim.timestamp = epoch_timestamp` after
-    // paying a claim.  The loop filter `claim.timestamp < epoch_timestamp`
-    // rejects re-submissions in later batches of the same epoch.  Next
-    // epoch has a later timestamp, so the claim becomes eligible again.
+    // Fix: settle_claims sets `claim.last_settled_epoch = epoch_timestamp`
+    // after paying a claim. The loop filter
+    // `claim.last_settled_epoch != epoch_timestamp` rejects re-submissions
+    // in later batches of the same epoch. The next epoch opens with a fresh
+    // settlement timestamp, so the claim becomes eligible again. The
+    // original `claim.timestamp` (filing time) is never overwritten.
     //
     // Full integration test required (CPI context + remaining_accounts).
 }

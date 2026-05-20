@@ -2593,6 +2593,10 @@
             "type": "bool"
           },
           {
+            "name": "last_settled_epoch",
+            "type": "i64"
+          },
+          {
             "name": "bump",
             "type": "u8"
           }

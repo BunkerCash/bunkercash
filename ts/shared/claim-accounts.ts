@@ -1,7 +1,7 @@
 import { Buffer } from "buffer";
 import { Connection, PublicKey } from "@solana/web3.js";
 
-const CLAIM_CURRENT_SIZE = 83;
+const CLAIM_CURRENT_SIZE = 91;
 const CLAIM_DISCRIMINATOR = Buffer.from([155, 70, 22, 176, 123, 215, 246, 102]);
 const CLAIM_LAYOUT = {
   discriminator: 0,
@@ -13,6 +13,7 @@ const CLAIM_LAYOUT = {
   bunkercashEscrow: 65,
   bunkercashRemaining: 73,
   cancelled: 81,
+  lastSettledEpoch: 82,
 } as const;
 
 export interface DecodedClaimAccount {
@@ -27,6 +28,7 @@ export interface DecodedClaimAccount {
   bunkercashEscrow: string;
   bunkercashRemaining: string;
   createdAt: string;
+  lastSettledEpoch: string;
 }
 
 function readU64Le(data: Uint8Array, offset: number): bigint {
@@ -57,13 +59,14 @@ function decodeClaimAccount(pubkey: PublicKey, data: Uint8Array): DecodedClaimAc
   // 0..8   discriminator
   // 8..40  user: Pubkey
   // 40..48 requested_usdc: u64
-  // 48..56 created_at: i64
+  // 48..56 timestamp: i64           (immutable filing time -> createdAt)
   // 56     processed: bool
   // 57..65 paid_usdc: u64
   // 65..73 bunkercash_escrow: u64
   // 73..81 bunkercash_remaining: u64
   // 81     cancelled: bool
-  // 82     trailing bool padding from the current Rust layout
+  // 82..90 last_settled_epoch: i64  (anti-replay epoch marker; 0 until first payout)
+  // 90     bump: u8
   const user = new PublicKey(data.slice(CLAIM_LAYOUT.user, CLAIM_LAYOUT.requestedUsdc));
   const requestedRaw = readU64Le(data, CLAIM_LAYOUT.requestedUsdc);
   const createdAt = readI64Le(data, CLAIM_LAYOUT.createdAt);
@@ -72,6 +75,7 @@ function decodeClaimAccount(pubkey: PublicKey, data: Uint8Array): DecodedClaimAc
   const bunkercashEscrowRaw = readU64Le(data, CLAIM_LAYOUT.bunkercashEscrow);
   const bunkercashRemainingRaw = readU64Le(data, CLAIM_LAYOUT.bunkercashRemaining);
   const cancelled = data[CLAIM_LAYOUT.cancelled] === 1;
+  const lastSettledEpoch = readI64Le(data, CLAIM_LAYOUT.lastSettledEpoch);
 
   const remainingRaw = requestedRaw > paidRaw ? requestedRaw - paidRaw : BigInt(0);
   const processed = processedFlag || remainingRaw === BigInt(0);
@@ -88,6 +92,7 @@ function decodeClaimAccount(pubkey: PublicKey, data: Uint8Array): DecodedClaimAc
     bunkercashEscrow: bunkercashEscrowRaw.toString(),
     bunkercashRemaining: bunkercashRemainingRaw.toString(),
     createdAt: createdAt.toString(),
+    lastSettledEpoch: lastSettledEpoch.toString(),
   };
 }
 
