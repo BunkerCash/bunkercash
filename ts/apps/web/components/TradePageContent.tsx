@@ -3,20 +3,27 @@
 import { Layout } from "@/components/layout/Layout";
 import { TradeInterface, type TradeTab } from "@/components/TradeInterface";
 import { DisclaimerBanner } from "@/components/ui/DisclaimerBanner";
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { usePoolStats } from "@/hooks/usePoolStats";
+import { GLOSSARY } from "@/lib/glossary";
 
 function PoolMetricCard({
   label,
   value,
   subtitle,
+  tooltip,
 }: {
   label: string;
   value: string;
   subtitle: string;
+  tooltip?: string;
 }) {
   return (
     <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-6">
-      <div className="mb-2 text-sm text-neutral-400">{label}</div>
+      <div className="mb-2 flex items-center gap-1.5 text-sm text-neutral-400">
+        {label}
+        {tooltip && <InfoTooltip text={tooltip} label={label} />}
+      </div>
       <div className="text-2xl font-bold text-[#00FFB2]">{value}</div>
       <div className="mt-2 text-xs text-neutral-500">{subtitle}</div>
     </div>
@@ -62,11 +69,13 @@ export function TradePageContent({
               label="Current Reference Value"
               value={navDisplay}
               subtitle="Read directly from the on-chain pool account."
+              tooltip={GLOSSARY.referenceValue}
             />
             <PoolMetricCard
               label="Liquid Size"
               value={liquidDisplay}
               subtitle="Current USDC balance available in the payout vault."
+              tooltip={GLOSSARY.liquidSize}
             />
           </div>
 
