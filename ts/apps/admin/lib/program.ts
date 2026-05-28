@@ -68,6 +68,14 @@ export function getFeeConfigPda(programId: PublicKey = PROGRAM_ID): PublicKey {
   return pda
 }
 
+export function getMinSettlementConfigPda(programId: PublicKey = PROGRAM_ID): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [Buffer.from('min_settlement_config')],
+    programId
+  )
+  return pda
+}
+
 export function getPoolSignerPda(poolPda: PublicKey, programId: PublicKey = PROGRAM_ID): PublicKey {
   void programId
   return poolPda

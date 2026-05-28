@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Buffer } from "buffer";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { PublicKey, SendTransactionError, Transaction, type TransactionInstruction } from "@solana/web3.js";
+import { PublicKey, SendTransactionError, SystemProgram, Transaction, type TransactionInstruction } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
@@ -13,7 +13,7 @@ import {
 import { AlertCircle, CheckCircle2, Loader2, RefreshCw, Wallet } from "lucide-react";
 import { useAllOpenClaims, type OpenClaim } from "@/hooks/useAllOpenClaims";
 import { usePayoutVault } from "@/hooks/usePayoutVault";
-import { getBunkercashMintPda, getProgram, getPoolPda, getPoolSignerPda, getReadonlyProgram, getSupportedUsdcConfigPda, PROGRAM_ID } from "@/lib/program";
+import { getBunkercashMintPda, getMinSettlementConfigPda, getProgram, getPoolPda, getPoolSignerPda, getReadonlyProgram, getSupportedUsdcConfigPda, PROGRAM_ID } from "@/lib/program";
 import type { ProgramWallet } from "@/lib/program";
 import { useSupportedUsdcMint } from "@/hooks/useSupportedUsdcMint";
 
@@ -141,6 +141,9 @@ export function SettlementCard() {
   const [txError, setTxError] = useState<string | null>(null);
   const [poolPendingClaims, setPoolPendingClaims] = useState<bigint | null>(null);
   const [poolStateError, setPoolStateError] = useState<string | null>(null);
+  const [minSettlementUsdc, setMinSettlementUsdc] = useState<bigint | null>(null);
+  const [minSettlementInput, setMinSettlementInput] = useState("");
+  const [savingMinSettlement, setSavingMinSettlement] = useState(false);
 
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), []);
   const poolSignerPda = useMemo(() => getPoolSignerPda(poolPda, PROGRAM_ID), [poolPda]);
@@ -216,6 +219,62 @@ export function SettlementCard() {
     void fetchPoolPendingClaims(controller.signal);
     return () => controller.abort();
   }, [fetchPoolPendingClaims]);
+
+  const minSettlementConfigPda = useMemo(() => getMinSettlementConfigPda(PROGRAM_ID), []);
+
+  const fetchMinSettlementConfig = useCallback(async () => {
+    try {
+      const accountApi = readonlyProgram.account as {
+        minSettlementConfig?: {
+          fetch: (pubkey: PublicKey) => Promise<{ minSettlementUsdc: { toString(): string } }>;
+        };
+      };
+      if (!accountApi.minSettlementConfig) return;
+      const config = await accountApi.minSettlementConfig.fetch(minSettlementConfigPda);
+      const raw = BigInt(config.minSettlementUsdc.toString());
+      setMinSettlementUsdc(raw);
+      setMinSettlementInput(formatUsdc(raw));
+    } catch {
+      setMinSettlementUsdc(null);
+    }
+  }, [minSettlementConfigPda, readonlyProgram]);
+
+  useEffect(() => {
+    void fetchMinSettlementConfig();
+  }, [fetchMinSettlementConfig]);
+
+  const vaultBelowMinSettlement =
+    minSettlementUsdc !== null && minSettlementUsdc > BigInt(0) && vaultRaw < minSettlementUsdc;
+
+  const handleSaveMinSettlement = useCallback(async () => {
+    if (!program || !publicKey) return;
+    setSavingMinSettlement(true);
+    setTxError(null);
+    try {
+      const rawValue = parseUiUsdc(minSettlementInput);
+      const methods = program.methods as unknown as {
+        setMinSettlementUsdc: (amount: { toNumber?: () => number; toString: () => string }) => {
+          accounts: (accounts: Record<string, PublicKey>) => {
+            rpc: () => Promise<string>;
+          };
+        };
+      };
+      await methods
+        .setMinSettlementUsdc({ toNumber: () => Number(rawValue), toString: () => rawValue.toString() })
+        .accounts({
+          pool: poolPda,
+          minSettlementConfig: minSettlementConfigPda,
+          admin: publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+      setMinSettlementUsdc(rawValue);
+    } catch (e: unknown) {
+      setTxError(e instanceof Error ? e.message : "Failed to save minimum settlement threshold");
+    } finally {
+      setSavingMinSettlement(false);
+    }
+  }, [minSettlementConfigPda, minSettlementInput, poolPda, program, publicKey]);
 
   const settlementPlan = useMemo((): SettlementItem[] => {
     if (claims.length === 0 || totalRequested === BigInt(0) || vaultRaw === BigInt(0)) return [];
@@ -413,7 +472,8 @@ export function SettlementCard() {
     !settling &&
     !pendingClaimsSyncRequired &&
     !underfundedPoolMismatch &&
-    !exceedsSingleTransactionLimit;
+    !exceedsSingleTransactionLimit &&
+    !vaultBelowMinSettlement;
 
   return (
     <div className="space-y-6">
@@ -464,6 +524,45 @@ export function SettlementCard() {
           </p>
         </div>
       </div>
+
+      <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/30 p-5">
+        <h2 className="text-base font-semibold text-white">Minimum Settlement Threshold</h2>
+        <p className="mt-1 text-sm text-neutral-500">
+          Vault must hold at least this much USDC before a settlement epoch can open. Set to 0 to disable.
+        </p>
+        <div className="mt-4 flex items-end gap-3">
+          <div className="flex-1">
+            <label className="mb-1 block text-xs text-neutral-400">Min USDC</label>
+            <input
+              type="text"
+              value={minSettlementInput}
+              onChange={(e) => setMinSettlementInput(e.target.value)}
+              placeholder="e.g. 100.00"
+              className="w-full rounded-lg border border-neutral-700 bg-neutral-950/60 px-3 py-2 font-mono text-sm text-white placeholder:text-neutral-600 focus:border-[#00FFB2]/50 focus:outline-none"
+            />
+          </div>
+          <button
+            onClick={() => void handleSaveMinSettlement()}
+            disabled={!wallet.publicKey || !program || savingMinSettlement}
+            className="inline-flex items-center gap-2 rounded-lg bg-neutral-800 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {savingMinSettlement ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Save
+          </button>
+        </div>
+        {minSettlementUsdc !== null && minSettlementUsdc > BigInt(0) && (
+          <p className="mt-2 text-xs text-neutral-400">
+            Current on-chain minimum: <span className="font-mono text-white">${formatUsdc(minSettlementUsdc)}</span> USDC
+          </p>
+        )}
+      </div>
+
+      {vaultBelowMinSettlement && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          Vault balance (${vaultBalance ?? "0"}) is below the configured minimum settlement threshold (${formatUsdc(minSettlementUsdc ?? BigInt(0))}). Settlement is blocked until the vault is funded.
+        </div>
+      )}
 
       {!wallet.publicKey && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">

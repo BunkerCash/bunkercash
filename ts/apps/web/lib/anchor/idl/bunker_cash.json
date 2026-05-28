@@ -1696,6 +1696,86 @@
       ]
     },
     {
+      "name": "set_min_settlement_usdc",
+      "discriminator": [
+        255,
+        250,
+        253,
+        32,
+        34,
+        225,
+        173,
+        139
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "min_settlement_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  105,
+                  110,
+                  95,
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
+                  110,
+                  116,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "min_settlement_usdc",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "set_purchase_limit",
       "discriminator": [
         153,
@@ -2150,6 +2230,19 @@
       ]
     },
     {
+      "name": "MinSettlementConfig",
+      "discriminator": [
+        157,
+        179,
+        207,
+        89,
+        34,
+        254,
+        201,
+        124
+      ]
+    },
+    {
       "name": "Pool",
       "discriminator": [
         241,
@@ -2347,6 +2440,19 @@
       ]
     },
     {
+      "name": "MinSettlementUpdatedEvent",
+      "discriminator": [
+        172,
+        41,
+        38,
+        207,
+        13,
+        82,
+        55,
+        207
+      ]
+    },
+    {
       "name": "MintMetadataInitializedEvent",
       "discriminator": [
         13,
@@ -2524,6 +2630,16 @@
       "code": 6024,
       "name": "InvalidMasterWallet",
       "msg": "Master wallet does not match the pool's master wallet"
+    },
+    {
+      "code": 6030,
+      "name": "VaultBelowMinSettlement",
+      "msg": "Vault USDC balance is below the configured minimum for opening a settlement epoch"
+    },
+    {
+      "code": 6031,
+      "name": "EmptyVault",
+      "msg": "Cannot open a settlement epoch with an empty vault; there are no funds to distribute"
     }
   ],
   "types": [
@@ -2968,6 +3084,46 @@
                 32
               ]
             }
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MinSettlementConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "min_settlement_usdc",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MinSettlementUpdatedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "min_settlement_usdc",
+            "type": "u64"
           },
           {
             "name": "timestamp",

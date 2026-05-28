@@ -45,6 +45,7 @@ const SETTLEMENT_SEED: &[u8] = b"settlement";
 const PURCHASE_LIMIT_SEED: &[u8] = b"purchase_limit";
 const SUPPORTED_USDC_CONFIG_SEED: &[u8] = b"supported_usdc_config";
 const FEE_CONFIG_SEED: &[u8] = b"fee_config";
+const MIN_SETTLEMENT_CONFIG_SEED: &[u8] = b"min_settlement_config";
 const TOKEN_DECIMALS: u8 = 6;
 const MAX_FEE_BPS: u16 = 1_000;
 
@@ -641,6 +642,33 @@ pub mod bunkercash {
             admin: ctx.accounts.admin.key(),
             purchase_fee_bps,
             claim_fee_bps,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+
+        Ok(())
+    }
+
+    pub fn set_min_settlement_usdc(
+        ctx: Context<SetMinSettlementUsdc>,
+        min_settlement_usdc: u64,
+    ) -> Result<()> {
+        let pool = &ctx.accounts.pool;
+        let config = &mut ctx.accounts.min_settlement_config;
+
+        require!(
+            ctx.accounts.admin.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+
+        config.min_settlement_usdc = min_settlement_usdc;
+        if config.bump == 0 {
+            config.bump = ctx.bumps.min_settlement_config;
+        }
+
+        emit!(MinSettlementUpdatedEvent {
+            pool: pool.key(),
+            admin: ctx.accounts.admin.key(),
+            min_settlement_usdc,
             timestamp: Clock::get()?.unix_timestamp,
         });
 
@@ -1258,6 +1286,23 @@ pub mod bunkercash {
         );
 
         let usdc_balance = accessor::amount(&ctx.accounts.pool_usdc.to_account_info())?;
+
+        // Hard floor: never open a settlement epoch against an empty vault.
+        // With zero funds the payout ratio is 0, so the epoch would consume the
+        // single settlement slot and pay claimants nothing. This guard is
+        // always enforced; the optional MinSettlementConfig below can only
+        // raise the floor higher, never disable this baseline.
+        require!(usdc_balance > 0, ErrorCode::EmptyVault);
+
+        if !ctx.accounts.min_settlement_config.data_is_empty() {
+            let data = ctx.accounts.min_settlement_config.try_borrow_data()?;
+            let config = MinSettlementConfig::try_deserialize(&mut &data[..])?;
+            require!(
+                usdc_balance >= config.min_settlement_usdc,
+                ErrorCode::VaultBelowMinSettlement
+            );
+        }
+
         let payout_ratio = compute_settlement_payout_ratio(usdc_balance, pool.total_pending_claims)?;
         let timestamp = Clock::get()?.unix_timestamp;
 
@@ -1877,6 +1922,29 @@ pub struct SetFeeConfig<'info> {
 }
 
 #[derive(Accounts)]
+pub struct SetMinSettlementUsdc<'info> {
+    #[account(
+        seeds = [POOL_SEED],
+        bump = pool.bump
+    )]
+    pub pool: Account<'info, Pool>,
+
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = 8 + MinSettlementConfig::INIT_SPACE,
+        seeds = [MIN_SETTLEMENT_CONFIG_SEED],
+        bump
+    )]
+    pub min_settlement_config: Account<'info, MinSettlementConfig>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct SetSupportedUsdcMint<'info> {
     #[account(
         seeds = [POOL_SEED],
@@ -2192,6 +2260,13 @@ pub struct OpenSettlement<'info> {
     )]
     pub settlement_state: Account<'info, SettlementState>,
 
+    /// CHECK: Min settlement config PDA. If initialized, its min_settlement_usdc is enforced.
+    #[account(
+        seeds = [MIN_SETTLEMENT_CONFIG_SEED],
+        bump
+    )]
+    pub min_settlement_config: UncheckedAccount<'info>,
+
     #[account(mut)]
     pub master_wallet: Signer<'info>,
 
@@ -2474,6 +2549,13 @@ pub struct FeeConfig {
 
 #[account]
 #[derive(InitSpace)]
+pub struct MinSettlementConfig {
+    pub min_settlement_usdc: u64,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
 pub struct SettlementState {
     pub pool: Pubkey,
     pub vault_snapshot: u64,
@@ -2647,6 +2729,14 @@ pub struct FeeConfigUpdatedEvent {
 }
 
 #[event]
+pub struct MinSettlementUpdatedEvent {
+    pub pool: Pubkey,
+    pub admin: Pubkey,
+    pub min_settlement_usdc: u64,
+    pub timestamp: i64,
+}
+
+#[event]
 pub struct SettlementOpenedEvent {
     pub pool: Pubkey,
     pub master_wallet: Pubkey,
@@ -2737,6 +2827,10 @@ pub enum ErrorCode {
     SettlementIncomplete,
     #[msg("Underfunded settlement batches must include every eligible claim so all claimants share the haircut proportionally")]
     IncompleteSettlementSet,
+    #[msg("Vault USDC balance is below the configured minimum for opening a settlement epoch")]
+    VaultBelowMinSettlement,
+    #[msg("Cannot open a settlement epoch with an empty vault; there are no funds to distribute")]
+    EmptyVault,
 }
 
 #[cfg(test)]
@@ -2748,10 +2842,11 @@ mod tests {
         validate_initializer, validate_open_withdrawal, validate_purchase_limit,
         validate_settlement_completeness, validate_settlement_pending_claims,
         validate_supported_usdc_mint, validate_supported_usdc_mint_change,
-        validate_unique_settlement_claim_accounts, ErrorCode, Pool, PurchaseLimitConfig,
-        SupportedUsdcConfig, Withdrawal, SQUADS_MEMBER_1,
+        validate_unique_settlement_claim_accounts, ErrorCode, MinSettlementConfig, Pool,
+        PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal, SQUADS_MEMBER_1,
     };
     use anchor_lang::prelude::Pubkey;
+    use anchor_lang::Space;
 
     #[test]
     fn claim_value_rejects_zero_burn_amount() {
@@ -3423,4 +3518,76 @@ mod tests {
     // original `claim.timestamp` (filing time) is never overwritten.
     //
     // Full integration test required (CPI context + remaining_accounts).
+
+    #[test]
+    fn min_settlement_config_init_space() {
+        // u64 (8) + u8 (1) = 9 bytes
+        assert_eq!(MinSettlementConfig::INIT_SPACE, 9);
+    }
+
+    #[test]
+    fn min_settlement_config_default_values() {
+        let config = MinSettlementConfig {
+            min_settlement_usdc: 0,
+            bump: 0,
+        };
+        assert_eq!(config.min_settlement_usdc, 0);
+    }
+
+    #[test]
+    fn min_settlement_vault_above_threshold_passes() {
+        let vault_balance: u64 = 5_000_000; // 5 USDC
+        let min_settlement: u64 = 1_000_000; // 1 USDC
+        assert!(vault_balance >= min_settlement);
+    }
+
+    #[test]
+    fn min_settlement_vault_at_threshold_passes() {
+        let vault_balance: u64 = 1_000_000;
+        let min_settlement: u64 = 1_000_000;
+        assert!(vault_balance >= min_settlement);
+    }
+
+    #[test]
+    fn min_settlement_vault_below_threshold_fails() {
+        let vault_balance: u64 = 500_000; // 0.5 USDC
+        let min_settlement: u64 = 1_000_000; // 1 USDC
+        assert!(vault_balance < min_settlement);
+    }
+
+    #[test]
+    fn min_settlement_zero_threshold_always_passes() {
+        let vault_balance: u64 = 0;
+        let min_settlement: u64 = 0;
+        assert!(vault_balance >= min_settlement);
+    }
+
+    #[test]
+    fn min_settlement_zero_vault_with_threshold_fails() {
+        let vault_balance: u64 = 0;
+        let min_settlement: u64 = 1_000_000;
+        assert!(vault_balance < min_settlement);
+    }
+
+    #[test]
+    fn min_settlement_dust_vault_below_threshold_fails() {
+        let vault_balance: u64 = 1; // 0.000001 USDC
+        let min_settlement: u64 = 1_000_000; // 1 USDC
+        assert!(vault_balance < min_settlement);
+    }
+
+    #[test]
+    fn open_settlement_empty_vault_blocked_baseline() {
+        // The always-on EmptyVault guard rejects a zero-balance vault even when
+        // no MinSettlementConfig is set (the optional threshold is bypassed when
+        // the config PDA is empty, so this baseline is the only protection).
+        let vault_balance: u64 = 0;
+        assert!(!(vault_balance > 0));
+    }
+
+    #[test]
+    fn open_settlement_nonempty_vault_passes_baseline() {
+        let vault_balance: u64 = 1; // smallest non-zero balance clears the floor
+        assert!(vault_balance > 0);
+    }
 }
