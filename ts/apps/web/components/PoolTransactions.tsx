@@ -7,10 +7,39 @@ import type { Transaction } from "@/types";
 import { ArrowUpIcon, ArrowRightIcon } from "@heroicons/react/24/outline";
 import { useOptionalWallet } from "@/hooks/useOptionalWallet";
 
-const TX_LABEL: Record<Transaction["type"], string> = {
-  investment: "Buy",
-  withdrawal: "Sell",
+const SELL_STATUS_META: Record<
+  NonNullable<Transaction["status"]>,
+  { label: string; className: string }
+> = {
+  pending: {
+    label: "Pending settlement",
+    className: "bg-amber-400/10 text-amber-300",
+  },
+  partial: {
+    label: "Partially settled",
+    className: "bg-[#00FFB2]/10 text-[#00FFB2]",
+  },
+  settled: {
+    label: "Settled",
+    className: "bg-neutral-700/40 text-neutral-300",
+  },
+  cancelled: {
+    label: "Cancelled",
+    className: "bg-neutral-800/60 text-neutral-500",
+  },
 };
+
+function getTxLabel(tx: Transaction): string {
+  if (tx.type === "investment") return "Buy";
+  // A sell is a request until it has fully settled — match the Sell/History
+  // framing so the same action isn't called "Sell" in one view and
+  // "Sell request" in another.
+  return tx.status === "settled" ? "Sell" : "Sell request";
+}
+
+function fmtUsd(n: number): string {
+  return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
 
 export function PoolTransactions() {
   const { transactions, loading, error, refresh } = useMyTransactions();
@@ -106,6 +135,12 @@ export function PoolTransactions() {
         </button>
       </div>
 
+      <p className="text-xs text-neutral-500">
+        Buys are instant. Sells are requests that pay out to USDC when a
+        settlement runs, drawing on available pool liquidity — so a sell can sit
+        as &ldquo;Pending settlement&rdquo; before the USDC arrives.
+      </p>
+
       {transactions.length === 0 ? (
         <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-8 text-center text-neutral-500">
           No transactions found.
@@ -125,10 +160,15 @@ export function PoolTransactions() {
                     {getTransactionIcon(tx.type)}
                   </div>
                   <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-semibold">
-                        {TX_LABEL[tx.type]}
-                      </span>
+                    <div className="flex flex-wrap items-center gap-2 mb-1">
+                      <span className="font-semibold">{getTxLabel(tx)}</span>
+                      {tx.type === "withdrawal" && tx.status && (
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${SELL_STATUS_META[tx.status].className}`}
+                        >
+                          {SELL_STATUS_META[tx.status].label}
+                        </span>
+                      )}
                       {tx.txSignature && (
                         <a
                           href={`${explorerBase}${tx.txSignature}${explorerSuffix}`}
@@ -142,6 +182,14 @@ export function PoolTransactions() {
                         </a>
                       )}
                     </div>
+                    {tx.type === "withdrawal" &&
+                      (tx.status === "pending" || tx.status === "partial") && (
+                        <div className="text-sm text-neutral-400">
+                          {tx.status === "partial"
+                            ? `Settled $${fmtUsd(tx.settledUsdc ?? 0)} of $${fmtUsd(tx.requestedUsdc ?? 0)} — rest pays out as liquidity allows`
+                            : `Requested $${fmtUsd(tx.requestedUsdc ?? 0)} — pays out to USDC when a settlement runs`}
+                        </div>
+                      )}
                     {tx.tokenAmount != null && tx.tokenAmount > 0 && (
                       <div className="text-sm text-neutral-400">
                         {tx.type === "investment" ? "Received" : "Submitted"}{" "}
@@ -161,17 +209,26 @@ export function PoolTransactions() {
                   </div>
                 </div>
                 <div className="text-right">
-                  <div
-                    className={`text-lg font-semibold ${getTransactionColor(tx.type)}`}
-                  >
-                    {tx.type === "investment"
-                      ? `+ $${tx.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
-                      : tx.amount > 0
-                        ? `- $${tx.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
-                        : tx.tokenAmount
-                          ? `${tx.tokenAmount.toLocaleString(undefined, { maximumFractionDigits: 4 })} BNKR`
-                          : "—"}
-                  </div>
+                  {tx.type === "investment" ? (
+                    <div className="text-lg font-semibold text-[#00FFB2]">
+                      + ${fmtUsd(tx.amount)}
+                    </div>
+                  ) : tx.status === "settled" || tx.status === "partial" ? (
+                    <div className="text-lg font-semibold text-red-400">
+                      - ${fmtUsd(tx.settledUsdc ?? tx.amount)}
+                    </div>
+                  ) : tx.status === "cancelled" ? (
+                    <div className="text-lg font-semibold text-neutral-500">—</div>
+                  ) : (
+                    <div className="text-right">
+                      <div className="text-lg font-semibold text-neutral-300">
+                        ${fmtUsd(tx.requestedUsdc ?? tx.amount)}
+                      </div>
+                      <div className="text-[10px] uppercase tracking-wide text-neutral-500">
+                        requested
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
