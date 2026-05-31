@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Buffer } from "buffer";
+import BN from "bn.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey, SendTransactionError, SystemProgram, Transaction, type TransactionInstruction } from "@solana/web3.js";
 import {
@@ -303,14 +304,14 @@ export function SettlementCard() {
     try {
       const rawValue = parseUiUsdc(minSettlementInput);
       const methods = program.methods as unknown as {
-        setMinSettlementUsdc: (amount: { toNumber?: () => number; toString: () => string }) => {
+        setMinSettlementUsdc: (amount: BN) => {
           accounts: (accounts: Record<string, PublicKey>) => {
             rpc: () => Promise<string>;
           };
         };
       };
       await methods
-        .setMinSettlementUsdc({ toNumber: () => Number(rawValue), toString: () => rawValue.toString() })
+        .setMinSettlementUsdc(new BN(rawValue.toString()))
         .accounts({
           pool: poolPda,
           minSettlementConfig: minSettlementConfigPda,

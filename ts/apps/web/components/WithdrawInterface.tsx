@@ -16,6 +16,7 @@ import {
   getFeeConfigPda,
   getPoolPda,
   getProgram,
+  getSettlementStatePda,
   type ProgramWallet,
   PROGRAM_ID,
 } from '@/lib/program'
@@ -101,6 +102,7 @@ interface CancelClaimMethods {
       bunkercashMint: PublicKey
       tokenProgram: PublicKey
       systemProgram: PublicKey
+      settlementState: PublicKey
     }) => {
       instruction: () => Promise<TransactionInstruction>
     }
@@ -157,6 +159,7 @@ export function WithdrawInterface() {
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), [])
   const mintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), [])
   const feeConfigPda = useMemo(() => getFeeConfigPda(PROGRAM_ID), [])
+  const settlementStatePda = useMemo(() => getSettlementStatePda(poolPda, PROGRAM_ID), [poolPda])
 
   const { balance: tokenBalanceUi, refreshBalance: fetchTokenBalance } =
     useTokenBalance();
@@ -449,6 +452,7 @@ export function WithdrawInterface() {
           bunkercashMint: mintPda,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
+          settlementState: settlementStatePda,
         })
         .instruction();
 
