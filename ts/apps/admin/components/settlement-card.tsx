@@ -13,7 +13,7 @@ import {
 import { AlertCircle, CheckCircle2, Loader2, RefreshCw, Wallet } from "lucide-react";
 import { useAllOpenClaims, type OpenClaim } from "@/hooks/useAllOpenClaims";
 import { usePayoutVault } from "@/hooks/usePayoutVault";
-import { getBunkercashMintPda, getMinSettlementConfigPda, getProgram, getPoolPda, getPoolSignerPda, getReadonlyProgram, getSupportedUsdcConfigPda, PROGRAM_ID } from "@/lib/program";
+import { getBunkercashMintPda, getMinSettlementConfigPda, getProgram, getPoolPda, getPoolSignerPda, getReadonlyProgram, getSettlementStatePda, getSupportedUsdcConfigPda, PROGRAM_ID } from "@/lib/program";
 import type { ProgramWallet } from "@/lib/program";
 import { useSupportedUsdcMint } from "@/hooks/useSupportedUsdcMint";
 
@@ -34,6 +34,7 @@ interface InstructionBuilder {
     poolBunkercashEscrow: PublicKey;
     supportedUsdcConfig: PublicKey;
     usdcMint: PublicKey;
+    settlementState: PublicKey;
     masterWallet: PublicKey;
     usdcTokenProgram: PublicKey;
     tokenProgram: PublicKey;
@@ -144,9 +145,16 @@ export function SettlementCard() {
   const [minSettlementUsdc, setMinSettlementUsdc] = useState<bigint | null>(null);
   const [minSettlementInput, setMinSettlementInput] = useState("");
   const [savingMinSettlement, setSavingMinSettlement] = useState(false);
+  const [epochOpen, setEpochOpen] = useState(false);
+  const [epochLoading, setEpochLoading] = useState(false);
+  const [epochError, setEpochError] = useState<string | null>(null);
+  const [epochPayoutRatio, setEpochPayoutRatio] = useState<number | null>(null);
+  const [epochVaultSnapshot, setEpochVaultSnapshot] = useState<bigint | null>(null);
+  const [epochPendingSnapshot, setEpochPendingSnapshot] = useState<bigint | null>(null);
 
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), []);
   const poolSignerPda = useMemo(() => getPoolSignerPda(poolPda, PROGRAM_ID), [poolPda]);
+  const settlementStatePda = useMemo(() => getSettlementStatePda(poolPda, PROGRAM_ID), [poolPda]);
   const bunkercashMintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), []);
   const poolBunkercashEscrow = useMemo(
     () =>
@@ -220,6 +228,48 @@ export function SettlementCard() {
     return () => controller.abort();
   }, [fetchPoolPendingClaims]);
 
+  interface SettlementStateAccount {
+    pool: PublicKey;
+    vaultSnapshot: { toString(): string };
+    pendingSnapshot: { toString(): string };
+    payoutRatioPpm: { toString(): string };
+    totalSettledUsdc: { toString(): string };
+    totalCancelledUsdc: { toString(): string };
+    claimsSettledCount: { toString(): string };
+    timestamp: { toString(): string };
+    bump: number;
+  }
+
+  const fetchSettlementEpoch = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const accountApi = readonlyProgram.account as {
+        settlementState?: {
+          fetch: (pubkey: PublicKey) => Promise<SettlementStateAccount>;
+        };
+      };
+      if (!accountApi.settlementState) return;
+      const state = await accountApi.settlementState.fetch(settlementStatePda);
+      if (signal?.aborted) return;
+      setEpochOpen(true);
+      setEpochVaultSnapshot(BigInt(state.vaultSnapshot.toString()));
+      setEpochPendingSnapshot(BigInt(state.pendingSnapshot.toString()));
+      const ppm = BigInt(state.payoutRatioPpm.toString());
+      setEpochPayoutRatio(Number(ppm) / 10_000);
+    } catch {
+      if (signal?.aborted) return;
+      setEpochOpen(false);
+      setEpochPayoutRatio(null);
+      setEpochVaultSnapshot(null);
+      setEpochPendingSnapshot(null);
+    }
+  }, [readonlyProgram, settlementStatePda]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchSettlementEpoch(controller.signal);
+    return () => controller.abort();
+  }, [fetchSettlementEpoch]);
+
   const minSettlementConfigPda = useMemo(() => getMinSettlementConfigPda(PROGRAM_ID), []);
 
   const fetchMinSettlementConfig = useCallback(async () => {
@@ -275,6 +325,75 @@ export function SettlementCard() {
       setSavingMinSettlement(false);
     }
   }, [minSettlementConfigPda, minSettlementInput, poolPda, program, publicKey]);
+
+  const handleOpenSettlement = useCallback(async () => {
+    if (!program || !publicKey || !usdcMint || !usdcTokenProgram || !payoutVault) return;
+    setEpochLoading(true);
+    setEpochError(null);
+    setTxError(null);
+    try {
+      const methods = program.methods as unknown as {
+        openSettlement: () => {
+          accounts: (accounts: Record<string, PublicKey>) => {
+            rpc: () => Promise<string>;
+          };
+        };
+      };
+      await methods
+        .openSettlement()
+        .accounts({
+          pool: poolPda,
+          poolUsdc: payoutVault,
+          supportedUsdcConfig: supportedUsdcConfigPda,
+          usdcMint,
+          settlementState: settlementStatePda,
+          minSettlementConfig: minSettlementConfigPda,
+          masterWallet: publicKey,
+          usdcTokenProgram,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+      await fetchSettlementEpoch();
+      await Promise.all([refreshVault(), fetchPoolPendingClaims()]);
+    } catch (e: unknown) {
+      setEpochError(getErrorMessage(e, "Failed to open settlement epoch"));
+    } finally {
+      setEpochLoading(false);
+    }
+  }, [fetchPoolPendingClaims, fetchSettlementEpoch, minSettlementConfigPda, payoutVault, poolPda, program, publicKey, refreshVault, settlementStatePda, supportedUsdcConfigPda, usdcMint, usdcTokenProgram]);
+
+  const handleCloseSettlement = useCallback(async () => {
+    if (!program || !publicKey) return;
+    setEpochLoading(true);
+    setEpochError(null);
+    setTxError(null);
+    try {
+      const methods = program.methods as unknown as {
+        closeSettlement: () => {
+          accounts: (accounts: Record<string, PublicKey>) => {
+            rpc: () => Promise<string>;
+          };
+        };
+      };
+      await methods
+        .closeSettlement()
+        .accounts({
+          pool: poolPda,
+          settlementState: settlementStatePda,
+          masterWallet: publicKey,
+        })
+        .rpc();
+      setEpochOpen(false);
+      setEpochPayoutRatio(null);
+      setEpochVaultSnapshot(null);
+      setEpochPendingSnapshot(null);
+      await Promise.all([refreshClaims(), refreshVault(), fetchPoolPendingClaims()]);
+    } catch (e: unknown) {
+      setEpochError(getErrorMessage(e, "Failed to close settlement epoch"));
+    } finally {
+      setEpochLoading(false);
+    }
+  }, [fetchPoolPendingClaims, poolPda, program, publicKey, refreshClaims, refreshVault, settlementStatePda]);
 
   const settlementPlan = useMemo((): SettlementItem[] => {
     if (claims.length === 0 || totalRequested === BigInt(0) || vaultRaw === BigInt(0)) return [];
@@ -378,6 +497,7 @@ export function SettlementCard() {
               poolBunkercashEscrow,
               supportedUsdcConfig: supportedUsdcConfigPda,
               usdcMint,
+              settlementState: settlementStatePda,
               masterWallet: publicKey,
               usdcTokenProgram,
               tokenProgram: TOKEN_2022_PROGRAM_ID,
@@ -460,14 +580,15 @@ export function SettlementCard() {
     }
     setResults({ settledClaims, failedClaims, signatures: succeeded });
     setSettling(false);
-    await Promise.all([refreshClaims(), refreshVault(), fetchPoolPendingClaims()]);
-  }, [bunkercashMintPda, canBatchSafely, connection, exceedsSingleTransactionLimit, fetchPoolPendingClaims, payoutVault, poolBunkercashEscrow, program, publicKey, signTransaction, refreshClaims, refreshVault, settlementPlan, usdcMint, usdcTokenProgram, poolPda, supportedUsdcConfigPda]);
+    await Promise.all([refreshClaims(), refreshVault(), fetchPoolPendingClaims(), fetchSettlementEpoch()]);
+  }, [bunkercashMintPda, canBatchSafely, connection, exceedsSingleTransactionLimit, fetchPoolPendingClaims, fetchSettlementEpoch, payoutVault, poolBunkercashEscrow, program, publicKey, signTransaction, refreshClaims, refreshVault, settlementPlan, settlementStatePda, usdcMint, usdcTokenProgram, poolPda, supportedUsdcConfigPda]);
 
   const loading = claimsLoading || vaultLoading;
   const canSettle =
     !!wallet.publicKey &&
     !!program &&
     !!usdcMint &&
+    epochOpen &&
     settlementPlan.length > 0 &&
     !settling &&
     !pendingClaimsSyncRequired &&
@@ -489,6 +610,7 @@ export function SettlementCard() {
             refreshClaims();
             refreshVault();
             void fetchPoolPendingClaims();
+            void fetchSettlementEpoch();
           }}
           disabled={loading}
           className="inline-flex items-center gap-2 rounded-lg border border-neutral-800/60 px-3 py-2 text-sm text-neutral-300 transition hover:border-neutral-700 hover:text-white disabled:opacity-50"
@@ -554,6 +676,77 @@ export function SettlementCard() {
           <p className="mt-2 text-xs text-neutral-400">
             Current on-chain minimum: <span className="font-mono text-white">${formatUsdc(minSettlementUsdc)}</span> USDC
           </p>
+        )}
+      </div>
+
+      <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/30 p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-base font-semibold text-white">Settlement Epoch</h2>
+            <p className="mt-1 text-sm text-neutral-500">
+              {epochOpen
+                ? "A settlement epoch is active. Settle all eligible claims, then close the epoch."
+                : "Open an epoch to snapshot the vault balance and lock the payout ratio before settling."}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {!epochOpen ? (
+              <button
+                onClick={() => void handleOpenSettlement()}
+                disabled={!wallet.publicKey || !program || epochLoading || claims.length === 0 || vaultBelowMinSettlement}
+                className="inline-flex items-center gap-2 rounded-lg bg-[#00FFB2] px-4 py-2 text-sm font-medium text-black transition hover:bg-[#33FFC1] disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+              >
+                {epochLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Open Epoch
+              </button>
+            ) : (
+              <button
+                onClick={() => void handleCloseSettlement()}
+                disabled={!wallet.publicKey || !program || epochLoading || settling}
+                className="inline-flex items-center gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-2 text-sm font-medium text-rose-300 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {epochLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Close Epoch
+              </button>
+            )}
+          </div>
+        </div>
+
+        {epochOpen && (
+          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="rounded-lg border border-neutral-800/60 bg-neutral-950/40 p-4">
+              <div className="text-[11px] uppercase tracking-wider text-neutral-500">Vault Snapshot</div>
+              <div className="mt-2 font-mono text-lg font-semibold text-white">
+                ${epochVaultSnapshot !== null ? formatUsdc(epochVaultSnapshot) : "—"}
+              </div>
+            </div>
+            <div className="rounded-lg border border-neutral-800/60 bg-neutral-950/40 p-4">
+              <div className="text-[11px] uppercase tracking-wider text-neutral-500">Pending Snapshot</div>
+              <div className="mt-2 font-mono text-lg font-semibold text-white">
+                ${epochPendingSnapshot !== null ? formatUsdc(epochPendingSnapshot) : "—"}
+              </div>
+            </div>
+            <div className="rounded-lg border border-neutral-800/60 bg-neutral-950/40 p-4">
+              <div className="text-[11px] uppercase tracking-wider text-neutral-500">Locked Payout Ratio</div>
+              <div className={`mt-2 text-lg font-semibold ${epochPayoutRatio !== null && epochPayoutRatio >= 100 ? "text-[#00FFB2]" : "text-amber-400"}`}>
+                {epochPayoutRatio !== null ? `${epochPayoutRatio.toFixed(2)}%` : "—"}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {epochError && (
+          <div className="mt-4 flex items-start gap-3 rounded-lg border border-rose-500/20 bg-rose-500/5 px-4 py-3 text-sm text-rose-300">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            {epochError}
+          </div>
+        )}
+
+        {!epochOpen && wallet.publicKey && (
+          <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            No active settlement epoch. Open an epoch before settling claims.
+          </div>
         )}
       </div>
 
