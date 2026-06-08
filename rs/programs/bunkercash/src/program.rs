@@ -424,6 +424,7 @@ pub mod bunkercash {
         pool.total_pending_claims = 0;
         pool.claim_counter = 0;
         pool.withdrawal_counter = 0;
+        pool.settlement_epoch_seq = 0;
         pool.bump = ctx.bumps.pool;
 
         let usdc_mint_key = ctx.accounts.usdc_mint.key();
@@ -839,7 +840,8 @@ pub mod bunkercash {
         claim.bunkercash_escrow = net_bunkercash;
         claim.bunkercash_remaining = net_bunkercash;
         claim.cancelled = false;
-        claim.last_settled_epoch = 0;
+        claim.last_settled_epoch_seq = 0;
+        claim.last_paid_epoch_seq = 0;
         claim.bump = ctx.bumps.claim;
 
         emit!(ClaimFiledEvent {
@@ -894,10 +896,13 @@ pub mod bunkercash {
         // eligible.  Without this gate a master wallet could file a large
         // post-epoch claim, settle only it, and satisfy the completeness
         // check while paying nothing to original claimants.
-        // `last_settled_epoch != epoch_timestamp` additionally rejects claims
+        // `last_settled_epoch_seq != epoch_seq` additionally rejects claims
         // already paid in an earlier batch of this same epoch (multi-batch
-        // re-submission anti-replay).
+        // re-submission anti-replay). Using a monotonic sequence instead of
+        // a raw timestamp avoids same-second collisions between consecutive
+        // epochs.
         let epoch_timestamp = ctx.accounts.settlement_state.timestamp;
+        let epoch_seq = ctx.accounts.settlement_state.epoch_seq;
 
         let mut actual_total_remaining = 0u64;
         for (idx, claim_account_info) in ctx.remaining_accounts.iter().enumerate() {
@@ -907,7 +912,7 @@ pub mod bunkercash {
                 if !claim.cancelled
                     && claim.paid_amount < claim.usdc_amount
                     && claim.timestamp < epoch_timestamp
-                    && claim.last_settled_epoch != epoch_timestamp
+                    && claim.last_settled_epoch_seq != epoch_seq
                 {
                     actual_total_remaining = actual_total_remaining
                         .checked_add(claim.usdc_amount.saturating_sub(claim.paid_amount))
@@ -990,7 +995,7 @@ pub mod bunkercash {
                 if !claim.cancelled
                     && claim.paid_amount < claim.usdc_amount
                     && claim.timestamp < epoch_timestamp
-                    && claim.last_settled_epoch != epoch_timestamp
+                    && claim.last_settled_epoch_seq != epoch_seq
                 {
                     let claim_usdc_amount = claim.usdc_amount;
                     let claim_paid_amount = claim.paid_amount;
@@ -1092,13 +1097,10 @@ pub mod bunkercash {
                         .bunkercash_remaining
                         .checked_sub(bunkercash_to_burn)
                         .ok_or_else(arithmetic_error)?;
-                    // Stamp the claim with this epoch's timestamp on a
-                    // dedicated marker field so the
-                    // `last_settled_epoch != epoch_timestamp` filter rejects
-                    // it if re-submitted in a later batch of the same epoch.
-                    // `timestamp` is left untouched so it remains the
-                    // canonical filing time for off-chain indexers.
-                    updated_claim.last_settled_epoch = epoch_timestamp;
+                    updated_claim.last_settled_epoch_seq = epoch_seq;
+                    if payout > 0 {
+                        updated_claim.last_paid_epoch_seq = epoch_seq;
+                    }
                     updated_claim.serialize(&mut &mut claim_data[8..])?;
 
                     emit!(ClaimSettledEvent {
@@ -1181,7 +1183,7 @@ pub mod bunkercash {
                     .map_err(|_| error!(ErrorCode::NoActiveSettlement))?
             };
             require!(
-                claim.last_settled_epoch != settlement_peek.timestamp,
+                claim.last_paid_epoch_seq != settlement_peek.epoch_seq,
                 ErrorCode::CannotCancelPaidThisEpoch
             );
         }
@@ -1273,7 +1275,7 @@ pub mod bunkercash {
             &ctx.accounts.usdc_mint.key(),
         )?;
 
-        let pool = &ctx.accounts.pool;
+        let pool = &mut ctx.accounts.pool;
         let settlement = &mut ctx.accounts.settlement_state;
 
         require!(
@@ -1306,6 +1308,11 @@ pub mod bunkercash {
         let payout_ratio = compute_settlement_payout_ratio(usdc_balance, pool.total_pending_claims)?;
         let timestamp = Clock::get()?.unix_timestamp;
 
+        pool.settlement_epoch_seq = pool
+            .settlement_epoch_seq
+            .checked_add(1)
+            .ok_or_else(arithmetic_error)?;
+
         settlement.pool = pool.key();
         settlement.vault_snapshot = usdc_balance;
         settlement.pending_snapshot = pool.total_pending_claims;
@@ -1313,6 +1320,7 @@ pub mod bunkercash {
         settlement.total_settled_usdc = 0;
         settlement.total_cancelled_usdc = 0;
         settlement.claims_settled_count = 0;
+        settlement.epoch_seq = pool.settlement_epoch_seq;
         settlement.timestamp = timestamp;
         settlement.bump = ctx.bumps.settlement_state;
 
@@ -2226,6 +2234,7 @@ pub struct CancelClaim<'info> {
 #[derive(Accounts)]
 pub struct OpenSettlement<'info> {
     #[account(
+        mut,
         seeds = [POOL_SEED],
         bump = pool.bump
     )]
@@ -2486,6 +2495,7 @@ pub struct Pool {
     pub total_pending_claims: u64,
     pub claim_counter: u64,
     pub withdrawal_counter: u64,
+    pub settlement_epoch_seq: u64,
     pub bump: u8,
 }
 
@@ -2504,11 +2514,14 @@ pub struct Claim {
     // BunkerCash still held in the pool escrow for this claim.
     pub bunkercash_remaining: u64,
     pub cancelled: bool,
-    // Settlement epoch in which this claim was last paid (matches the
-    // SettlementState.timestamp). Zero until the first payout. Used as an
-    // anti-replay marker so the same claim can't be paid twice within a single
-    // settlement epoch.
-    pub last_settled_epoch: i64,
+    // Monotonic settlement epoch in which this claim was last touched
+    // (matches SettlementState.epoch_seq). Stamped even for dust (payout=0)
+    // claims so the settlement loop's anti-replay filter works correctly.
+    pub last_settled_epoch_seq: u64,
+    // Monotonic settlement epoch in which this claim last received a
+    // non-zero payout. Used by cancel_claim to block cancellation only
+    // when actual USDC was transferred this epoch.
+    pub last_paid_epoch_seq: u64,
     pub bump: u8,
 }
 
@@ -2564,6 +2577,7 @@ pub struct SettlementState {
     pub total_settled_usdc: u64,
     pub total_cancelled_usdc: u64,
     pub claims_settled_count: u64,
+    pub epoch_seq: u64,
     pub timestamp: i64,
     pub bump: u8,
 }
@@ -2886,6 +2900,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 3,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let original_nav = pool.nav;
@@ -2920,6 +2935,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let mut withdrawal = Withdrawal {
@@ -2946,6 +2962,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let original_nav = pool.nav;
@@ -2973,6 +2990,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let withdrawal = Withdrawal {
@@ -2999,6 +3017,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let mut withdrawal = Withdrawal {
@@ -3025,6 +3044,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let mut withdrawal = Withdrawal {
@@ -3052,6 +3072,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let mut withdrawal = Withdrawal {
@@ -3095,6 +3116,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let mut withdrawal = Withdrawal {
@@ -3121,6 +3143,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let mut withdrawal = Withdrawal {
@@ -3147,6 +3170,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let mut withdrawal = Withdrawal {
@@ -3173,6 +3197,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let mut withdrawal = Withdrawal {
@@ -3206,6 +3231,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let mut withdrawal = Withdrawal {
@@ -3287,6 +3313,7 @@ mod tests {
             total_pending_claims: 1_000_000,
             claim_counter: 0,
             withdrawal_counter: 0,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let mint = Pubkey::new_unique();
@@ -3303,6 +3330,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 0,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
 
@@ -3325,6 +3353,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 0,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
 
@@ -3347,6 +3376,7 @@ mod tests {
             total_pending_claims: 5_000,
             claim_counter: 0,
             withdrawal_counter: 0,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
 
@@ -3510,12 +3540,13 @@ mod tests {
     // one epoch to inflate total_settled_usdc and drain the vault toward one
     // claimant while the completeness check still passes.
     //
-    // Fix: settle_claims sets `claim.last_settled_epoch = epoch_timestamp`
+    // Fix: settle_claims sets `claim.last_settled_epoch_seq = epoch_seq`
     // after paying a claim. The loop filter
-    // `claim.last_settled_epoch != epoch_timestamp` rejects re-submissions
+    // `claim.last_settled_epoch_seq != epoch_seq` rejects re-submissions
     // in later batches of the same epoch. The next epoch opens with a fresh
-    // settlement timestamp, so the claim becomes eligible again. The
-    // original `claim.timestamp` (filing time) is never overwritten.
+    // monotonic sequence number (not a timestamp), so same-second collisions
+    // between consecutive epochs are impossible. The original
+    // `claim.timestamp` (filing time) is never overwritten.
     //
     // Full integration test required (CPI context + remaining_accounts).
 

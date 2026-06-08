@@ -150,6 +150,7 @@ export function SettlementCard() {
   const [epochLoading, setEpochLoading] = useState(false);
   const [epochError, setEpochError] = useState<string | null>(null);
   const [epochPayoutRatio, setEpochPayoutRatio] = useState<number | null>(null);
+  const [epochPayoutRatioPpm, setEpochPayoutRatioPpm] = useState<bigint | null>(null);
   const [epochVaultSnapshot, setEpochVaultSnapshot] = useState<bigint | null>(null);
   const [epochPendingSnapshot, setEpochPendingSnapshot] = useState<bigint | null>(null);
 
@@ -204,8 +205,9 @@ export function SettlementCard() {
     poolPendingClaims !== null &&
     vaultRaw < poolPendingClaims &&
     totalRequested !== poolPendingClaims;
-  const canBatchSafely =
-    (poolPendingClaims !== null ? vaultRaw >= poolPendingClaims : vaultRaw >= totalRequested);
+  const canBatchSafely = epochOpen && epochVaultSnapshot !== null && epochPendingSnapshot !== null
+    ? epochVaultSnapshot >= epochPendingSnapshot
+    : (poolPendingClaims !== null ? vaultRaw >= poolPendingClaims : vaultRaw >= totalRequested);
 
   const fetchPoolPendingClaims = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -252,16 +254,24 @@ export function SettlementCard() {
       const state = await accountApi.settlementState.fetch(settlementStatePda);
       if (signal?.aborted) return;
       setEpochOpen(true);
+      setEpochError(null);
       setEpochVaultSnapshot(BigInt(state.vaultSnapshot.toString()));
       setEpochPendingSnapshot(BigInt(state.pendingSnapshot.toString()));
       const ppm = BigInt(state.payoutRatioPpm.toString());
+      setEpochPayoutRatioPpm(ppm);
       setEpochPayoutRatio(Number(ppm) / 10_000);
-    } catch {
+    } catch (e: unknown) {
       if (signal?.aborted) return;
       setEpochOpen(false);
       setEpochPayoutRatio(null);
+      setEpochPayoutRatioPpm(null);
       setEpochVaultSnapshot(null);
       setEpochPendingSnapshot(null);
+      const isAccountNotFound =
+        e instanceof Error && e.message.includes("could not find account");
+      if (!isAccountNotFound) {
+        setEpochError(getErrorMessage(e, "Failed to fetch settlement epoch"));
+      }
     }
   }, [readonlyProgram, settlementStatePda]);
 
@@ -386,6 +396,7 @@ export function SettlementCard() {
         .rpc();
       setEpochOpen(false);
       setEpochPayoutRatio(null);
+      setEpochPayoutRatioPpm(null);
       setEpochVaultSnapshot(null);
       setEpochPendingSnapshot(null);
       await Promise.all([refreshClaims(), refreshVault(), fetchPoolPendingClaims()]);
@@ -397,8 +408,20 @@ export function SettlementCard() {
   }, [fetchPoolPendingClaims, poolPda, program, publicKey, refreshClaims, refreshVault, settlementStatePda]);
 
   const settlementPlan = useMemo((): SettlementItem[] => {
-    if (claims.length === 0 || totalRequested === BigInt(0) || vaultRaw === BigInt(0)) return [];
+    if (claims.length === 0 || totalRequested === BigInt(0)) return [];
 
+    if (epochOpen && epochPayoutRatioPpm !== null) {
+      return claims
+        .map((claim) => {
+          const remaining = BigInt(claim.remainingUsdc);
+          const payout = (remaining * epochPayoutRatioPpm) / BigInt(1_000_000);
+          const capped = payout > remaining ? remaining : payout;
+          return { claim, requested: remaining, payout: capped };
+        })
+        .filter((item) => item.payout > BigInt(0));
+    }
+
+    if (vaultRaw === BigInt(0)) return [];
     const totalClaimable = vaultRaw < totalRequested ? vaultRaw : totalRequested;
     const items = claims.map((claim) => ({
       claim,
@@ -418,7 +441,7 @@ export function SettlementCard() {
         return { ...item, payout: capped };
       })
       .filter((item) => item.payout > BigInt(0));
-  }, [claims, totalRequested, vaultRaw]);
+  }, [claims, totalRequested, vaultRaw, epochOpen, epochPayoutRatioPpm]);
   const requiresSingleTransaction = !canBatchSafely;
   const exceedsSingleTransactionLimit =
     requiresSingleTransaction && settlementPlan.length > CLAIMS_PER_TX;
@@ -427,9 +450,11 @@ export function SettlementCard() {
     () => settlementPlan.reduce((sum, item) => sum + item.payout, BigInt(0)),
     [settlementPlan]
   );
-  const payoutRatio = totalRequested > BigInt(0)
-    ? Number((totalPayout * BigInt(10_000)) / totalRequested) / 100
-    : 0;
+  const payoutRatio = epochOpen && epochPayoutRatio !== null
+    ? epochPayoutRatio
+    : totalRequested > BigInt(0)
+      ? Number((totalPayout * BigInt(10_000)) / totalRequested) / 100
+      : 0;
 
   const handleSettleAll = useCallback(async () => {
     if (!program || !publicKey || !usdcMint || !usdcTokenProgram || !payoutVault || settlementPlan.length === 0) return;

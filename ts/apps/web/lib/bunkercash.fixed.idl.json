@@ -1695,6 +1695,7 @@
       "accounts": [
         {
           "name": "pool",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -3085,8 +3086,12 @@
             "type": "bool"
           },
           {
-            "name": "last_settled_epoch",
-            "type": "i64"
+            "name": "last_settled_epoch_seq",
+            "type": "u64"
+          },
+          {
+            "name": "last_paid_epoch_seq",
+            "type": "u64"
           },
           {
             "name": "bump",
@@ -3622,6 +3627,10 @@
             "type": "u64"
           },
           {
+            "name": "settlement_epoch_seq",
+            "type": "u64"
+          },
+          {
             "name": "bump",
             "type": "u8"
           }
@@ -3798,6 +3807,10 @@
           },
           {
             "name": "claims_settled_count",
+            "type": "u64"
+          },
+          {
+            "name": "epoch_seq",
             "type": "u64"
           },
           {
