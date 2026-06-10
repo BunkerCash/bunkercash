@@ -466,10 +466,17 @@ export function SettlementCard() {
     () => settlementPlan.reduce((sum, item) => sum + item.payout, BigInt(0)),
     [settlementPlan]
   );
+  // Preview ratio (no epoch open yet) mirrors the on-chain
+  // compute_settlement_payout_ratio: vault over ALL pending claims, since
+  // opening an epoch snapshots pool.total_pending_claims (which still
+  // includes unmigrated legacy claims). Do NOT derive this from totalPayout,
+  // which is restricted to the settleable subset — that would understate the
+  // ratio whenever legacy claims are present. The on-chain epoch branch above
+  // uses the authoritative ratio once an epoch is open.
   const payoutRatio = epochOpen && epochPayoutRatio !== null
     ? epochPayoutRatio
     : totalRequested > BigInt(0)
-      ? Number((totalPayout * BigInt(10_000)) / totalRequested) / 100
+      ? Number(((vaultRaw < totalRequested ? vaultRaw : totalRequested) * BigInt(10_000)) / totalRequested) / 100
       : 0;
 
   const handleSettleAll = useCallback(async () => {
