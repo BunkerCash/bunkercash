@@ -109,6 +109,20 @@ interface CancelClaimMethods {
   }
 }
 
+interface MigrateClaimMethods {
+  migrateClaim: () => {
+    accounts: (accounts: {
+      pool: PublicKey
+      claim: PublicKey
+      settlementCheck: PublicKey
+      payer: PublicKey
+      systemProgram: PublicKey
+    }) => {
+      instruction: () => Promise<TransactionInstruction>
+    }
+  }
+}
+
 function toUi(amount: bigint, decimals: number): string {
   const s = amount.toString().padStart(decimals + 1, "0")
   const head = s.slice(0, -decimals)
@@ -440,6 +454,29 @@ export function WithdrawInterface() {
         ASSOCIATED_TOKEN_PROGRAM_ID,
       );
 
+      const tx = new Transaction();
+
+      // Legacy claims (pre-epoch-fields layout) can't be deserialized by
+      // cancel_claim, which uses the current Claim struct. Migrate the
+      // account in the same atomic transaction first — migrate_claim is
+      // permissionless and the user already signs/pays — so cancel_claim
+      // then sees the current 99-byte layout. (migrate_claim itself reverts
+      // if a settlement epoch is open, surfaced as a clear error below.)
+      if (claim.needsMigration) {
+        const migrateApi = (program as Program<Idl>).methods as unknown as MigrateClaimMethods;
+        const migrateIx = await migrateApi
+          .migrateClaim()
+          .accounts({
+            pool: poolPda,
+            claim: claimPk,
+            settlementCheck: settlementStatePda,
+            payer: publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .instruction();
+        tx.add(migrateIx);
+      }
+
       const methodsApi = (program as Program<Idl>).methods as unknown as CancelClaimMethods;
       const cancelIx = await methodsApi
         .cancelClaim()
@@ -456,7 +493,7 @@ export function WithdrawInterface() {
         })
         .instruction();
 
-      const tx = new Transaction().add(cancelIx);
+      tx.add(cancelIx);
       const sig = await sendAndConfirmWalletTransaction({
         connection,
         wallet,
@@ -479,6 +516,11 @@ export function WithdrawInterface() {
           await fetchPoolState();
           invalidateTransactionCache();
           showToast("Sell request was already cancelled. History updated.", "success");
+        } else if (msg.includes("MigrationBlockedDuringSettlement")) {
+          showToast(
+            "This older sell request must be upgraded before cancelling, but a settlement is in progress. Try again after it closes.",
+            "warning",
+          );
         } else {
           showToast(msg || "Failed to cancel sell request", "error");
         }

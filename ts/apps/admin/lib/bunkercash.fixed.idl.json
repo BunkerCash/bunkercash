@@ -1681,6 +1681,161 @@
       ]
     },
     {
+      "name": "migrate_claim",
+      "discriminator": [
+        43,
+        81,
+        100,
+        252,
+        168,
+        6,
+        167,
+        229
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "claim",
+          "docs": [
+            "cannot be typed `Account<'info, Claim>`. The handler verifies program",
+            "ownership, the account discriminator and the exact legacy data length",
+            "before migrating."
+          ],
+          "writable": true
+        },
+        {
+          "name": "settlement_check",
+          "docs": [
+            "initialized, a settlement epoch is active and migrations are blocked."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "migrate_pool",
+      "discriminator": [
+        55,
+        170,
+        171,
+        123,
+        210,
+        69,
+        39,
+        172
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "docs": [
+            "cannot be typed `Account<'info, Pool>`. The handler verifies program",
+            "ownership, the account discriminator, the exact legacy data length and",
+            "that `admin` matches the stored master wallet before migrating."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "settlement_check",
+          "docs": [
+            "initialized, a settlement epoch is active and migrations are blocked."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "open_settlement",
       "discriminator": [
         144,
@@ -2649,6 +2804,19 @@
       ]
     },
     {
+      "name": "ClaimMigratedEvent",
+      "discriminator": [
+        134,
+        90,
+        37,
+        245,
+        44,
+        30,
+        101,
+        208
+      ]
+    },
+    {
       "name": "ClaimSettledEvent",
       "discriminator": [
         187,
@@ -2802,6 +2970,19 @@
         169,
         88,
         24
+      ]
+    },
+    {
+      "name": "PoolMigratedEvent",
+      "discriminator": [
+        31,
+        227,
+        180,
+        66,
+        109,
+        124,
+        202,
+        44
       ]
     },
     {
@@ -3017,6 +3198,21 @@
       "code": 6031,
       "name": "EmptyVault",
       "msg": "Cannot open a settlement epoch with an empty vault; there are no funds to distribute"
+    },
+    {
+      "code": 6032,
+      "name": "MigrationBlockedDuringSettlement",
+      "msg": "Cannot migrate accounts while a settlement epoch is active; close the epoch first"
+    },
+    {
+      "code": 6033,
+      "name": "InvalidMigrationAccount",
+      "msg": "Account is not a migratable account of the expected type"
+    },
+    {
+      "code": 6034,
+      "name": "UnknownAccountLayout",
+      "msg": "Account data length does not match any known legacy layout"
     }
   ],
   "types": [
@@ -3175,6 +3371,30 @@
           },
           {
             "name": "remaining_bunkercash_supply",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ClaimMigratedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "claim",
+            "type": "pubkey"
+          },
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "previous_space",
             "type": "u64"
           },
           {
@@ -3662,6 +3882,22 @@
       }
     },
     {
+      "name": "PoolMigratedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "PurchaseLimitConfig",
       "type": {
         "kind": "struct",
@@ -3806,7 +4042,7 @@
             "type": "u64"
           },
           {
-            "name": "claims_settled_count",
+            "name": "total_processed_usdc",
             "type": "u64"
           },
           {

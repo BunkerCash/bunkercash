@@ -238,7 +238,8 @@ export function SettlementCard() {
     payoutRatioPpm: { toString(): string };
     totalSettledUsdc: { toString(): string };
     totalCancelledUsdc: { toString(): string };
-    claimsSettledCount: { toString(): string };
+    totalProcessedUsdc: { toString(): string };
+    epochSeq: { toString(): string };
     timestamp: { toString(): string };
     bump: number;
   }
@@ -408,10 +409,20 @@ export function SettlementCard() {
   }, [fetchPoolPendingClaims, poolPda, program, publicKey, refreshClaims, refreshVault, settlementStatePda]);
 
   const settlementPlan = useMemo((): SettlementItem[] => {
-    if (claims.length === 0 || totalRequested === BigInt(0)) return [];
+    // Legacy claims (pre-epoch-fields layout) cannot be passed to
+    // settle_claims: the program deserializes the current Claim struct and a
+    // smaller account reverts the whole batch. Exclude them from the plan and
+    // compute the proportional split against the settleable subset only, so
+    // the denominator matches the items being distributed.
+    const settleableClaims = claims.filter((claim) => !claim.needsMigration);
+    const settleableTotalRequested = settleableClaims.reduce(
+      (sum, claim) => sum + BigInt(claim.remainingUsdc),
+      BigInt(0)
+    );
+    if (settleableClaims.length === 0 || settleableTotalRequested === BigInt(0)) return [];
 
     if (epochOpen && epochPayoutRatioPpm !== null) {
-      return claims
+      return settleableClaims
         .map((claim) => {
           const remaining = BigInt(claim.remainingUsdc);
           const payout = (remaining * epochPayoutRatioPpm) / BigInt(1_000_000);
@@ -422,8 +433,9 @@ export function SettlementCard() {
     }
 
     if (vaultRaw === BigInt(0)) return [];
-    const totalClaimable = vaultRaw < totalRequested ? vaultRaw : totalRequested;
-    const items = claims.map((claim) => ({
+    const totalClaimable =
+      vaultRaw < settleableTotalRequested ? vaultRaw : settleableTotalRequested;
+    const items = settleableClaims.map((claim) => ({
       claim,
       requested: BigInt(claim.remainingUsdc),
       payout: BigInt(0),
@@ -435,13 +447,17 @@ export function SettlementCard() {
         const payout =
           index === items.length - 1
             ? totalClaimable - distributed
-            : (item.requested * totalClaimable) / totalRequested;
+            : (item.requested * totalClaimable) / settleableTotalRequested;
         const capped = payout > item.requested ? item.requested : payout;
         distributed += capped;
         return { ...item, payout: capped };
       })
       .filter((item) => item.payout > BigInt(0));
-  }, [claims, totalRequested, vaultRaw, epochOpen, epochPayoutRatioPpm]);
+  }, [claims, vaultRaw, epochOpen, epochPayoutRatioPpm]);
+  const needsMigrationCount = useMemo(
+    () => claims.filter((claim) => claim.needsMigration).length,
+    [claims]
+  );
   const requiresSingleTransaction = !canBatchSafely;
   const exceedsSingleTransactionLimit =
     requiresSingleTransaction && settlementPlan.length > CLAIMS_PER_TX;
@@ -672,6 +688,22 @@ export function SettlementCard() {
           </p>
         </div>
       </div>
+
+      {needsMigrationCount > 0 && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-5">
+          <h2 className="text-base font-semibold text-amber-300">
+            {needsMigrationCount} claim{needsMigrationCount === 1 ? "" : "s"} need on-chain migration
+          </h2>
+          <p className="mt-1 text-sm text-amber-200/80">
+            {needsMigrationCount === 1 ? "This claim uses" : "These claims use"} a legacy account
+            layout from before the settlement-epoch upgrade and cannot be settled until migrated.
+            They are excluded from the settlement plan below. Run the
+            {" "}<span className="font-mono">migrate-accounts.ts</span> script (master wallet) to
+            migrate them, then refresh. A settlement epoch cannot fully close while any pending
+            claim is still unmigrated.
+          </p>
+        </div>
+      )}
 
       <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/30 p-5">
         <h2 className="text-base font-semibold text-white">Minimum Settlement Threshold</h2>

@@ -49,6 +49,20 @@ const MIN_SETTLEMENT_CONFIG_SEED: &[u8] = b"min_settlement_config";
 const TOKEN_DECIMALS: u8 = 6;
 const MAX_FEE_BPS: u16 = 1_000;
 
+// On-chain sizes (8-byte discriminator included) of the historical account
+// layouts that may still exist on an upgraded-in-place deployment. Used by
+// the migrate_* instructions to detect which legacy shape an account holds.
+//
+// Pool before settlement_epoch_seq was added:
+//   8 + 32 (master_wallet) + 5 * 8 (u64 fields) + 1 (bump)
+const LEGACY_POOL_SPACE: usize = 8 + 32 + 5 * 8 + 1;
+// Claim as originally deployed (no epoch fields at all):
+//   8 + 32 (user) + 8 + 8 + 1 + 8 + 8 + 8 + 1 + 1
+const LEGACY_CLAIM_V1_SPACE: usize = 8 + 32 + 8 + 8 + 1 + 8 + 8 + 8 + 1 + 1;
+// Claim with the interim `last_settled_epoch: i64` timestamp marker that
+// predates the monotonic epoch sequence pair.
+const LEGACY_CLAIM_V2_SPACE: usize = LEGACY_CLAIM_V1_SPACE + 8;
+
 fn arithmetic_error() -> Error {
     ErrorCode::ArithmeticError.into()
 }
@@ -307,31 +321,30 @@ fn validate_settlement_pending_claims(
     Ok(())
 }
 
+// Settlement completeness is tracked exactly, with no rounding-tolerance
+// term. Every claim that existed when the epoch opened (pending_snapshot)
+// must be accounted for in one of two ways before the epoch can close:
+//   - processed by settle_claims: its pre-payout remaining USDC accumulates
+//     into total_processed_usdc (dust claims whose payout floors to zero
+//     included), or
+//   - cancelled by its owner: its unpaid remainder accumulates into
+//     total_cancelled_usdc (skipped for claims already processed this epoch
+//     so a claim can never be counted twice).
+// The old model compared paid USDC against an aggregate expected payout with
+// "+1 micro-USDC per settled claim" of slack; that slack let zero-payout dust
+// claims mask genuinely unsettled claims. Coverage in claim-remaining terms
+// is exact, so dust claims contribute their true (tiny) remaining and cannot
+// inflate anything.
 fn validate_settlement_completeness(
-    total_settled_usdc: u64,
+    total_processed_usdc: u64,
     pending_snapshot: u64,
     total_cancelled_usdc: u64,
-    payout_ratio_ppm: u64,
-    claims_settled_count: u64,
 ) -> Result<()> {
-    let adjusted_pending = pending_snapshot.saturating_sub(total_cancelled_usdc);
-    if adjusted_pending == 0 {
-        return Ok(());
-    }
-    let expected_payout = u64::try_from(
-        (adjusted_pending as u128)
-            .checked_mul(payout_ratio_ppm as u128)
-            .ok_or_else(arithmetic_error)?
-            / 1_000_000,
-    )
-    .map_err(|_| arithmetic_error())?;
-    // Each settled claim can lose at most 1 micro-USDC to floor division,
-    // so claims_settled_count is the exact upper bound on rounding error.
+    let covered_usdc = total_processed_usdc
+        .checked_add(total_cancelled_usdc)
+        .ok_or_else(arithmetic_error)?;
     require!(
-        total_settled_usdc
-            .checked_add(claims_settled_count)
-            .ok_or_else(arithmetic_error)?
-            >= expected_payout,
+        covered_usdc >= pending_snapshot,
         ErrorCode::SettlementIncomplete
     );
     Ok(())
@@ -348,6 +361,33 @@ fn validate_unique_settlement_claim_accounts(claim_keys: &[Pubkey]) -> Result<()
         seen_claim_keys.push(*claim_key);
     }
 
+    Ok(())
+}
+
+// Grows a program-owned account to `new_space`, topping up lamports from
+// `payer` first so the account stays rent-exempt at the new size. New bytes
+// are zero-initialized.
+fn fund_rent_and_grow<'info>(
+    target: &AccountInfo<'info>,
+    new_space: usize,
+    payer: &AccountInfo<'info>,
+    system_program: &AccountInfo<'info>,
+) -> Result<()> {
+    let required_lamports = Rent::get()?.minimum_balance(new_space);
+    let shortfall = required_lamports.saturating_sub(target.lamports());
+    if shortfall > 0 {
+        anchor_lang::system_program::transfer(
+            CpiContext::new(
+                system_program.clone(),
+                anchor_lang::system_program::Transfer {
+                    from: payer.clone(),
+                    to: target.clone(),
+                },
+            ),
+            shortfall,
+        )?;
+    }
+    target.realloc(new_space, true)?;
     Ok(())
 }
 
@@ -930,7 +970,7 @@ pub mod bunkercash {
         let timestamp = Clock::get()?.unix_timestamp;
 
         let unsettled_before_batch = settlement.pending_snapshot
-            .saturating_sub(settlement.total_settled_usdc)
+            .saturating_sub(settlement.total_processed_usdc)
             .saturating_sub(settlement.total_cancelled_usdc);
 
         let batch_is_incomplete = actual_total_remaining > 0
@@ -986,6 +1026,7 @@ pub mod bunkercash {
         let signer = &[&seeds[..]];
         let mut claims_settled = 0u64;
         let mut total_paid = 0u64;
+        let mut processed_remaining = 0u64;
 
         for (idx, claim_account_info) in ctx.remaining_accounts.iter().enumerate() {
             if idx % 2 == 0 {
@@ -1010,14 +1051,13 @@ pub mod bunkercash {
                     .map_err(|_| arithmetic_error())?;
 
                     // Dust path: payout truncates to 0 (very small
-                    // remaining * payout_ratio). We still mark the claim as
-                    // processed-in-this-epoch and count it toward
-                    // claims_settled_count so the completeness check at
-                    // close_settlement can grant the +1 micro-USDC of slack
-                    // that covers this claim's tiny expected_payout share.
-                    // Skipping the stamp entirely (the old behavior) made
-                    // settle_claims silently re-process dust claims forever
-                    // and made close_settlement unreachable.
+                    // remaining * payout_ratio). We still stamp the claim
+                    // and add its remaining to total_processed_usdc so
+                    // close_settlement's exact coverage check counts it as
+                    // handled this epoch. The claim itself is untouched
+                    // (paid_amount unchanged, not marked processed), so it
+                    // stays pending and becomes eligible again in a future
+                    // epoch where the ratio gives it a non-zero payout.
                     let bunkercash_to_burn = if payout == 0 {
                         0u64
                     } else if claim_remaining_amount.saturating_sub(payout) == 0 {
@@ -1087,6 +1127,9 @@ pub mod bunkercash {
 
                     let remaining_after_payout = claim_remaining_amount.saturating_sub(payout);
                     claims_settled = claims_settled.checked_add(1).ok_or_else(arithmetic_error)?;
+                    processed_remaining = processed_remaining
+                        .checked_add(claim_remaining_amount)
+                        .ok_or_else(arithmetic_error)?;
 
                     let mut updated_claim = claim;
                     updated_claim.processed = remaining_after_payout == 0;
@@ -1130,9 +1173,9 @@ pub mod bunkercash {
             .total_settled_usdc
             .checked_add(total_paid)
             .ok_or_else(arithmetic_error)?;
-        settlement.claims_settled_count = settlement
-            .claims_settled_count
-            .checked_add(claims_settled)
+        settlement.total_processed_usdc = settlement
+            .total_processed_usdc
+            .checked_add(processed_remaining)
             .ok_or_else(arithmetic_error)?;
 
         emit!(ClaimsSettledEvent {
@@ -1238,7 +1281,18 @@ pub mod bunkercash {
             // so counting them would let an attacker inflate
             // total_cancelled_usdc past pending_snapshot and zero out
             // the completeness check.
-            if claim.timestamp < settlement.timestamp {
+            //
+            // Also skip claims already stamped by settle_claims in this
+            // epoch: their remaining is already counted in
+            // total_processed_usdc, and adding the released remainder to
+            // total_cancelled_usdc as well would double-count the claim
+            // against pending_snapshot and let the epoch close while some
+            // other claim is still unsettled. (Only dust claims that
+            // received a zero payout can reach this path; paid claims are
+            // blocked from cancelling by the last_paid_epoch_seq guard.)
+            if claim.timestamp < settlement.timestamp
+                && claim.last_settled_epoch_seq != settlement.epoch_seq
+            {
                 settlement.total_cancelled_usdc = settlement
                     .total_cancelled_usdc
                     .checked_add(released_usdc)
@@ -1319,7 +1373,7 @@ pub mod bunkercash {
         settlement.payout_ratio_ppm = payout_ratio;
         settlement.total_settled_usdc = 0;
         settlement.total_cancelled_usdc = 0;
-        settlement.claims_settled_count = 0;
+        settlement.total_processed_usdc = 0;
         settlement.epoch_seq = pool.settlement_epoch_seq;
         settlement.timestamp = timestamp;
         settlement.bump = ctx.bumps.settlement_state;
@@ -1352,11 +1406,9 @@ pub mod bunkercash {
         );
 
         validate_settlement_completeness(
-            settlement.total_settled_usdc,
+            settlement.total_processed_usdc,
             settlement.pending_snapshot,
             settlement.total_cancelled_usdc,
-            settlement.payout_ratio_ppm,
-            settlement.claims_settled_count,
         )?;
 
         let timestamp = Clock::get()?.unix_timestamp;
@@ -1375,6 +1427,184 @@ pub mod bunkercash {
             settlement.total_settled_usdc,
             settlement.total_cancelled_usdc,
             pool.total_pending_claims
+        );
+        Ok(())
+    }
+
+    // One-time layout migration for pool accounts created before
+    // `settlement_epoch_seq` existed. Reallocates the account to the current
+    // size, preserves every legacy field, and zero-initializes the new epoch
+    // sequence. Idempotent: calling it on an already-migrated pool is a
+    // no-op, so the off-chain migration script can be re-run safely.
+    //
+    // Migrations are blocked while a settlement epoch is open: resetting
+    // epoch bookkeeping mid-epoch would corrupt the anti-replay and
+    // completeness invariants.
+    pub fn migrate_pool(ctx: Context<MigratePool>) -> Result<()> {
+        require!(
+            ctx.accounts.settlement_check.data_is_empty(),
+            ErrorCode::MigrationBlockedDuringSettlement
+        );
+
+        let pool_ai = ctx.accounts.pool.to_account_info();
+        require_keys_eq!(
+            *pool_ai.owner,
+            *ctx.program_id,
+            ErrorCode::InvalidMigrationAccount
+        );
+
+        let target_space = 8 + Pool::INIT_SPACE;
+        let legacy = {
+            let data = pool_ai.try_borrow_data()?;
+            require!(
+                data.len() >= 8 && data[..8] == *Pool::DISCRIMINATOR,
+                ErrorCode::InvalidMigrationAccount
+            );
+            if data.len() == target_space {
+                msg!("Pool already uses the current layout; nothing to migrate");
+                return Ok(());
+            }
+            require!(
+                data.len() == LEGACY_POOL_SPACE,
+                ErrorCode::UnknownAccountLayout
+            );
+            LegacyPool::deserialize(&mut &data[8..])
+                .map_err(|_| error!(ErrorCode::InvalidMigrationAccount))?
+        };
+
+        require!(
+            ctx.accounts.admin.key() == legacy.master_wallet,
+            ErrorCode::Unauthorized
+        );
+
+        fund_rent_and_grow(
+            &pool_ai,
+            target_space,
+            &ctx.accounts.admin.to_account_info(),
+            &ctx.accounts.system_program.to_account_info(),
+        )?;
+
+        let migrated = Pool {
+            master_wallet: legacy.master_wallet,
+            nav: legacy.nav,
+            total_bunkercash_supply: legacy.total_bunkercash_supply,
+            total_pending_claims: legacy.total_pending_claims,
+            claim_counter: legacy.claim_counter,
+            withdrawal_counter: legacy.withdrawal_counter,
+            settlement_epoch_seq: 0,
+            bump: legacy.bump,
+        };
+        {
+            let mut data = pool_ai.try_borrow_mut_data()?;
+            migrated.try_serialize(&mut &mut data[..])?;
+        }
+
+        emit!(PoolMigratedEvent {
+            pool: pool_ai.key(),
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+
+        msg!("Pool migrated to current layout ({} bytes)", target_space);
+        Ok(())
+    }
+
+    // One-time layout migration for claim accounts created before the
+    // monotonic epoch-sequence fields existed. Handles both historical
+    // shapes (the original layout with no epoch marker and the interim
+    // layout with a `last_settled_epoch: i64` timestamp), preserving every
+    // surviving field — including the immutable filing timestamp — and
+    // zero-initializing both new epoch sequences. The interim timestamp
+    // marker is intentionally dropped: it used different semantics, and a
+    // zero stamp is correct because migrations only run between epochs and
+    // post-migration epochs start at sequence 1.
+    //
+    // Permissionless by design: the transform is deterministic, so any payer
+    // (the operator's batch script or a user unsticking their own claim)
+    // may fund the realloc rent.
+    pub fn migrate_claim(ctx: Context<MigrateClaim>) -> Result<()> {
+        require!(
+            ctx.accounts.settlement_check.data_is_empty(),
+            ErrorCode::MigrationBlockedDuringSettlement
+        );
+
+        let claim_ai = ctx.accounts.claim.to_account_info();
+        require_keys_eq!(
+            *claim_ai.owner,
+            *ctx.program_id,
+            ErrorCode::InvalidMigrationAccount
+        );
+
+        let target_space = 8 + Claim::INIT_SPACE;
+        let (legacy, previous_space) = {
+            let data = claim_ai.try_borrow_data()?;
+            require!(
+                data.len() >= 8 && data[..8] == *Claim::DISCRIMINATOR,
+                ErrorCode::InvalidMigrationAccount
+            );
+            if data.len() == target_space {
+                msg!("Claim already uses the current layout; nothing to migrate");
+                return Ok(());
+            }
+            let legacy = match data.len() {
+                LEGACY_CLAIM_V1_SPACE => LegacyClaimV1::deserialize(&mut &data[8..])
+                    .map_err(|_| error!(ErrorCode::InvalidMigrationAccount))?,
+                LEGACY_CLAIM_V2_SPACE => {
+                    let v2 = LegacyClaimV2::deserialize(&mut &data[8..])
+                        .map_err(|_| error!(ErrorCode::InvalidMigrationAccount))?;
+                    LegacyClaimV1 {
+                        user: v2.user,
+                        usdc_amount: v2.usdc_amount,
+                        timestamp: v2.timestamp,
+                        processed: v2.processed,
+                        paid_amount: v2.paid_amount,
+                        bunkercash_escrow: v2.bunkercash_escrow,
+                        bunkercash_remaining: v2.bunkercash_remaining,
+                        cancelled: v2.cancelled,
+                        bump: v2.bump,
+                    }
+                }
+                _ => return err!(ErrorCode::UnknownAccountLayout),
+            };
+            (legacy, data.len() as u64)
+        };
+
+        fund_rent_and_grow(
+            &claim_ai,
+            target_space,
+            &ctx.accounts.payer.to_account_info(),
+            &ctx.accounts.system_program.to_account_info(),
+        )?;
+
+        let migrated = Claim {
+            user: legacy.user,
+            usdc_amount: legacy.usdc_amount,
+            timestamp: legacy.timestamp,
+            processed: legacy.processed,
+            paid_amount: legacy.paid_amount,
+            bunkercash_escrow: legacy.bunkercash_escrow,
+            bunkercash_remaining: legacy.bunkercash_remaining,
+            cancelled: legacy.cancelled,
+            last_settled_epoch_seq: 0,
+            last_paid_epoch_seq: 0,
+            bump: legacy.bump,
+        };
+        {
+            let mut data = claim_ai.try_borrow_mut_data()?;
+            migrated.try_serialize(&mut &mut data[..])?;
+        }
+
+        emit!(ClaimMigratedEvent {
+            claim: claim_ai.key(),
+            user: migrated.user,
+            previous_space,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+
+        msg!(
+            "Claim {} migrated from {} to {} bytes",
+            claim_ai.key(),
+            previous_space,
+            target_space
         );
         Ok(())
     }
@@ -2305,6 +2535,65 @@ pub struct CloseSettlement<'info> {
 }
 
 #[derive(Accounts)]
+pub struct MigratePool<'info> {
+    /// CHECK: Pool PDA that may still hold the legacy (smaller) layout, so it
+    /// cannot be typed `Account<'info, Pool>`. The handler verifies program
+    /// ownership, the account discriminator, the exact legacy data length and
+    /// that `admin` matches the stored master wallet before migrating.
+    #[account(
+        mut,
+        seeds = [POOL_SEED],
+        bump
+    )]
+    pub pool: UncheckedAccount<'info>,
+
+    /// CHECK: Only checked for emptiness. If the SettlementState PDA is
+    /// initialized, a settlement epoch is active and migrations are blocked.
+    #[account(
+        seeds = [SETTLEMENT_SEED, pool.key().as_ref()],
+        bump
+    )]
+    pub settlement_check: UncheckedAccount<'info>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct MigrateClaim<'info> {
+    // Typed as the current Pool layout on purpose: this forces migrate_pool
+    // to run before any claim migration (a legacy pool fails to deserialize
+    // here) and anchors the settlement_check seeds.
+    #[account(
+        seeds = [POOL_SEED],
+        bump = pool.bump
+    )]
+    pub pool: Account<'info, Pool>,
+
+    /// CHECK: Claim account that may hold one of the legacy layouts, so it
+    /// cannot be typed `Account<'info, Claim>`. The handler verifies program
+    /// ownership, the account discriminator and the exact legacy data length
+    /// before migrating.
+    #[account(mut)]
+    pub claim: UncheckedAccount<'info>,
+
+    /// CHECK: Only checked for emptiness. If the SettlementState PDA is
+    /// initialized, a settlement epoch is active and migrations are blocked.
+    #[account(
+        seeds = [SETTLEMENT_SEED, pool.key().as_ref()],
+        bump
+    )]
+    pub settlement_check: UncheckedAccount<'info>,
+
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct MasterWithdraw<'info> {
     #[account(
         mut,
@@ -2525,6 +2814,51 @@ pub struct Claim {
     pub bump: u8,
 }
 
+// Historical account layouts, used only by the migrate_* instructions to
+// deserialize pre-upgrade on-chain data. Field order must match the layouts
+// that were actually deployed; never reorder.
+
+#[derive(AnchorDeserialize)]
+struct LegacyPool {
+    master_wallet: Pubkey,
+    nav: u64,
+    total_bunkercash_supply: u64,
+    total_pending_claims: u64,
+    claim_counter: u64,
+    withdrawal_counter: u64,
+    bump: u8,
+}
+
+#[derive(AnchorDeserialize)]
+struct LegacyClaimV1 {
+    user: Pubkey,
+    usdc_amount: u64,
+    timestamp: i64,
+    processed: bool,
+    paid_amount: u64,
+    bunkercash_escrow: u64,
+    bunkercash_remaining: u64,
+    cancelled: bool,
+    bump: u8,
+}
+
+#[derive(AnchorDeserialize)]
+struct LegacyClaimV2 {
+    user: Pubkey,
+    usdc_amount: u64,
+    timestamp: i64,
+    processed: bool,
+    paid_amount: u64,
+    bunkercash_escrow: u64,
+    bunkercash_remaining: u64,
+    cancelled: bool,
+    // Interim timestamp-based settlement marker; superseded by the
+    // monotonic epoch sequence pair and dropped during migration.
+    #[allow(dead_code)]
+    last_settled_epoch: i64,
+    bump: u8,
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct Withdrawal {
@@ -2576,7 +2910,14 @@ pub struct SettlementState {
     pub payout_ratio_ppm: u64,
     pub total_settled_usdc: u64,
     pub total_cancelled_usdc: u64,
-    pub claims_settled_count: u64,
+    // Sum of the pre-payout remaining USDC of every claim stamped by
+    // settle_claims this epoch (dust claims with a zero payout included).
+    // Together with total_cancelled_usdc this must cover pending_snapshot
+    // before close_settlement succeeds. This slot previously held
+    // claims_settled_count; the account is ephemeral (created at open,
+    // closed at close), so the rename is safe as long as program upgrades
+    // happen while no settlement epoch is open.
+    pub total_processed_usdc: u64,
     pub epoch_seq: u64,
     pub timestamp: i64,
     pub bump: u8,
@@ -2771,6 +3112,20 @@ pub struct SettlementClosedEvent {
 }
 
 #[event]
+pub struct PoolMigratedEvent {
+    pub pool: Pubkey,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct ClaimMigratedEvent {
+    pub claim: Pubkey,
+    pub user: Pubkey,
+    pub previous_space: u64,
+    pub timestamp: i64,
+}
+
+#[event]
 pub struct SettlementCoverageWarningEvent {
     pub pool: Pubkey,
     pub pending_snapshot: u64,
@@ -2845,6 +3200,12 @@ pub enum ErrorCode {
     VaultBelowMinSettlement,
     #[msg("Cannot open a settlement epoch with an empty vault; there are no funds to distribute")]
     EmptyVault,
+    #[msg("Cannot migrate accounts while a settlement epoch is active; close the epoch first")]
+    MigrationBlockedDuringSettlement,
+    #[msg("Account is not a migratable account of the expected type")]
+    InvalidMigrationAccount,
+    #[msg("Account data length does not match any known legacy layout")]
+    UnknownAccountLayout,
 }
 
 #[cfg(test)]
@@ -2856,8 +3217,9 @@ mod tests {
         validate_initializer, validate_open_withdrawal, validate_purchase_limit,
         validate_settlement_completeness, validate_settlement_pending_claims,
         validate_supported_usdc_mint, validate_supported_usdc_mint_change,
-        validate_unique_settlement_claim_accounts, ErrorCode, MinSettlementConfig, Pool,
-        PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal, SQUADS_MEMBER_1,
+        validate_unique_settlement_claim_accounts, Claim, ErrorCode, MinSettlementConfig, Pool,
+        PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal, LEGACY_CLAIM_V1_SPACE,
+        LEGACY_CLAIM_V2_SPACE, LEGACY_POOL_SPACE, SQUADS_MEMBER_1,
     };
     use anchor_lang::prelude::Pubkey;
     use anchor_lang::Space;
@@ -3445,13 +3807,11 @@ mod tests {
     }
 
     #[test]
-    fn completeness_passes_honest_full_settlement() {
+    fn completeness_passes_when_every_claim_is_processed() {
         assert!(validate_settlement_completeness(
-            500_000,     // total_settled
+            1_000_000,   // total_processed_usdc covers the snapshot exactly
             1_000_000,   // pending_snapshot
             0,           // cancelled
-            500_000,     // ratio 50%
-            10,          // claims_settled_count
         )
         .is_ok());
     }
@@ -3459,11 +3819,9 @@ mod tests {
     #[test]
     fn completeness_rejects_selective_settlement() {
         assert!(validate_settlement_completeness(
-            250_000,     // settled only half the claims
+            500_000,     // only half of the snapshot was processed
             1_000_000,   // pending_snapshot
             0,           // no cancellations
-            500_000,     // ratio 50%
-            5,           // claims_settled_count
         )
         .is_err());
     }
@@ -3471,11 +3829,9 @@ mod tests {
     #[test]
     fn completeness_passes_with_cancellations() {
         assert!(validate_settlement_completeness(
-            400_000,     // settled 800K at 50%
+            800_000,     // processed claims
             1_000_000,   // pending_snapshot
             200_000,     // 200K cancelled
-            500_000,     // ratio 50%
-            8,           // claims_settled_count
         )
         .is_ok());
     }
@@ -3483,55 +3839,58 @@ mod tests {
     #[test]
     fn completeness_passes_all_cancelled() {
         assert!(validate_settlement_completeness(
-            0,           // nothing settled
+            0,           // nothing processed
             1_000_000,   // pending_snapshot
             1_000_000,   // all cancelled
-            500_000,     // ratio 50%
-            0,           // claims_settled_count
         )
         .is_ok());
     }
 
     #[test]
-    fn completeness_passes_fully_funded() {
+    fn completeness_passes_zero_snapshot() {
+        assert!(validate_settlement_completeness(0, 0, 0).is_ok());
+    }
+
+    #[test]
+    fn completeness_passes_dust_only_epoch_without_payment() {
+        // An epoch made entirely of dust claims (every payout floors to 0)
+        // can close once every claim is stamped: processed coverage is
+        // tracked in claim-remaining terms, independent of USDC paid. The
+        // dust claims themselves stay pending for a future epoch.
         assert!(validate_settlement_completeness(
-            1_000_000,   // settled everything at 100%
-            1_000_000,   // pending_snapshot
+            100,         // sum of dust-claim remainders, all stamped
+            100,         // pending_snapshot
             0,           // no cancellations
-            1_000_000,   // ratio 100%
-            10,          // claims_settled_count
         )
         .is_ok());
     }
 
     #[test]
-    fn completeness_rejects_zero_settled_with_large_count() {
+    fn completeness_rejects_dust_stamps_masking_missing_claims() {
+        // Regression for the dust-tolerance flaw: the old check granted
+        // +1 micro-USDC of slack per settled claim (dust included), so N
+        // stamped claims could mask up to N micro-USDC of expected payout
+        // belonging to claims that were never submitted. Coverage is now
+        // exact: a missing claim leaves a gap no number of dust stamps can
+        // fill.
         assert!(validate_settlement_completeness(
-            0,           // zero settled
+            999_990,     // processed; one 10-micro claim never submitted
             1_000_000,   // pending_snapshot
             0,           // no cancellations
-            500_000,     // ratio 50%
-            0,           // claims_settled_count
         )
         .is_err());
     }
 
     #[test]
-    fn completeness_rejects_post_epoch_cancel_bypass() {
-        // Regression: old code checked pool.total_pending_claims == 0 as
-        // early return. A post-epoch claim+cancel could zero the live
-        // counter without touching total_cancelled_usdc, bypassing the
-        // payout check. Now we gate on adjusted_pending (snapshot-derived).
-        assert!(validate_settlement_completeness(
-            250_000,     // only half settled
-            1_000_000,   // pending_snapshot
-            0,           // total_cancelled_usdc = 0 (post-epoch cancel skipped)
-            500_000,     // ratio 50%
-            5,           // claims_settled_count
-        )
-        .is_err());
-        // Even though pool.total_pending_claims would be 0 in the real
-        // attack, the function no longer sees that value at all.
+    fn legacy_layout_sizes_match_migration_constants() {
+        // The migrate_* instructions key off exact account sizes; if the
+        // current structs change again these assertions force the legacy
+        // constants (and migration logic) to be revisited.
+        assert_eq!(LEGACY_POOL_SPACE, 81);
+        assert_eq!(8 + Pool::INIT_SPACE, LEGACY_POOL_SPACE + 8);
+        assert_eq!(LEGACY_CLAIM_V1_SPACE, 83);
+        assert_eq!(LEGACY_CLAIM_V2_SPACE, 91);
+        assert_eq!(8 + Claim::INIT_SPACE, LEGACY_CLAIM_V2_SPACE + 8);
     }
 
     // Regression note — multi-batch re-submission attack
