@@ -14,6 +14,7 @@ import {
 import {
   getBunkercashMintPda,
   getFeeConfigPda,
+  getMinClaimConfigPda,
   getPoolPda,
   getProgram,
   getSettlementStatePda,
@@ -65,10 +66,19 @@ interface FeeConfigAccount {
   claimFeeBps: Stringable
 }
 
+interface MinClaimConfigAccount {
+  minClaimUsdc: Stringable
+}
+
 interface WithdrawAccountApi {
   pool: { fetch: (pubkey: PublicKey) => Promise<PoolAccount> }
   feeConfig?: { fetch: (pubkey: PublicKey) => Promise<FeeConfigAccount> }
+  minClaimConfig?: { fetch: (pubkey: PublicKey) => Promise<MinClaimConfigAccount> }
 }
+
+// Mirrors DEFAULT_MIN_CLAIM_USDC in the program: the floor that applies while
+// the MinClaimConfig PDA is uninitialized. $1.00 at 6 decimals.
+const DEFAULT_MIN_CLAIM_USDC = 1_000_000n
 
 interface FileClaimMethods {
   fileClaim: (amount: BN) => {
@@ -82,6 +92,7 @@ interface FileClaimMethods {
       masterBunkercash: PublicKey
       bunkercashMint: PublicKey
       feeConfig: PublicKey
+      minClaimConfig: PublicKey
       tokenProgram: PublicKey
       associatedTokenProgram: PublicKey
       systemProgram: PublicKey
@@ -157,6 +168,7 @@ export function WithdrawInterface() {
     totalBunkercashSupply: bigint
     claimCounter: bigint
     claimFeeBps: number
+    minClaimUsdc: bigint
   } | null>(null)
 
   const program = useMemo(
@@ -173,6 +185,7 @@ export function WithdrawInterface() {
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), [])
   const mintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), [])
   const feeConfigPda = useMemo(() => getFeeConfigPda(PROGRAM_ID), [])
+  const minClaimConfigPda = useMemo(() => getMinClaimConfigPda(PROGRAM_ID), [])
   const settlementStatePda = useMemo(() => getSettlementStatePda(poolPda, PROGRAM_ID), [poolPda])
 
   const { balance: tokenBalanceUi, refreshBalance: fetchTokenBalance } =
@@ -201,6 +214,19 @@ export function WithdrawInterface() {
         }
       }
 
+      // An uninitialized config PDA means the program enforces its built-in
+      // $1.00 default, so mirror that here rather than treating it as "no
+      // minimum".
+      let minClaimUsdc = DEFAULT_MIN_CLAIM_USDC
+      if (accountApi.minClaimConfig) {
+        try {
+          const minClaimConfig = await accountApi.minClaimConfig.fetch(minClaimConfigPda)
+          minClaimUsdc = BigInt(minClaimConfig.minClaimUsdc.toString())
+        } catch {
+          minClaimUsdc = DEFAULT_MIN_CLAIM_USDC
+        }
+      }
+
       const nav = BigInt(state.nav.toString())
       const totalPendingClaims = BigInt(state.totalPendingClaims.toString())
       const availableNav = nav > totalPendingClaims ? nav - totalPendingClaims : 0n
@@ -211,11 +237,12 @@ export function WithdrawInterface() {
         totalBunkercashSupply: BigInt(state.totalBunkercashSupply.toString()),
         claimCounter: BigInt(state.claimCounter.toString()),
         claimFeeBps,
+        minClaimUsdc,
       })
     } catch {
       setPoolState(null)
     }
-  }, [feeConfigPda, poolPda, program])
+  }, [feeConfigPda, minClaimConfigPda, poolPda, program])
 
   useEffect(() => {
     void fetchPoolState()
@@ -257,11 +284,18 @@ export function WithdrawInterface() {
     if (netClaimUsdcRaw !== null && netClaimUsdcRaw <= 0n) {
       return "Amount is too small to produce any USDC at the current reference value"
     }
+    if (
+      netClaimUsdcRaw !== null &&
+      poolState !== null &&
+      netClaimUsdcRaw < poolState.minClaimUsdc
+    ) {
+      return `Sell request must be worth at least ${toUi(poolState.minClaimUsdc, 6)} USDC after fees`
+    }
     if (tokenBalanceRaw != null && amountRaw > tokenBalanceRaw) {
       return "Amount exceeds your BNKR balance"
     }
     return null
-  }, [amountRaw, amountUi, netClaimUsdcRaw, tokenBalanceRaw])
+  }, [amountRaw, amountUi, netClaimUsdcRaw, poolState, tokenBalanceRaw])
 
   const displayError = error ?? inputError
   const canSubmitSell = Boolean(
@@ -356,6 +390,7 @@ export function WithdrawInterface() {
           masterBunkercash,
           bunkercashMint: mintPda,
           feeConfig: feeConfigPda,
+          minClaimConfig: minClaimConfigPda,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
@@ -405,6 +440,10 @@ export function WithdrawInterface() {
       } else if (msg.includes("ClaimAmountTooSmall") || msg.includes("non-zero USDC value")) {
         setError("Amount is too small to produce any USDC at the current reference value.");
         showToast("Sell amount too small at current reference value", "warning");
+      } else if (msg.includes("ClaimBelowMinimum") || msg.includes("below the minimum claim size")) {
+        const minUi = toUi(poolState?.minClaimUsdc ?? DEFAULT_MIN_CLAIM_USDC, 6);
+        setError(`Sell request must be worth at least ${minUi} USDC after fees.`);
+        showToast(`Sell request below the ${minUi} USDC minimum`, "warning");
       } else if (msg.includes("already in use") || msg.includes("0x0")) {
         setError("Sell request slot conflict — another transaction landed first. Please try again.");
         showToast("Sell request slot taken, please retry", "warning");

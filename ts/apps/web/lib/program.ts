@@ -76,6 +76,14 @@ export function getMinSettlementConfigPda(programId: PublicKey = PROGRAM_ID): Pu
   return pda
 }
 
+export function getMinClaimConfigPda(programId: PublicKey = PROGRAM_ID): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [Buffer.from('min_claim_config')],
+    programId
+  )
+  return pda
+}
+
 export function getSettlementStatePda(poolPda: PublicKey, programId: PublicKey = PROGRAM_ID): PublicKey {
   const [pda] = PublicKey.findProgramAddressSync(
     [Buffer.from('settlement'), poolPda.toBuffer()],

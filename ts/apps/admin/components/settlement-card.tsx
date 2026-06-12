@@ -20,6 +20,7 @@ import { useSupportedUsdcMint } from "@/hooks/useSupportedUsdcMint";
 
 const USDC_DECIMALS = 6;
 const CLAIMS_PER_TX = 6;
+const MIGRATIONS_PER_TX = 8;
 
 interface AccountMetaLike {
   pubkey: PublicKey;
@@ -46,8 +47,18 @@ interface InstructionBuilder {
   };
 }
 
-interface ProviderLike {
-  sendAndConfirm: (tx: Transaction) => Promise<string>;
+interface MigrateClaimMethods {
+  migrateClaim: () => {
+    accounts: (accounts: {
+      pool: PublicKey;
+      claim: PublicKey;
+      settlementCheck: PublicKey;
+      payer: PublicKey;
+      systemProgram: PublicKey;
+    }) => {
+      instruction: () => Promise<TransactionInstruction>;
+    };
+  };
 }
 
 interface Stringable {
@@ -148,6 +159,8 @@ export function SettlementCard() {
   const [savingMinSettlement, setSavingMinSettlement] = useState(false);
   const [epochOpen, setEpochOpen] = useState(false);
   const [epochLoading, setEpochLoading] = useState(false);
+  const [migrating, setMigrating] = useState(false);
+  const [migrationProgress, setMigrationProgress] = useState({ current: 0, total: 0 });
   const [epochError, setEpochError] = useState<string | null>(null);
   const [epochPayoutRatio, setEpochPayoutRatio] = useState<number | null>(null);
   const [epochPayoutRatioPpm, setEpochPayoutRatioPpm] = useState<bigint | null>(null);
@@ -198,6 +211,15 @@ export function SettlementCard() {
   }, [poolSignerPda, usdcMint, usdcTokenProgram]);
 
   const vaultRaw = useMemo(() => parseUiUsdc(vaultBalance), [vaultBalance]);
+  // Hard precondition for opening an epoch: legacy-layout claims cannot be
+  // settled (deserialization fails), cannot be migrated while an epoch is
+  // open, and are still counted in the epoch's pending snapshot — opening an
+  // epoch with any of them outstanding deadlocks settlement, migration and
+  // master withdrawals until the epoch is force-resolved.
+  const needsMigrationCount = useMemo(
+    () => claims.filter((claim) => claim.needsMigration).length,
+    [claims]
+  );
   const pendingClaimsMismatch = poolPendingClaims !== null && poolPendingClaims !== totalRequested;
   const pendingClaimsSyncRequired =
     poolPendingClaims !== null && totalRequested > poolPendingClaims;
@@ -340,6 +362,12 @@ export function SettlementCard() {
 
   const handleOpenSettlement = useCallback(async () => {
     if (!program || !publicKey || !usdcMint || !usdcTokenProgram || !payoutVault) return;
+    if (needsMigrationCount > 0) {
+      setEpochError(
+        `${needsMigrationCount} legacy claim${needsMigrationCount === 1 ? "" : "s"} must be migrated before a settlement epoch can open.`
+      );
+      return;
+    }
     setEpochLoading(true);
     setEpochError(null);
     setTxError(null);
@@ -372,7 +400,7 @@ export function SettlementCard() {
     } finally {
       setEpochLoading(false);
     }
-  }, [fetchPoolPendingClaims, fetchSettlementEpoch, minSettlementConfigPda, payoutVault, poolPda, program, publicKey, refreshVault, settlementStatePda, supportedUsdcConfigPda, usdcMint, usdcTokenProgram]);
+  }, [fetchPoolPendingClaims, fetchSettlementEpoch, minSettlementConfigPda, needsMigrationCount, payoutVault, poolPda, program, publicKey, refreshVault, settlementStatePda, supportedUsdcConfigPda, usdcMint, usdcTokenProgram]);
 
   const handleCloseSettlement = useCallback(async () => {
     if (!program || !publicKey) return;
@@ -408,6 +436,60 @@ export function SettlementCard() {
     }
   }, [fetchPoolPendingClaims, poolPda, program, publicKey, refreshClaims, refreshVault, settlementStatePda]);
 
+  // migrate_claim is permissionless on-chain (the connected wallet only pays
+  // the realloc rent), so this works for any operator wallet. It reverts if a
+  // settlement epoch is open, which cannot happen from this card because
+  // epoch-open is blocked while legacy claims exist.
+  const handleMigrateClaims = useCallback(async () => {
+    if (!program || !publicKey || !signTransaction) return;
+    const legacyClaims = claims.filter((claim) => claim.needsMigration);
+    if (legacyClaims.length === 0) return;
+
+    setMigrating(true);
+    setTxError(null);
+    setMigrationProgress({ current: 0, total: legacyClaims.length });
+    try {
+      const methods = program.methods as unknown as MigrateClaimMethods;
+      for (const batch of chunkClaims(legacyClaims, MIGRATIONS_PER_TX)) {
+        const tx = new Transaction();
+        for (const claim of batch) {
+          tx.add(
+            await methods
+              .migrateClaim()
+              .accounts({
+                pool: poolPda,
+                claim: new PublicKey(claim.pubkey),
+                settlementCheck: settlementStatePda,
+                payer: publicKey,
+                systemProgram: SystemProgram.programId,
+              })
+              .instruction()
+          );
+        }
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+        tx.recentBlockhash = blockhash;
+        tx.feePayer = publicKey;
+        const signed = await signTransaction(tx);
+        const sig = await connection.sendRawTransaction(signed.serialize(), {
+          skipPreflight: false,
+          preflightCommitment: "confirmed",
+        });
+        await connection.confirmTransaction(
+          { signature: sig, blockhash, lastValidBlockHeight },
+          "confirmed",
+        );
+        setMigrationProgress((prev) => ({ current: prev.current + batch.length, total: prev.total }));
+      }
+    } catch (e: unknown) {
+      setTxError(getErrorMessage(e, "Failed to migrate legacy claims"));
+    } finally {
+      setMigrating(false);
+      // Re-fetch so needsMigrationCount reflects on-chain state before the
+      // operator can attempt to open an epoch.
+      await refreshClaims();
+    }
+  }, [claims, connection, poolPda, program, publicKey, refreshClaims, settlementStatePda, signTransaction]);
+
   const settlementPlan = useMemo((): SettlementItem[] => {
     // Legacy claims (pre-epoch-fields layout) cannot be passed to
     // settle_claims: the program deserializes the current Claim struct and a
@@ -422,6 +504,7 @@ export function SettlementCard() {
     if (settleableClaims.length === 0 || settleableTotalRequested === BigInt(0)) return [];
 
     if (epochOpen && epochPayoutRatioPpm !== null) {
+      const fullyFunded = epochPayoutRatioPpm >= BigInt(1_000_000);
       return settleableClaims
         .map((claim) => {
           const remaining = BigInt(claim.remainingUsdc);
@@ -429,7 +512,14 @@ export function SettlementCard() {
           const capped = payout > remaining ? remaining : payout;
           return { claim, requested: remaining, payout: capped };
         })
-        .filter((item) => item.payout > BigInt(0));
+        // In an underfunded epoch the program rejects any batch that omits an
+        // eligible claim (IncompleteSettlementSet), including dust whose
+        // payout truncates to 0 — those must be submitted so the chain can
+        // stamp them into the epoch's completeness accounting. Batch
+        // inclusion is therefore decided by remaining amount, not payout
+        // positivity. Fully funded epochs can keep the payout filter since
+        // every remaining claim pays out in full anyway.
+        .filter((item) => (fullyFunded ? item.payout > BigInt(0) : item.requested > BigInt(0)));
     }
 
     if (vaultRaw === BigInt(0)) return [];
@@ -454,10 +544,6 @@ export function SettlementCard() {
       })
       .filter((item) => item.payout > BigInt(0));
   }, [claims, vaultRaw, epochOpen, epochPayoutRatioPpm]);
-  const needsMigrationCount = useMemo(
-    () => claims.filter((claim) => claim.needsMigration).length,
-    [claims]
-  );
   const requiresSingleTransaction = !canBatchSafely;
   const exceedsSingleTransactionLimit =
     requiresSingleTransaction && settlementPlan.length > CLAIMS_PER_TX;
@@ -697,18 +783,38 @@ export function SettlementCard() {
       </div>
 
       {needsMigrationCount > 0 && (
-        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-5">
-          <h2 className="text-base font-semibold text-amber-300">
-            {needsMigrationCount} claim{needsMigrationCount === 1 ? "" : "s"} need on-chain migration
-          </h2>
-          <p className="mt-1 text-sm text-amber-200/80">
-            {needsMigrationCount === 1 ? "This claim uses" : "These claims use"} a legacy account
-            layout from before the settlement-epoch upgrade and cannot be settled until migrated.
-            They are excluded from the settlement plan below. Run the
-            {" "}<span className="font-mono">migrate-accounts.ts</span> script (master wallet) to
-            migrate them, then refresh. A settlement epoch cannot fully close while any pending
-            claim is still unmigrated.
-          </p>
+        <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-base font-semibold text-rose-300">
+                {needsMigrationCount} claim{needsMigrationCount === 1 ? "" : "s"} must be migrated before settlement
+              </h2>
+              <p className="mt-1 text-sm text-rose-200/80">
+                {needsMigrationCount === 1 ? "This claim uses" : "These claims use"} a legacy account
+                layout from before the settlement-epoch upgrade. Opening a settlement epoch is
+                blocked: legacy claims cannot be settled or migrated while an epoch is open, yet
+                they still count toward the epoch snapshot, so an epoch opened now could never
+                close. Migrate them here (or via the
+                {" "}<span className="font-mono">migrate-accounts.ts</span> script), then re-check.
+              </p>
+            </div>
+            <button
+              onClick={() => void handleMigrateClaims()}
+              disabled={!wallet.publicKey || !program || migrating || epochOpen}
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-rose-500/20 px-4 py-2 text-sm font-medium text-rose-200 transition hover:bg-rose-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {migrating ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {migrating
+                ? `Migrating ${migrationProgress.current}/${migrationProgress.total}...`
+                : "Migrate Claims"}
+            </button>
+          </div>
+          {epochOpen && (
+            <p className="mt-3 text-sm text-rose-200/80">
+              A settlement epoch is currently open, so migration is blocked on-chain. Close the
+              epoch first, then migrate.
+            </p>
+          )}
         </div>
       )}
 
@@ -758,7 +864,7 @@ export function SettlementCard() {
             {!epochOpen ? (
               <button
                 onClick={() => void handleOpenSettlement()}
-                disabled={!wallet.publicKey || !program || epochLoading || claims.length === 0 || vaultBelowMinSettlement}
+                disabled={!wallet.publicKey || !program || epochLoading || migrating || claims.length === 0 || needsMigrationCount > 0 || vaultBelowMinSettlement}
                 className="inline-flex items-center gap-2 rounded-lg bg-[#00FFB2] px-4 py-2 text-sm font-medium text-black transition hover:bg-[#33FFC1] disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
               >
                 {epochLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -979,8 +1085,12 @@ export function SettlementCard() {
                         {formatTimestamp(claim.createdAt)}
                       </td>
                       <td className="px-5 py-4 text-right text-sm">
-                        {plannedPayout > BigInt(0) ? (
-                          <span className="text-amber-400">Included</span>
+                        {plannedItem ? (
+                          plannedPayout > BigInt(0) ? (
+                            <span className="text-amber-400">Included</span>
+                          ) : (
+                            <span className="text-amber-400">Included (no payout)</span>
+                          )
                         ) : BigInt(claim.paidUsdc) > BigInt(0) ? (
                           <span className="text-sky-400">Partially Paid</span>
                         ) : (

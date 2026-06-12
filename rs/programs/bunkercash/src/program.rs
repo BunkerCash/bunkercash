@@ -46,8 +46,14 @@ const PURCHASE_LIMIT_SEED: &[u8] = b"purchase_limit";
 const SUPPORTED_USDC_CONFIG_SEED: &[u8] = b"supported_usdc_config";
 const FEE_CONFIG_SEED: &[u8] = b"fee_config";
 const MIN_SETTLEMENT_CONFIG_SEED: &[u8] = b"min_settlement_config";
+const MIN_CLAIM_CONFIG_SEED: &[u8] = b"min_claim_config";
 const TOKEN_DECIMALS: u8 = 6;
 const MAX_FEE_BPS: u16 = 1_000;
+// Minimum USDC value a claim must resolve to before it is admitted to the
+// queue. Applies whenever MinClaimConfig has not been initialized; the
+// config can raise or lower it (including to 0 to disable). $1.00 at
+// 6 decimals.
+const DEFAULT_MIN_CLAIM_USDC: u64 = 1_000_000;
 
 // On-chain sizes (8-byte discriminator included) of the historical account
 // layouts that may still exist on an upgraded-in-place deployment. Used by
@@ -716,6 +722,37 @@ pub mod bunkercash {
         Ok(())
     }
 
+    // Minimum USDC value a new claim must resolve to in file_claim. Distinct
+    // from MinSettlementConfig (an operator-side settlement floor): this is a
+    // claim-admission rule. While the config account is uninitialized,
+    // DEFAULT_MIN_CLAIM_USDC applies; setting 0 here disables the floor.
+    pub fn set_min_claim_usdc(
+        ctx: Context<SetMinClaimUsdc>,
+        min_claim_usdc: u64,
+    ) -> Result<()> {
+        let pool = &ctx.accounts.pool;
+        let config = &mut ctx.accounts.min_claim_config;
+
+        require!(
+            ctx.accounts.admin.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+
+        config.min_claim_usdc = min_claim_usdc;
+        if config.bump == 0 {
+            config.bump = ctx.bumps.min_claim_config;
+        }
+
+        emit!(MinClaimUpdatedEvent {
+            pool: pool.key(),
+            admin: ctx.accounts.admin.key(),
+            min_claim_usdc,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+
+        Ok(())
+    }
+
     pub fn create_bunkercash_mint(ctx: Context<CreateBunkercashMint>) -> Result<()> {
         let pool = &ctx.accounts.pool;
         require!(
@@ -823,6 +860,17 @@ pub mod bunkercash {
             pool.total_bunkercash_supply,
         )
         .ok_or(ErrorCode::ClaimAmountTooSmall)?;
+
+        // Claim-admission floor: nuisance dust is rejected here, at entry,
+        // so settlement never has to special-case near-worthless claims that
+        // should not have been queued.
+        let min_claim_usdc = if ctx.accounts.min_claim_config.data_is_empty() {
+            DEFAULT_MIN_CLAIM_USDC
+        } else {
+            let data = ctx.accounts.min_claim_config.try_borrow_data()?;
+            MinClaimConfig::try_deserialize(&mut &data[..])?.min_claim_usdc
+        };
+        require!(usdc_value >= min_claim_usdc, ErrorCode::ClaimBelowMinimum);
 
         // Send the fee portion to the admin wallet's BunkerCash ATA.
         if fee_bunkercash > 0 {
@@ -2183,6 +2231,29 @@ pub struct SetMinSettlementUsdc<'info> {
 }
 
 #[derive(Accounts)]
+pub struct SetMinClaimUsdc<'info> {
+    #[account(
+        seeds = [POOL_SEED],
+        bump = pool.bump
+    )]
+    pub pool: Account<'info, Pool>,
+
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = 8 + MinClaimConfig::INIT_SPACE,
+        seeds = [MIN_CLAIM_CONFIG_SEED],
+        bump
+    )]
+    pub min_claim_config: Account<'info, MinClaimConfig>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct SetSupportedUsdcMint<'info> {
     #[account(
         seeds = [POOL_SEED],
@@ -2308,6 +2379,14 @@ pub struct FileClaim<'info> {
         bump = fee_config.bump
     )]
     pub fee_config: Account<'info, FeeConfig>,
+
+    /// CHECK: Min claim config PDA. If initialized, its min_claim_usdc is
+    /// enforced; while uninitialized the DEFAULT_MIN_CLAIM_USDC floor applies.
+    #[account(
+        seeds = [MIN_CLAIM_CONFIG_SEED],
+        bump
+    )]
+    pub min_claim_config: UncheckedAccount<'info>,
 
     #[account(mut)]
     pub user: Signer<'info>,
@@ -2903,6 +2982,13 @@ pub struct MinSettlementConfig {
 
 #[account]
 #[derive(InitSpace)]
+pub struct MinClaimConfig {
+    pub min_claim_usdc: u64,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
 pub struct SettlementState {
     pub pool: Pubkey,
     pub vault_snapshot: u64,
@@ -3092,6 +3178,14 @@ pub struct MinSettlementUpdatedEvent {
 }
 
 #[event]
+pub struct MinClaimUpdatedEvent {
+    pub pool: Pubkey,
+    pub admin: Pubkey,
+    pub min_claim_usdc: u64,
+    pub timestamp: i64,
+}
+
+#[event]
 pub struct SettlementOpenedEvent {
     pub pool: Pubkey,
     pub master_wallet: Pubkey,
@@ -3206,6 +3300,9 @@ pub enum ErrorCode {
     InvalidMigrationAccount,
     #[msg("Account data length does not match any known legacy layout")]
     UnknownAccountLayout,
+    // Appended after the legacy codes so existing error numbers stay stable.
+    #[msg("Claim USDC value is below the minimum claim size")]
+    ClaimBelowMinimum,
 }
 
 #[cfg(test)]
@@ -3217,9 +3314,10 @@ mod tests {
         validate_initializer, validate_open_withdrawal, validate_purchase_limit,
         validate_settlement_completeness, validate_settlement_pending_claims,
         validate_supported_usdc_mint, validate_supported_usdc_mint_change,
-        validate_unique_settlement_claim_accounts, Claim, ErrorCode, MinSettlementConfig, Pool,
-        PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal, LEGACY_CLAIM_V1_SPACE,
-        LEGACY_CLAIM_V2_SPACE, LEGACY_POOL_SPACE, SQUADS_MEMBER_1,
+        validate_unique_settlement_claim_accounts, Claim, ErrorCode, MinClaimConfig,
+        MinSettlementConfig, Pool, PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal,
+        DEFAULT_MIN_CLAIM_USDC, LEGACY_CLAIM_V1_SPACE, LEGACY_CLAIM_V2_SPACE, LEGACY_POOL_SPACE,
+        SQUADS_MEMBER_1,
     };
     use anchor_lang::prelude::Pubkey;
     use anchor_lang::Space;
@@ -3922,6 +4020,47 @@ mod tests {
             bump: 0,
         };
         assert_eq!(config.min_settlement_usdc, 0);
+    }
+
+    #[test]
+    fn min_claim_config_init_space() {
+        // u64 (8) + u8 (1) = 9 bytes
+        assert_eq!(MinClaimConfig::INIT_SPACE, 9);
+    }
+
+    #[test]
+    fn min_claim_default_is_one_usdc() {
+        assert_eq!(DEFAULT_MIN_CLAIM_USDC, 1_000_000);
+    }
+
+    #[test]
+    fn min_claim_default_rejects_dust_values() {
+        // Non-zero but operationally useless claim values must fall below
+        // the default admission floor.
+        let usdc_value: u64 = 999_999; // $0.999999
+        assert!(usdc_value < DEFAULT_MIN_CLAIM_USDC);
+        let penny: u64 = 10_000; // $0.01
+        assert!(penny < DEFAULT_MIN_CLAIM_USDC);
+        let micro: u64 = 1; // 1 micro-USDC
+        assert!(micro < DEFAULT_MIN_CLAIM_USDC);
+    }
+
+    #[test]
+    fn min_claim_default_accepts_one_usdc_and_above() {
+        let at_floor: u64 = 1_000_000; // exactly $1.00
+        assert!(at_floor >= DEFAULT_MIN_CLAIM_USDC);
+        let above: u64 = 1_000_001;
+        assert!(above >= DEFAULT_MIN_CLAIM_USDC);
+    }
+
+    #[test]
+    fn min_claim_zero_config_disables_floor() {
+        let config = MinClaimConfig {
+            min_claim_usdc: 0,
+            bump: 0,
+        };
+        let dust: u64 = 1;
+        assert!(dust >= config.min_claim_usdc);
     }
 
     #[test]

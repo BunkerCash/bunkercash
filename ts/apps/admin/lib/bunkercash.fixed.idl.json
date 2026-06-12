@@ -727,6 +727,37 @@
           }
         },
         {
+          "name": "min_claim_config",
+          "docs": [
+            "enforced; while uninitialized the DEFAULT_MIN_CLAIM_USDC floor applies."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  105,
+                  110,
+                  95,
+                  99,
+                  108,
+                  97,
+                  105,
+                  109,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "user",
           "writable": true,
           "signer": true
@@ -2121,6 +2152,81 @@
       ]
     },
     {
+      "name": "set_min_claim_usdc",
+      "discriminator": [
+        102,
+        169,
+        37,
+        149,
+        135,
+        85,
+        87,
+        126
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "min_claim_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  105,
+                  110,
+                  95,
+                  99,
+                  108,
+                  97,
+                  105,
+                  109,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "min_claim_usdc",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "set_min_settlement_usdc",
       "discriminator": [
         255,
@@ -2685,6 +2791,19 @@
       ]
     },
     {
+      "name": "MinClaimConfig",
+      "discriminator": [
+        68,
+        161,
+        251,
+        89,
+        251,
+        159,
+        107,
+        77
+      ]
+    },
+    {
       "name": "MinSettlementConfig",
       "discriminator": [
         157,
@@ -2918,6 +3037,19 @@
         44,
         168,
         100
+      ]
+    },
+    {
+      "name": "MinClaimUpdatedEvent",
+      "discriminator": [
+        83,
+        69,
+        65,
+        201,
+        107,
+        51,
+        9,
+        130
       ]
     },
     {
@@ -3213,6 +3345,11 @@
       "code": 6034,
       "name": "UnknownAccountLayout",
       "msg": "Account data length does not match any known legacy layout"
+    },
+    {
+      "code": 6035,
+      "name": "ClaimBelowMinimum",
+      "msg": "Claim USDC value is below the minimum claim size"
     }
   ],
   "types": [
@@ -3689,6 +3826,46 @@
                 32
               ]
             }
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MinClaimConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "min_claim_usdc",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MinClaimUpdatedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "min_claim_usdc",
+            "type": "u64"
           },
           {
             "name": "timestamp",
