@@ -1024,6 +1024,20 @@ pub mod bunkercash {
         let batch_is_incomplete = actual_total_remaining > 0
             && actual_total_remaining < unsettled_before_batch;
 
+        // Partial batches are allowed in any epoch, underfunded or not, so a
+        // large claim set can be settled across multiple transactions
+        // (Solana account limits cap one batch at a handful of claims).
+        // Fairness does not depend on batching: `payout_ratio_ppm` was locked
+        // when the epoch opened, so every eligible claim receives exactly
+        // remaining * ratio regardless of which batch carries it or in what
+        // order. The `last_settled_epoch_seq` stamp prevents re-submission
+        // across batches, the vault cannot shrink mid-epoch (master_withdraw
+        // is blocked while the SettlementState PDA exists), and
+        // `close_settlement` still refuses to close until
+        // total_processed_usdc + total_cancelled_usdc covers
+        // pending_snapshot — so skipping a claim stalls the epoch (and the
+        // master's own withdrawals), it never short-changes the claimant.
+        // The warning event keeps partial coverage observable off-chain.
         if batch_is_incomplete {
             emit!(SettlementCoverageWarningEvent {
                 pool: pool.key(),
@@ -1033,22 +1047,6 @@ pub mod bunkercash {
                     .saturating_sub(actual_total_remaining),
                 timestamp,
             });
-
-            // When the vault is underfunded (payout_ratio < 100%), all
-            // claimants must take a proportional haircut in the same batch.
-            // Allowing a partial batch here lets the master wallet pay
-            // preferred claimants their full epoch share and then walk away
-            // from the rest — the per-batch warning is observable but
-            // `close_settlement`'s completeness check only triggers if the
-            // master tries to close. Hard-fail here so the only way to make
-            // forward progress in an underfunded epoch is to include every
-            // eligible claim. Fully funded epochs (ratio == 1_000_000) can
-            // still batch freely because the unbatched claims will be paid
-            // in full whenever they are submitted.
-            require!(
-                payout_ratio >= 1_000_000,
-                ErrorCode::IncompleteSettlementSet
-            );
         }
 
         if total_claimable == 0 {
@@ -3288,6 +3286,9 @@ pub enum ErrorCode {
     WithdrawalBlockedDuringSettlement,
     #[msg("Settlement epoch is incomplete; settle all eligible claims before closing")]
     SettlementIncomplete,
+    // Retired: underfunded epochs now settle across multiple batches against
+    // the locked payout ratio; completeness is enforced at close_settlement.
+    // Kept so the error codes after it do not renumber.
     #[msg("Underfunded settlement batches must include every eligible claim so all claimants share the haircut proportionally")]
     IncompleteSettlementSet,
     #[msg("Vault USDC balance is below the configured minimum for opening a settlement epoch")]
@@ -3977,6 +3978,48 @@ mod tests {
             0,           // no cancellations
         )
         .is_err());
+    }
+
+    #[test]
+    fn completeness_accumulates_across_multiple_underfunded_batches() {
+        // Multi-batch underfunded settlement: settle_claims no longer
+        // hard-fails a partial batch, so coverage is built up across several
+        // transactions against the locked snapshot. The epoch must stay
+        // unclosable after every partial batch and become closable exactly
+        // when cumulative processed (+ cancelled) coverage reaches the
+        // snapshot.
+        let pending_snapshot = 1_000_000u64;
+        // Three batches of claims, e.g. 6 + 6 + 2 claims worth of remaining.
+        let batches = [400_000u64, 400_000, 200_000];
+
+        let mut total_processed = 0u64;
+        for (i, batch_remaining) in batches.iter().enumerate() {
+            total_processed += batch_remaining;
+            let is_last = i == batches.len() - 1;
+            let result =
+                validate_settlement_completeness(total_processed, pending_snapshot, 0);
+            if is_last {
+                assert!(result.is_ok());
+            } else {
+                assert!(result.is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn completeness_accumulates_batches_mixed_with_cancellations() {
+        // A claimant cancelling mid-epoch contributes to coverage through
+        // total_cancelled_usdc instead of total_processed_usdc; the two sum
+        // toward the same snapshot.
+        let pending_snapshot = 1_000_000u64;
+        let processed_batches = 700_000u64; // settled across several batches
+        let cancelled = 300_000u64; // cancelled by users mid-epoch
+
+        assert!(validate_settlement_completeness(processed_batches, pending_snapshot, 0).is_err());
+        assert!(
+            validate_settlement_completeness(processed_batches, pending_snapshot, cancelled)
+                .is_ok()
+        );
     }
 
     #[test]

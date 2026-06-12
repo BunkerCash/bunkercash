@@ -166,6 +166,10 @@ export function SettlementCard() {
   const [epochPayoutRatioPpm, setEpochPayoutRatioPpm] = useState<bigint | null>(null);
   const [epochVaultSnapshot, setEpochVaultSnapshot] = useState<bigint | null>(null);
   const [epochPendingSnapshot, setEpochPendingSnapshot] = useState<bigint | null>(null);
+  // total_processed_usdc + total_cancelled_usdc from the settlement state:
+  // how much of pending_snapshot has been covered so far this epoch.
+  // close_settlement succeeds only once this reaches the pending snapshot.
+  const [epochCoveredUsdc, setEpochCoveredUsdc] = useState<bigint | null>(null);
 
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), []);
   const poolSignerPda = useMemo(() => getPoolSignerPda(poolPda, PROGRAM_ID), [poolPda]);
@@ -227,9 +231,6 @@ export function SettlementCard() {
     poolPendingClaims !== null &&
     vaultRaw < poolPendingClaims &&
     totalRequested !== poolPendingClaims;
-  const canBatchSafely = epochOpen && epochVaultSnapshot !== null && epochPendingSnapshot !== null
-    ? epochVaultSnapshot >= epochPendingSnapshot
-    : (poolPendingClaims !== null ? vaultRaw >= poolPendingClaims : vaultRaw >= totalRequested);
 
   const fetchPoolPendingClaims = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -280,6 +281,10 @@ export function SettlementCard() {
       setEpochError(null);
       setEpochVaultSnapshot(BigInt(state.vaultSnapshot.toString()));
       setEpochPendingSnapshot(BigInt(state.pendingSnapshot.toString()));
+      setEpochCoveredUsdc(
+        BigInt(state.totalProcessedUsdc.toString()) +
+          BigInt(state.totalCancelledUsdc.toString())
+      );
       const ppm = BigInt(state.payoutRatioPpm.toString());
       setEpochPayoutRatioPpm(ppm);
       setEpochPayoutRatio(Number(ppm) / 10_000);
@@ -290,6 +295,7 @@ export function SettlementCard() {
       setEpochPayoutRatioPpm(null);
       setEpochVaultSnapshot(null);
       setEpochPendingSnapshot(null);
+      setEpochCoveredUsdc(null);
       const isAccountNotFound =
         e instanceof Error && e.message.includes("could not find account");
       if (!isAccountNotFound) {
@@ -428,6 +434,7 @@ export function SettlementCard() {
       setEpochPayoutRatioPpm(null);
       setEpochVaultSnapshot(null);
       setEpochPendingSnapshot(null);
+      setEpochCoveredUsdc(null);
       await Promise.all([refreshClaims(), refreshVault(), fetchPoolPendingClaims()]);
     } catch (e: unknown) {
       setEpochError(getErrorMessage(e, "Failed to close settlement epoch"));
@@ -544,9 +551,14 @@ export function SettlementCard() {
       })
       .filter((item) => item.payout > BigInt(0));
   }, [claims, vaultRaw, epochOpen, epochPayoutRatioPpm]);
-  const requiresSingleTransaction = !canBatchSafely;
-  const exceedsSingleTransactionLimit =
-    requiresSingleTransaction && settlementPlan.length > CLAIMS_PER_TX;
+  // Underfunded epochs no longer need a single transaction: the program
+  // accepts partial batches against the locked payout ratio, and
+  // close_settlement enforces that cumulative coverage reaches the pending
+  // snapshot. Every run, funded or not, is chunked by CLAIMS_PER_TX.
+  const epochCoverageComplete =
+    epochPendingSnapshot !== null && epochCoveredUsdc !== null
+      ? epochCoveredUsdc >= epochPendingSnapshot
+      : null;
 
   const totalPayout = useMemo(
     () => settlementPlan.reduce((sum, item) => sum + item.payout, BigInt(0)),
@@ -567,12 +579,6 @@ export function SettlementCard() {
 
   const handleSettleAll = useCallback(async () => {
     if (!program || !publicKey || !usdcMint || !usdcTokenProgram || !payoutVault || settlementPlan.length === 0) return;
-    if (exceedsSingleTransactionLimit) {
-      setTxError(
-        `This underfunded settlement run must include all open requests in one transaction, and ${settlementPlan.length} requests exceeds the current safe limit of ${CLAIMS_PER_TX}. Add more vault liquidity or settle after a program upgrade.`
-      );
-      return;
-    }
 
     setSettling(true);
     setTxError(null);
@@ -583,9 +589,7 @@ export function SettlementCard() {
     let settledClaims = 0;
     let failedClaims = 0;
 
-    const batches = canBatchSafely
-      ? chunkClaims(settlementPlan, CLAIMS_PER_TX)
-      : [settlementPlan];
+    const batches = chunkClaims(settlementPlan, CLAIMS_PER_TX);
 
     const sendSettlementBatch = async (batch: SettlementItem[]): Promise<string> => {
       let lastError: unknown;
@@ -702,21 +706,13 @@ export function SettlementCard() {
           }
         }
         failedClaims += batch.length;
-        setTxError(
-          getErrorMessage(
-            e,
-            canBatchSafely
-              ? "Failed to settle one of the settlement batches."
-              : "Failed to settle the underfunded claim set in a single transaction."
-          )
-        );
-        if (!canBatchSafely) break;
+        setTxError(getErrorMessage(e, "Failed to settle one of the settlement batches."));
       }
     }
     setResults({ settledClaims, failedClaims, signatures: succeeded });
     setSettling(false);
     await Promise.all([refreshClaims(), refreshVault(), fetchPoolPendingClaims(), fetchSettlementEpoch()]);
-  }, [bunkercashMintPda, canBatchSafely, connection, exceedsSingleTransactionLimit, fetchPoolPendingClaims, fetchSettlementEpoch, payoutVault, poolBunkercashEscrow, program, publicKey, signTransaction, refreshClaims, refreshVault, settlementPlan, settlementStatePda, usdcMint, usdcTokenProgram, poolPda, supportedUsdcConfigPda]);
+  }, [bunkercashMintPda, connection, fetchPoolPendingClaims, fetchSettlementEpoch, payoutVault, poolBunkercashEscrow, program, publicKey, signTransaction, refreshClaims, refreshVault, settlementPlan, settlementStatePda, usdcMint, usdcTokenProgram, poolPda, supportedUsdcConfigPda]);
 
   const loading = claimsLoading || vaultLoading;
   const canSettle =
@@ -727,8 +723,6 @@ export function SettlementCard() {
     settlementPlan.length > 0 &&
     !settling &&
     !pendingClaimsSyncRequired &&
-    !underfundedPoolMismatch &&
-    !exceedsSingleTransactionLimit &&
     !vaultBelowMinSettlement;
 
   return (
@@ -856,7 +850,7 @@ export function SettlementCard() {
             <h2 className="text-base font-semibold text-white">Settlement Epoch</h2>
             <p className="mt-1 text-sm text-neutral-500">
               {epochOpen
-                ? "A settlement epoch is active. Settle all eligible claims, then close the epoch."
+                ? "A settlement epoch is active. Settle all eligible claims in batches, then close the epoch once coverage is complete."
                 : "Open an epoch to snapshot the vault balance and lock the payout ratio before settling."}
             </p>
           </div>
@@ -873,7 +867,8 @@ export function SettlementCard() {
             ) : (
               <button
                 onClick={() => void handleCloseSettlement()}
-                disabled={!wallet.publicKey || !program || epochLoading || settling}
+                disabled={!wallet.publicKey || !program || epochLoading || settling || epochCoverageComplete === false}
+                title={epochCoverageComplete === false ? "Every claim in the epoch snapshot must be settled or cancelled before the epoch can close." : undefined}
                 className="inline-flex items-center gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-2 text-sm font-medium text-rose-300 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {epochLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -884,7 +879,7 @@ export function SettlementCard() {
         </div>
 
         {epochOpen && (
-          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-4">
             <div className="rounded-lg border border-neutral-800/60 bg-neutral-950/40 p-4">
               <div className="text-[11px] uppercase tracking-wider text-neutral-500">Vault Snapshot</div>
               <div className="mt-2 font-mono text-lg font-semibold text-white">
@@ -901,6 +896,19 @@ export function SettlementCard() {
               <div className="text-[11px] uppercase tracking-wider text-neutral-500">Locked Payout Ratio</div>
               <div className={`mt-2 text-lg font-semibold ${epochPayoutRatio !== null && epochPayoutRatio >= 100 ? "text-[#00FFB2]" : "text-amber-400"}`}>
                 {epochPayoutRatio !== null ? `${epochPayoutRatio.toFixed(2)}%` : "—"}
+              </div>
+            </div>
+            <div className="rounded-lg border border-neutral-800/60 bg-neutral-950/40 p-4">
+              <div className="text-[11px] uppercase tracking-wider text-neutral-500">Epoch Coverage</div>
+              <div className={`mt-2 font-mono text-lg font-semibold ${epochCoverageComplete ? "text-[#00FFB2]" : "text-amber-400"}`}>
+                {epochCoveredUsdc !== null && epochPendingSnapshot !== null
+                  ? `$${formatUsdc(epochCoveredUsdc)} / $${formatUsdc(epochPendingSnapshot)}`
+                  : "—"}
+              </div>
+              <div className="mt-1 text-xs text-neutral-500">
+                {epochCoverageComplete
+                  ? "complete — epoch can close"
+                  : "settled + cancelled vs snapshot"}
               </div>
             </div>
           </div>
@@ -949,7 +957,7 @@ export function SettlementCard() {
           {pendingClaimsSyncRequired
             ? " Settlement is blocked because the on-chain tracker is stale low and must be synced before any settlement run."
             : underfundedPoolMismatch
-              ? " Settlement is blocked because the program now requires the full underfunded request set to prevent unfair payouts."
+              ? " Settlement can proceed in batches at the epoch's locked payout ratio, but the epoch cannot close until every request in the snapshot has been processed — investigate the mismatch if coverage stalls."
               : " Settlement can continue because the on-chain tracker is higher than the decoded open-request set."}
         </div>
       )}
@@ -975,7 +983,10 @@ export function SettlementCard() {
           <div>
             <h2 className="text-base font-semibold text-white">Settlement Run</h2>
             <p className="mt-1 text-sm text-neutral-500">
-              Fully funded runs are split into small batches. Underfunded runs must still settle the full open-request set in one transaction so the payout ratio matches on-chain math.
+              Runs are split into batches of {CLAIMS_PER_TX} requests per transaction. Underfunded
+              epochs pay every request at the payout ratio locked when the epoch opened, across as
+              many batches as needed; the epoch can close once every request in the snapshot is
+              processed.
             </p>
           </div>
           <button
