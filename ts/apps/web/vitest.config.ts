@@ -12,6 +12,10 @@ export default defineConfig({
     dedupe: ["react", "react-dom"],
     alias: {
       "@": path.resolve(__dirname, "."),
+      "cloudflare:workers": path.resolve(
+        __dirname,
+        "test-shims/cloudflare-workers.ts",
+      ),
       react: path.resolve(__dirname, "../../node_modules/react"),
       "react-dom": path.resolve(__dirname, "../../node_modules/react-dom"),
       "react/jsx-runtime": path.resolve(

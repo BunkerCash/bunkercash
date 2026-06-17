@@ -1,4 +1,5 @@
-import { kvGet, kvPut } from "@bunkercash/cloudflare-kv";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { kvPut } from "@bunkercash/cloudflare-kv";
 import {
   SUPPORT_REQUESTS_KV_BINDING,
   toSupportRequestKey,
@@ -8,7 +9,8 @@ import {
 } from "@bunkercash/support-requests";
 
 const BINDING = SUPPORT_REQUESTS_KV_BINDING;
-const RATE_LIMIT_KEY_PREFIX = "support:rate-limit:";
+const RATE_LIMIT_BINDING = "SUPPORT_RATE_LIMIT";
+const RATE_LIMIT_CHECK_URL = "https://support-rate-limit.internal/check";
 const FALLBACK_SUPPORT_EMAIL = "support@bunkercash.com";
 const IP_RATE_LIMIT_MAX_REQUESTS = 3;
 const IP_RATE_LIMIT_WINDOW_SECONDS = 15 * 60;
@@ -21,9 +23,9 @@ export type {
   SupportRequestSource,
 } from "@bunkercash/support-requests";
 
-interface SupportRateLimitRecord {
-  count: number;
-  resetAt: number;
+interface SupportRateLimitCheckRequest {
+  maxRequests: number;
+  windowSeconds: number;
 }
 
 export class SupportRateLimitError extends Error {
@@ -124,8 +126,39 @@ async function hashIdentifier(value: string): Promise<string> {
   ).join("");
 }
 
-function toRateLimitKey(scope: string, hashedIdentity: string): string {
-  return `${RATE_LIMIT_KEY_PREFIX}${scope}:${hashedIdentity}`;
+function toRateLimitObjectName(scope: string, hashedIdentity: string): string {
+  return `${scope}:${hashedIdentity}`;
+}
+
+async function getSupportRateLimitNamespace(): Promise<DurableObjectNamespace> {
+  const { env } = await getCloudflareContext();
+  const namespace = (env as Record<string, unknown>)[RATE_LIMIT_BINDING];
+
+  if (!namespace) {
+    throw new Error(
+      `Durable Object binding "${RATE_LIMIT_BINDING}" not found in environment`,
+    );
+  }
+
+  return namespace as DurableObjectNamespace;
+}
+
+async function readRetryAfterSeconds(response: Response): Promise<number> {
+  const headerValue = response.headers.get("retry-after");
+  const headerSeconds = headerValue ? Number(headerValue) : NaN;
+
+  if (Number.isFinite(headerSeconds) && headerSeconds > 0) {
+    return Math.ceil(headerSeconds);
+  }
+
+  const body = (await response.json().catch(() => null)) as
+    | { retryAfterSeconds?: unknown }
+    | null;
+  const bodySeconds = Number(body?.retryAfterSeconds);
+
+  return Number.isFinite(bodySeconds) && bodySeconds > 0
+    ? Math.ceil(bodySeconds)
+    : 1;
 }
 
 async function enforceWindowRateLimit(options: {
@@ -135,43 +168,30 @@ async function enforceWindowRateLimit(options: {
   windowSeconds: number;
 }) {
   const { scope, identity, maxRequests, windowSeconds } = options;
-  const key = toRateLimitKey(scope, await hashIdentifier(identity));
-  const now = Date.now();
-  const existing = await kvGet<SupportRateLimitRecord>(BINDING, key);
+  const namespace = await getSupportRateLimitNamespace();
+  const objectName = toRateLimitObjectName(
+    scope,
+    await hashIdentifier(identity),
+  );
+  const stub = namespace.get(namespace.idFromName(objectName));
+  const response = await stub.fetch(RATE_LIMIT_CHECK_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      maxRequests,
+      windowSeconds,
+    } satisfies SupportRateLimitCheckRequest),
+  });
 
-  if (existing && existing.resetAt > now) {
-    if (existing.count >= maxRequests) {
-      throw new SupportRateLimitError(
-        Math.max(1, Math.ceil((existing.resetAt - now) / 1000)),
-      );
-    }
-
-    const ttlSeconds = Math.max(
-      60,
-      Math.ceil((existing.resetAt - now) / 1000) + 60,
-    );
-
-    await kvPut(
-      BINDING,
-      key,
-      {
-        count: existing.count + 1,
-        resetAt: existing.resetAt,
-      } satisfies SupportRateLimitRecord,
-      { expirationTtl: ttlSeconds },
-    );
-    return;
+  if (response.status === 429) {
+    throw new SupportRateLimitError(await readRetryAfterSeconds(response));
   }
 
-  await kvPut(
-    BINDING,
-    key,
-    {
-      count: 1,
-      resetAt: now + windowSeconds * 1000,
-    } satisfies SupportRateLimitRecord,
-    { expirationTtl: Math.max(60, windowSeconds + 60) },
-  );
+  if (!response.ok) {
+    throw new Error(`Support rate limit check failed (${response.status})`);
+  }
 }
 
 export function parseSupportRequestInput(

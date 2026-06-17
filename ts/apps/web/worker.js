@@ -5,8 +5,14 @@ import openNextWorker, {
 } from "./.open-next/worker.js";
 import { runWithCloudflareRequestContext } from "./.open-next/cloudflare/init.js";
 import { runDailyCollection } from "./lib/metrics-cron";
+import { SupportRateLimitDurableObject } from "./lib/support-rate-limit-durable-object";
 
-export { BucketCachePurge, DOQueueHandler, DOShardedTagCache };
+export {
+  BucketCachePurge,
+  DOQueueHandler,
+  DOShardedTagCache,
+  SupportRateLimitDurableObject,
+};
 
 const SCHEDULED_REQUEST_URL = "https://scheduled.internal/__metrics_daily";
 
