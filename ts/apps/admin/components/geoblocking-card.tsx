@@ -15,7 +15,10 @@ import {
 import { cn } from "@/lib/utils";
 import { COUNTRIES, EU_COUNTRY_CODES } from "@/lib/countries";
 import { ConfirmationDialog } from "./ui/confirmation-dialog";
-import { buildAdminAccessMessage } from "@/lib/admin-auth-message";
+import {
+  buildAdminAuthHeaders,
+  sha256Hex,
+} from "@/lib/admin-auth-client";
 
 function asCountryList(value: unknown): string[] {
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
@@ -62,30 +65,26 @@ export function GeoblockingCard() {
     [blocked]
   );
 
-  const buildAccessHeaders = useCallback(async () => {
+  const buildAccessHeaders = useCallback(async (route: string) => {
     if (!publicKey || !signMessage) {
       throw new Error("Connect an admin wallet that supports message signing");
     }
 
-    const issuedAt = new Date().toISOString();
-    const signatureBytes = await signMessage(
-      new TextEncoder().encode(buildAdminAccessMessage(issuedAt))
-    );
-    const signature = btoa(String.fromCharCode(...signatureBytes));
-
-    return {
-      "x-admin-wallet": publicKey.toBase58(),
-      "x-admin-issued-at": issuedAt,
-      "x-admin-signature": signature,
-    };
+    return buildAdminAuthHeaders({
+      publicKey,
+      signMessage,
+      method: "GET",
+      route,
+    });
   }, [publicKey, signMessage]);
 
   const fetchBlocked = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/geoblocking", {
-        headers: await buildAccessHeaders(),
+      const requestUrl = "/api/geoblocking";
+      const res = await fetch(requestUrl, {
+        headers: await buildAccessHeaders(requestUrl),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -127,27 +126,20 @@ export function GeoblockingCard() {
       }
 
       const body: string = JSON.stringify({ countries });
-      const issuedAt = new Date().toISOString();
-      const bodyHashBuffer = await crypto.subtle.digest(
-        "SHA-256",
-        await new Blob([body]).arrayBuffer()
-      );
-      const bodyHash = Array.from(new Uint8Array(bodyHashBuffer))
-        .map((byte) => byte.toString(16).padStart(2, "0"))
-        .join("");
-      const message = `bunkercash-admin:geoblocking:update\n${issuedAt}\n${bodyHash}`;
-      const signatureBytes = await signMessage(new TextEncoder().encode(message));
-      const signature = btoa(
-        String.fromCharCode(...signatureBytes)
-      );
+      const requestUrl = "/api/geoblocking";
+      const authHeaders = await buildAdminAuthHeaders({
+        publicKey,
+        signMessage,
+        method: "PUT",
+        route: requestUrl,
+        bodyHash: await sha256Hex(body),
+      });
 
-      const res = await fetch("/api/geoblocking", {
+      const res = await fetch(requestUrl, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          "x-admin-wallet": publicKey.toBase58(),
-          "x-admin-issued-at": issuedAt,
-          "x-admin-signature": signature,
+          ...authHeaders,
         },
         body,
       });
