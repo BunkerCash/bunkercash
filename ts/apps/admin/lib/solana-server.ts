@@ -70,6 +70,9 @@ export interface SerializedClaim {
   bunkercashEscrow: string;
   bunkercashRemaining: string;
   createdAt: string;
+  // True when the on-chain account still uses a pre-epoch-fields layout and
+  // must be migrated (migrate_claim) before it can settle or cancel.
+  needsMigration: boolean;
 }
 
 export interface ClaimsResponse {
@@ -142,6 +145,7 @@ function serializeClaim(claim: DecodedClaimAccount): SerializedClaim {
     bunkercashEscrow: claim.bunkercashEscrow,
     bunkercashRemaining: claim.bunkercashRemaining,
     createdAt: claim.createdAt,
+    needsMigration: claim.needsMigration,
   };
 }
 

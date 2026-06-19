@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Buffer } from "buffer";
+import BN from "bn.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { PublicKey, SendTransactionError, Transaction, type TransactionInstruction } from "@solana/web3.js";
+import { PublicKey, SendTransactionError, SystemProgram, Transaction, type TransactionInstruction } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
@@ -13,12 +14,13 @@ import {
 import { AlertCircle, CheckCircle2, Loader2, RefreshCw, Wallet } from "lucide-react";
 import { useAllOpenClaims, type OpenClaim } from "@/hooks/useAllOpenClaims";
 import { usePayoutVault } from "@/hooks/usePayoutVault";
-import { getBunkercashMintPda, getProgram, getPoolPda, getPoolSignerPda, getReadonlyProgram, getSupportedUsdcConfigPda, PROGRAM_ID } from "@/lib/program";
+import { getBunkercashMintPda, getMinSettlementConfigPda, getProgram, getPoolPda, getPoolSignerPda, getReadonlyProgram, getSettlementStatePda, getSupportedUsdcConfigPda, PROGRAM_ID } from "@/lib/program";
 import type { ProgramWallet } from "@/lib/program";
 import { useSupportedUsdcMint } from "@/hooks/useSupportedUsdcMint";
 
 const USDC_DECIMALS = 6;
 const CLAIMS_PER_TX = 6;
+const MIGRATIONS_PER_TX = 8;
 
 interface AccountMetaLike {
   pubkey: PublicKey;
@@ -34,6 +36,7 @@ interface InstructionBuilder {
     poolBunkercashEscrow: PublicKey;
     supportedUsdcConfig: PublicKey;
     usdcMint: PublicKey;
+    settlementState: PublicKey;
     masterWallet: PublicKey;
     usdcTokenProgram: PublicKey;
     tokenProgram: PublicKey;
@@ -44,8 +47,18 @@ interface InstructionBuilder {
   };
 }
 
-interface ProviderLike {
-  sendAndConfirm: (tx: Transaction) => Promise<string>;
+interface MigrateClaimMethods {
+  migrateClaim: () => {
+    accounts: (accounts: {
+      pool: PublicKey;
+      claim: PublicKey;
+      settlementCheck: PublicKey;
+      payer: PublicKey;
+      systemProgram: PublicKey;
+    }) => {
+      instruction: () => Promise<TransactionInstruction>;
+    };
+  };
 }
 
 interface Stringable {
@@ -141,9 +154,26 @@ export function SettlementCard() {
   const [txError, setTxError] = useState<string | null>(null);
   const [poolPendingClaims, setPoolPendingClaims] = useState<bigint | null>(null);
   const [poolStateError, setPoolStateError] = useState<string | null>(null);
+  const [minSettlementUsdc, setMinSettlementUsdc] = useState<bigint | null>(null);
+  const [minSettlementInput, setMinSettlementInput] = useState("");
+  const [savingMinSettlement, setSavingMinSettlement] = useState(false);
+  const [epochOpen, setEpochOpen] = useState(false);
+  const [epochLoading, setEpochLoading] = useState(false);
+  const [migrating, setMigrating] = useState(false);
+  const [migrationProgress, setMigrationProgress] = useState({ current: 0, total: 0 });
+  const [epochError, setEpochError] = useState<string | null>(null);
+  const [epochPayoutRatio, setEpochPayoutRatio] = useState<number | null>(null);
+  const [epochPayoutRatioPpm, setEpochPayoutRatioPpm] = useState<bigint | null>(null);
+  const [epochVaultSnapshot, setEpochVaultSnapshot] = useState<bigint | null>(null);
+  const [epochPendingSnapshot, setEpochPendingSnapshot] = useState<bigint | null>(null);
+  // total_processed_usdc + total_cancelled_usdc from the settlement state:
+  // how much of pending_snapshot has been covered so far this epoch.
+  // close_settlement succeeds only once this reaches the pending snapshot.
+  const [epochCoveredUsdc, setEpochCoveredUsdc] = useState<bigint | null>(null);
 
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), []);
   const poolSignerPda = useMemo(() => getPoolSignerPda(poolPda, PROGRAM_ID), [poolPda]);
+  const settlementStatePda = useMemo(() => getSettlementStatePda(poolPda, PROGRAM_ID), [poolPda]);
   const bunkercashMintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), []);
   const poolBunkercashEscrow = useMemo(
     () =>
@@ -185,6 +215,15 @@ export function SettlementCard() {
   }, [poolSignerPda, usdcMint, usdcTokenProgram]);
 
   const vaultRaw = useMemo(() => parseUiUsdc(vaultBalance), [vaultBalance]);
+  // Hard precondition for opening an epoch: legacy-layout claims cannot be
+  // settled (deserialization fails), cannot be migrated while an epoch is
+  // open, and are still counted in the epoch's pending snapshot — opening an
+  // epoch with any of them outstanding deadlocks settlement, migration and
+  // master withdrawals until the epoch is force-resolved.
+  const needsMigrationCount = useMemo(
+    () => claims.filter((claim) => claim.needsMigration).length,
+    [claims]
+  );
   const pendingClaimsMismatch = poolPendingClaims !== null && poolPendingClaims !== totalRequested;
   const pendingClaimsSyncRequired =
     poolPendingClaims !== null && totalRequested > poolPendingClaims;
@@ -192,8 +231,6 @@ export function SettlementCard() {
     poolPendingClaims !== null &&
     vaultRaw < poolPendingClaims &&
     totalRequested !== poolPendingClaims;
-  const canBatchSafely =
-    (poolPendingClaims !== null ? vaultRaw >= poolPendingClaims : vaultRaw >= totalRequested);
 
   const fetchPoolPendingClaims = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -217,11 +254,285 @@ export function SettlementCard() {
     return () => controller.abort();
   }, [fetchPoolPendingClaims]);
 
-  const settlementPlan = useMemo((): SettlementItem[] => {
-    if (claims.length === 0 || totalRequested === BigInt(0) || vaultRaw === BigInt(0)) return [];
+  interface SettlementStateAccount {
+    pool: PublicKey;
+    vaultSnapshot: { toString(): string };
+    pendingSnapshot: { toString(): string };
+    payoutRatioPpm: { toString(): string };
+    totalSettledUsdc: { toString(): string };
+    totalCancelledUsdc: { toString(): string };
+    totalProcessedUsdc: { toString(): string };
+    epochSeq: { toString(): string };
+    timestamp: { toString(): string };
+    bump: number;
+  }
 
-    const totalClaimable = vaultRaw < totalRequested ? vaultRaw : totalRequested;
-    const items = claims.map((claim) => ({
+  const fetchSettlementEpoch = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const accountApi = readonlyProgram.account as {
+        settlementState?: {
+          fetch: (pubkey: PublicKey) => Promise<SettlementStateAccount>;
+        };
+      };
+      if (!accountApi.settlementState) return;
+      const state = await accountApi.settlementState.fetch(settlementStatePda);
+      if (signal?.aborted) return;
+      setEpochOpen(true);
+      setEpochError(null);
+      setEpochVaultSnapshot(BigInt(state.vaultSnapshot.toString()));
+      setEpochPendingSnapshot(BigInt(state.pendingSnapshot.toString()));
+      setEpochCoveredUsdc(
+        BigInt(state.totalProcessedUsdc.toString()) +
+          BigInt(state.totalCancelledUsdc.toString())
+      );
+      const ppm = BigInt(state.payoutRatioPpm.toString());
+      setEpochPayoutRatioPpm(ppm);
+      setEpochPayoutRatio(Number(ppm) / 10_000);
+    } catch (e: unknown) {
+      if (signal?.aborted) return;
+      setEpochOpen(false);
+      setEpochPayoutRatio(null);
+      setEpochPayoutRatioPpm(null);
+      setEpochVaultSnapshot(null);
+      setEpochPendingSnapshot(null);
+      setEpochCoveredUsdc(null);
+      const isAccountNotFound =
+        e instanceof Error && e.message.includes("could not find account");
+      if (!isAccountNotFound) {
+        setEpochError(getErrorMessage(e, "Failed to fetch settlement epoch"));
+      }
+    }
+  }, [readonlyProgram, settlementStatePda]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchSettlementEpoch(controller.signal);
+    return () => controller.abort();
+  }, [fetchSettlementEpoch]);
+
+  const minSettlementConfigPda = useMemo(() => getMinSettlementConfigPda(PROGRAM_ID), []);
+
+  const fetchMinSettlementConfig = useCallback(async () => {
+    try {
+      const accountApi = readonlyProgram.account as {
+        minSettlementConfig?: {
+          fetch: (pubkey: PublicKey) => Promise<{ minSettlementUsdc: { toString(): string } }>;
+        };
+      };
+      if (!accountApi.minSettlementConfig) return;
+      const config = await accountApi.minSettlementConfig.fetch(minSettlementConfigPda);
+      const raw = BigInt(config.minSettlementUsdc.toString());
+      setMinSettlementUsdc(raw);
+      setMinSettlementInput(formatUsdc(raw));
+    } catch {
+      setMinSettlementUsdc(null);
+    }
+  }, [minSettlementConfigPda, readonlyProgram]);
+
+  useEffect(() => {
+    void fetchMinSettlementConfig();
+  }, [fetchMinSettlementConfig]);
+
+  const vaultBelowMinSettlement =
+    minSettlementUsdc !== null && minSettlementUsdc > BigInt(0) && vaultRaw < minSettlementUsdc;
+
+  const handleSaveMinSettlement = useCallback(async () => {
+    if (!program || !publicKey) return;
+    setSavingMinSettlement(true);
+    setTxError(null);
+    try {
+      const rawValue = parseUiUsdc(minSettlementInput);
+      const methods = program.methods as unknown as {
+        setMinSettlementUsdc: (amount: BN) => {
+          accounts: (accounts: Record<string, PublicKey>) => {
+            rpc: () => Promise<string>;
+          };
+        };
+      };
+      await methods
+        .setMinSettlementUsdc(new BN(rawValue.toString()))
+        .accounts({
+          pool: poolPda,
+          minSettlementConfig: minSettlementConfigPda,
+          admin: publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+      setMinSettlementUsdc(rawValue);
+    } catch (e: unknown) {
+      setTxError(e instanceof Error ? e.message : "Failed to save minimum settlement threshold");
+    } finally {
+      setSavingMinSettlement(false);
+    }
+  }, [minSettlementConfigPda, minSettlementInput, poolPda, program, publicKey]);
+
+  const handleOpenSettlement = useCallback(async () => {
+    if (!program || !publicKey || !usdcMint || !usdcTokenProgram || !payoutVault) return;
+    if (needsMigrationCount > 0) {
+      setEpochError(
+        `${needsMigrationCount} legacy claim${needsMigrationCount === 1 ? "" : "s"} must be migrated before a settlement epoch can open.`
+      );
+      return;
+    }
+    setEpochLoading(true);
+    setEpochError(null);
+    setTxError(null);
+    try {
+      const methods = program.methods as unknown as {
+        openSettlement: () => {
+          accounts: (accounts: Record<string, PublicKey>) => {
+            rpc: () => Promise<string>;
+          };
+        };
+      };
+      await methods
+        .openSettlement()
+        .accounts({
+          pool: poolPda,
+          poolUsdc: payoutVault,
+          supportedUsdcConfig: supportedUsdcConfigPda,
+          usdcMint,
+          settlementState: settlementStatePda,
+          minSettlementConfig: minSettlementConfigPda,
+          masterWallet: publicKey,
+          usdcTokenProgram,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+      await fetchSettlementEpoch();
+      await Promise.all([refreshVault(), fetchPoolPendingClaims()]);
+    } catch (e: unknown) {
+      setEpochError(getErrorMessage(e, "Failed to open settlement epoch"));
+    } finally {
+      setEpochLoading(false);
+    }
+  }, [fetchPoolPendingClaims, fetchSettlementEpoch, minSettlementConfigPda, needsMigrationCount, payoutVault, poolPda, program, publicKey, refreshVault, settlementStatePda, supportedUsdcConfigPda, usdcMint, usdcTokenProgram]);
+
+  const handleCloseSettlement = useCallback(async () => {
+    if (!program || !publicKey) return;
+    setEpochLoading(true);
+    setEpochError(null);
+    setTxError(null);
+    try {
+      const methods = program.methods as unknown as {
+        closeSettlement: () => {
+          accounts: (accounts: Record<string, PublicKey>) => {
+            rpc: () => Promise<string>;
+          };
+        };
+      };
+      await methods
+        .closeSettlement()
+        .accounts({
+          pool: poolPda,
+          settlementState: settlementStatePda,
+          masterWallet: publicKey,
+        })
+        .rpc();
+      setEpochOpen(false);
+      setEpochPayoutRatio(null);
+      setEpochPayoutRatioPpm(null);
+      setEpochVaultSnapshot(null);
+      setEpochPendingSnapshot(null);
+      setEpochCoveredUsdc(null);
+      await Promise.all([refreshClaims(), refreshVault(), fetchPoolPendingClaims()]);
+    } catch (e: unknown) {
+      setEpochError(getErrorMessage(e, "Failed to close settlement epoch"));
+    } finally {
+      setEpochLoading(false);
+    }
+  }, [fetchPoolPendingClaims, poolPda, program, publicKey, refreshClaims, refreshVault, settlementStatePda]);
+
+  // migrate_claim is permissionless on-chain (the connected wallet only pays
+  // the realloc rent), so this works for any operator wallet. It reverts if a
+  // settlement epoch is open, which cannot happen from this card because
+  // epoch-open is blocked while legacy claims exist.
+  const handleMigrateClaims = useCallback(async () => {
+    if (!program || !publicKey || !signTransaction) return;
+    const legacyClaims = claims.filter((claim) => claim.needsMigration);
+    if (legacyClaims.length === 0) return;
+
+    setMigrating(true);
+    setTxError(null);
+    setMigrationProgress({ current: 0, total: legacyClaims.length });
+    try {
+      const methods = program.methods as unknown as MigrateClaimMethods;
+      for (const batch of chunkClaims(legacyClaims, MIGRATIONS_PER_TX)) {
+        const tx = new Transaction();
+        for (const claim of batch) {
+          tx.add(
+            await methods
+              .migrateClaim()
+              .accounts({
+                pool: poolPda,
+                claim: new PublicKey(claim.pubkey),
+                settlementCheck: settlementStatePda,
+                payer: publicKey,
+                systemProgram: SystemProgram.programId,
+              })
+              .instruction()
+          );
+        }
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+        tx.recentBlockhash = blockhash;
+        tx.feePayer = publicKey;
+        const signed = await signTransaction(tx);
+        const sig = await connection.sendRawTransaction(signed.serialize(), {
+          skipPreflight: false,
+          preflightCommitment: "confirmed",
+        });
+        await connection.confirmTransaction(
+          { signature: sig, blockhash, lastValidBlockHeight },
+          "confirmed",
+        );
+        setMigrationProgress((prev) => ({ current: prev.current + batch.length, total: prev.total }));
+      }
+    } catch (e: unknown) {
+      setTxError(getErrorMessage(e, "Failed to migrate legacy claims"));
+    } finally {
+      setMigrating(false);
+      // Re-fetch so needsMigrationCount reflects on-chain state before the
+      // operator can attempt to open an epoch.
+      await refreshClaims();
+    }
+  }, [claims, connection, poolPda, program, publicKey, refreshClaims, settlementStatePda, signTransaction]);
+
+  const settlementPlan = useMemo((): SettlementItem[] => {
+    // Legacy claims (pre-epoch-fields layout) cannot be passed to
+    // settle_claims: the program deserializes the current Claim struct and a
+    // smaller account reverts the whole batch. Exclude them from the plan and
+    // compute the proportional split against the settleable subset only, so
+    // the denominator matches the items being distributed.
+    const settleableClaims = claims.filter((claim) => !claim.needsMigration);
+    const settleableTotalRequested = settleableClaims.reduce(
+      (sum, claim) => sum + BigInt(claim.remainingUsdc),
+      BigInt(0)
+    );
+    if (settleableClaims.length === 0 || settleableTotalRequested === BigInt(0)) return [];
+
+    if (epochOpen && epochPayoutRatioPpm !== null) {
+      const fullyFunded = epochPayoutRatioPpm >= BigInt(1_000_000);
+      return settleableClaims
+        .map((claim) => {
+          const remaining = BigInt(claim.remainingUsdc);
+          const payout = (remaining * epochPayoutRatioPpm) / BigInt(1_000_000);
+          const capped = payout > remaining ? remaining : payout;
+          return { claim, requested: remaining, payout: capped };
+        })
+        // In an underfunded epoch the program rejects any batch that omits an
+        // eligible claim (IncompleteSettlementSet), including dust whose
+        // payout truncates to 0 — those must be submitted so the chain can
+        // stamp them into the epoch's completeness accounting. Batch
+        // inclusion is therefore decided by remaining amount, not payout
+        // positivity. Fully funded epochs can keep the payout filter since
+        // every remaining claim pays out in full anyway.
+        .filter((item) => (fullyFunded ? item.payout > BigInt(0) : item.requested > BigInt(0)));
+    }
+
+    if (vaultRaw === BigInt(0)) return [];
+    const totalClaimable =
+      vaultRaw < settleableTotalRequested ? vaultRaw : settleableTotalRequested;
+    const items = settleableClaims.map((claim) => ({
       claim,
       requested: BigInt(claim.remainingUsdc),
       payout: BigInt(0),
@@ -233,33 +544,41 @@ export function SettlementCard() {
         const payout =
           index === items.length - 1
             ? totalClaimable - distributed
-            : (item.requested * totalClaimable) / totalRequested;
+            : (item.requested * totalClaimable) / settleableTotalRequested;
         const capped = payout > item.requested ? item.requested : payout;
         distributed += capped;
         return { ...item, payout: capped };
       })
       .filter((item) => item.payout > BigInt(0));
-  }, [claims, totalRequested, vaultRaw]);
-  const requiresSingleTransaction = !canBatchSafely;
-  const exceedsSingleTransactionLimit =
-    requiresSingleTransaction && settlementPlan.length > CLAIMS_PER_TX;
+  }, [claims, vaultRaw, epochOpen, epochPayoutRatioPpm]);
+  // Underfunded epochs no longer need a single transaction: the program
+  // accepts partial batches against the locked payout ratio, and
+  // close_settlement enforces that cumulative coverage reaches the pending
+  // snapshot. Every run, funded or not, is chunked by CLAIMS_PER_TX.
+  const epochCoverageComplete =
+    epochPendingSnapshot !== null && epochCoveredUsdc !== null
+      ? epochCoveredUsdc >= epochPendingSnapshot
+      : null;
 
   const totalPayout = useMemo(
     () => settlementPlan.reduce((sum, item) => sum + item.payout, BigInt(0)),
     [settlementPlan]
   );
-  const payoutRatio = totalRequested > BigInt(0)
-    ? Number((totalPayout * BigInt(10_000)) / totalRequested) / 100
-    : 0;
+  // Preview ratio (no epoch open yet) mirrors the on-chain
+  // compute_settlement_payout_ratio: vault over ALL pending claims, since
+  // opening an epoch snapshots pool.total_pending_claims (which still
+  // includes unmigrated legacy claims). Do NOT derive this from totalPayout,
+  // which is restricted to the settleable subset — that would understate the
+  // ratio whenever legacy claims are present. The on-chain epoch branch above
+  // uses the authoritative ratio once an epoch is open.
+  const payoutRatio = epochOpen && epochPayoutRatio !== null
+    ? epochPayoutRatio
+    : totalRequested > BigInt(0)
+      ? Number(((vaultRaw < totalRequested ? vaultRaw : totalRequested) * BigInt(10_000)) / totalRequested) / 100
+      : 0;
 
   const handleSettleAll = useCallback(async () => {
     if (!program || !publicKey || !usdcMint || !usdcTokenProgram || !payoutVault || settlementPlan.length === 0) return;
-    if (exceedsSingleTransactionLimit) {
-      setTxError(
-        `This underfunded settlement run must include all open requests in one transaction, and ${settlementPlan.length} requests exceeds the current safe limit of ${CLAIMS_PER_TX}. Add more vault liquidity or settle after a program upgrade.`
-      );
-      return;
-    }
 
     setSettling(true);
     setTxError(null);
@@ -270,9 +589,7 @@ export function SettlementCard() {
     let settledClaims = 0;
     let failedClaims = 0;
 
-    const batches = canBatchSafely
-      ? chunkClaims(settlementPlan, CLAIMS_PER_TX)
-      : [settlementPlan];
+    const batches = chunkClaims(settlementPlan, CLAIMS_PER_TX);
 
     const sendSettlementBatch = async (batch: SettlementItem[]): Promise<string> => {
       let lastError: unknown;
@@ -319,6 +636,7 @@ export function SettlementCard() {
               poolBunkercashEscrow,
               supportedUsdcConfig: supportedUsdcConfigPda,
               usdcMint,
+              settlementState: settlementStatePda,
               masterWallet: publicKey,
               usdcTokenProgram,
               tokenProgram: TOKEN_2022_PROGRAM_ID,
@@ -388,32 +706,24 @@ export function SettlementCard() {
           }
         }
         failedClaims += batch.length;
-        setTxError(
-          getErrorMessage(
-            e,
-            canBatchSafely
-              ? "Failed to settle one of the settlement batches."
-              : "Failed to settle the underfunded claim set in a single transaction."
-          )
-        );
-        if (!canBatchSafely) break;
+        setTxError(getErrorMessage(e, "Failed to settle one of the settlement batches."));
       }
     }
     setResults({ settledClaims, failedClaims, signatures: succeeded });
     setSettling(false);
-    await Promise.all([refreshClaims(), refreshVault(), fetchPoolPendingClaims()]);
-  }, [bunkercashMintPda, canBatchSafely, connection, exceedsSingleTransactionLimit, fetchPoolPendingClaims, payoutVault, poolBunkercashEscrow, program, publicKey, signTransaction, refreshClaims, refreshVault, settlementPlan, usdcMint, usdcTokenProgram, poolPda, supportedUsdcConfigPda]);
+    await Promise.all([refreshClaims(), refreshVault(), fetchPoolPendingClaims(), fetchSettlementEpoch()]);
+  }, [bunkercashMintPda, connection, fetchPoolPendingClaims, fetchSettlementEpoch, payoutVault, poolBunkercashEscrow, program, publicKey, signTransaction, refreshClaims, refreshVault, settlementPlan, settlementStatePda, usdcMint, usdcTokenProgram, poolPda, supportedUsdcConfigPda]);
 
   const loading = claimsLoading || vaultLoading;
   const canSettle =
     !!wallet.publicKey &&
     !!program &&
     !!usdcMint &&
+    epochOpen &&
     settlementPlan.length > 0 &&
     !settling &&
     !pendingClaimsSyncRequired &&
-    !underfundedPoolMismatch &&
-    !exceedsSingleTransactionLimit;
+    !vaultBelowMinSettlement;
 
   return (
     <div className="space-y-6">
@@ -429,6 +739,7 @@ export function SettlementCard() {
             refreshClaims();
             refreshVault();
             void fetchPoolPendingClaims();
+            void fetchSettlementEpoch();
           }}
           disabled={loading}
           className="inline-flex items-center gap-2 rounded-lg border border-neutral-800/60 px-3 py-2 text-sm text-neutral-300 transition hover:border-neutral-700 hover:text-white disabled:opacity-50"
@@ -465,6 +776,166 @@ export function SettlementCard() {
         </div>
       </div>
 
+      {needsMigrationCount > 0 && (
+        <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-base font-semibold text-rose-300">
+                {needsMigrationCount} claim{needsMigrationCount === 1 ? "" : "s"} must be migrated before settlement
+              </h2>
+              <p className="mt-1 text-sm text-rose-200/80">
+                {needsMigrationCount === 1 ? "This claim uses" : "These claims use"} a legacy account
+                layout from before the settlement-epoch upgrade. Opening a settlement epoch is
+                blocked: legacy claims cannot be settled or migrated while an epoch is open, yet
+                they still count toward the epoch snapshot, so an epoch opened now could never
+                close. Migrate them here (or via the
+                {" "}<span className="font-mono">migrate-accounts.ts</span> script), then re-check.
+              </p>
+            </div>
+            <button
+              onClick={() => void handleMigrateClaims()}
+              disabled={!wallet.publicKey || !program || migrating || epochOpen}
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-rose-500/20 px-4 py-2 text-sm font-medium text-rose-200 transition hover:bg-rose-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {migrating ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {migrating
+                ? `Migrating ${migrationProgress.current}/${migrationProgress.total}...`
+                : "Migrate Claims"}
+            </button>
+          </div>
+          {epochOpen && (
+            <p className="mt-3 text-sm text-rose-200/80">
+              A settlement epoch is currently open, so migration is blocked on-chain. Close the
+              epoch first, then migrate.
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/30 p-5">
+        <h2 className="text-base font-semibold text-white">Minimum Settlement Threshold</h2>
+        <p className="mt-1 text-sm text-neutral-500">
+          Vault must hold at least this much USDC before a settlement epoch can open. Set to 0 to disable.
+        </p>
+        <div className="mt-4 flex items-end gap-3">
+          <div className="flex-1">
+            <label className="mb-1 block text-xs text-neutral-400">Min USDC</label>
+            <input
+              type="text"
+              value={minSettlementInput}
+              onChange={(e) => setMinSettlementInput(e.target.value)}
+              placeholder="e.g. 100.00"
+              className="w-full rounded-lg border border-neutral-700 bg-neutral-950/60 px-3 py-2 font-mono text-sm text-white placeholder:text-neutral-600 focus:border-[#00FFB2]/50 focus:outline-none"
+            />
+          </div>
+          <button
+            onClick={() => void handleSaveMinSettlement()}
+            disabled={!wallet.publicKey || !program || savingMinSettlement}
+            className="inline-flex items-center gap-2 rounded-lg bg-neutral-800 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {savingMinSettlement ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Save
+          </button>
+        </div>
+        {minSettlementUsdc !== null && minSettlementUsdc > BigInt(0) && (
+          <p className="mt-2 text-xs text-neutral-400">
+            Current on-chain minimum: <span className="font-mono text-white">${formatUsdc(minSettlementUsdc)}</span> USDC
+          </p>
+        )}
+      </div>
+
+      <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/30 p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-base font-semibold text-white">Settlement Epoch</h2>
+            <p className="mt-1 text-sm text-neutral-500">
+              {epochOpen
+                ? "A settlement epoch is active. Settle all eligible claims in batches, then close the epoch once coverage is complete."
+                : "Open an epoch to snapshot the vault balance and lock the payout ratio before settling."}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {!epochOpen ? (
+              <button
+                onClick={() => void handleOpenSettlement()}
+                disabled={!wallet.publicKey || !program || epochLoading || migrating || claims.length === 0 || needsMigrationCount > 0 || vaultBelowMinSettlement}
+                className="inline-flex items-center gap-2 rounded-lg bg-[#00FFB2] px-4 py-2 text-sm font-medium text-black transition hover:bg-[#33FFC1] disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+              >
+                {epochLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Open Epoch
+              </button>
+            ) : (
+              <button
+                onClick={() => void handleCloseSettlement()}
+                disabled={!wallet.publicKey || !program || epochLoading || settling || epochCoverageComplete === false}
+                title={epochCoverageComplete === false ? "Every claim in the epoch snapshot must be settled or cancelled before the epoch can close." : undefined}
+                className="inline-flex items-center gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-2 text-sm font-medium text-rose-300 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {epochLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Close Epoch
+              </button>
+            )}
+          </div>
+        </div>
+
+        {epochOpen && (
+          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-4">
+            <div className="rounded-lg border border-neutral-800/60 bg-neutral-950/40 p-4">
+              <div className="text-[11px] uppercase tracking-wider text-neutral-500">Vault Snapshot</div>
+              <div className="mt-2 font-mono text-lg font-semibold text-white">
+                ${epochVaultSnapshot !== null ? formatUsdc(epochVaultSnapshot) : "—"}
+              </div>
+            </div>
+            <div className="rounded-lg border border-neutral-800/60 bg-neutral-950/40 p-4">
+              <div className="text-[11px] uppercase tracking-wider text-neutral-500">Pending Snapshot</div>
+              <div className="mt-2 font-mono text-lg font-semibold text-white">
+                ${epochPendingSnapshot !== null ? formatUsdc(epochPendingSnapshot) : "—"}
+              </div>
+            </div>
+            <div className="rounded-lg border border-neutral-800/60 bg-neutral-950/40 p-4">
+              <div className="text-[11px] uppercase tracking-wider text-neutral-500">Locked Payout Ratio</div>
+              <div className={`mt-2 text-lg font-semibold ${epochPayoutRatio !== null && epochPayoutRatio >= 100 ? "text-[#00FFB2]" : "text-amber-400"}`}>
+                {epochPayoutRatio !== null ? `${epochPayoutRatio.toFixed(2)}%` : "—"}
+              </div>
+            </div>
+            <div className="rounded-lg border border-neutral-800/60 bg-neutral-950/40 p-4">
+              <div className="text-[11px] uppercase tracking-wider text-neutral-500">Epoch Coverage</div>
+              <div className={`mt-2 font-mono text-lg font-semibold ${epochCoverageComplete ? "text-[#00FFB2]" : "text-amber-400"}`}>
+                {epochCoveredUsdc !== null && epochPendingSnapshot !== null
+                  ? `$${formatUsdc(epochCoveredUsdc)} / $${formatUsdc(epochPendingSnapshot)}`
+                  : "—"}
+              </div>
+              <div className="mt-1 text-xs text-neutral-500">
+                {epochCoverageComplete
+                  ? "complete — epoch can close"
+                  : "settled + cancelled vs snapshot"}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {epochError && (
+          <div className="mt-4 flex items-start gap-3 rounded-lg border border-rose-500/20 bg-rose-500/5 px-4 py-3 text-sm text-rose-300">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            {epochError}
+          </div>
+        )}
+
+        {!epochOpen && wallet.publicKey && (
+          <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            No active settlement epoch. Open an epoch before settling claims.
+          </div>
+        )}
+      </div>
+
+      {vaultBelowMinSettlement && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          Vault balance (${vaultBalance ?? "0"}) is below the configured minimum settlement threshold (${formatUsdc(minSettlementUsdc ?? BigInt(0))}). Settlement is blocked until the vault is funded.
+        </div>
+      )}
+
       {!wallet.publicKey && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
           <Wallet className="mt-0.5 h-4 w-4 shrink-0" />
@@ -486,7 +957,7 @@ export function SettlementCard() {
           {pendingClaimsSyncRequired
             ? " Settlement is blocked because the on-chain tracker is stale low and must be synced before any settlement run."
             : underfundedPoolMismatch
-              ? " Settlement is blocked because the program now requires the full underfunded request set to prevent unfair payouts."
+              ? " Settlement can proceed in batches at the epoch's locked payout ratio, but the epoch cannot close until every request in the snapshot has been processed — investigate the mismatch if coverage stalls."
               : " Settlement can continue because the on-chain tracker is higher than the decoded open-request set."}
         </div>
       )}
@@ -512,7 +983,10 @@ export function SettlementCard() {
           <div>
             <h2 className="text-base font-semibold text-white">Settlement Run</h2>
             <p className="mt-1 text-sm text-neutral-500">
-              Fully funded runs are split into small batches. Underfunded runs must still settle the full open-request set in one transaction so the payout ratio matches on-chain math.
+              Runs are split into batches of {CLAIMS_PER_TX} requests per transaction. Underfunded
+              epochs pay every request at the payout ratio locked when the epoch opened, across as
+              many batches as needed; the epoch can close once every request in the snapshot is
+              processed.
             </p>
           </div>
           <button
@@ -622,8 +1096,12 @@ export function SettlementCard() {
                         {formatTimestamp(claim.createdAt)}
                       </td>
                       <td className="px-5 py-4 text-right text-sm">
-                        {plannedPayout > BigInt(0) ? (
-                          <span className="text-amber-400">Included</span>
+                        {plannedItem ? (
+                          plannedPayout > BigInt(0) ? (
+                            <span className="text-amber-400">Included</span>
+                          ) : (
+                            <span className="text-amber-400">Included (no payout)</span>
+                          )
                         ) : BigInt(claim.paidUsdc) > BigInt(0) ? (
                           <span className="text-sky-400">Partially Paid</span>
                         ) : (

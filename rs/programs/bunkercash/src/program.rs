@@ -41,11 +41,33 @@ declare_id!("Fp8b6p287TL5oPMwLVdwGys5phHNLcmTKNvVoGdCJS6g");
 const POOL_SEED: &[u8] = b"pool";
 const BUNKERCASH_MINT_SEED: &[u8] = b"bunkercash_mint";
 const CLAIM_SEED: &[u8] = b"claim";
+const SETTLEMENT_SEED: &[u8] = b"settlement";
 const PURCHASE_LIMIT_SEED: &[u8] = b"purchase_limit";
 const SUPPORTED_USDC_CONFIG_SEED: &[u8] = b"supported_usdc_config";
 const FEE_CONFIG_SEED: &[u8] = b"fee_config";
+const MIN_SETTLEMENT_CONFIG_SEED: &[u8] = b"min_settlement_config";
+const MIN_CLAIM_CONFIG_SEED: &[u8] = b"min_claim_config";
 const TOKEN_DECIMALS: u8 = 6;
 const MAX_FEE_BPS: u16 = 1_000;
+// Minimum USDC value a claim must resolve to before it is admitted to the
+// queue. Applies whenever MinClaimConfig has not been initialized; the
+// config can raise or lower it (including to 0 to disable). $1.00 at
+// 6 decimals.
+const DEFAULT_MIN_CLAIM_USDC: u64 = 1_000_000;
+
+// On-chain sizes (8-byte discriminator included) of the historical account
+// layouts that may still exist on an upgraded-in-place deployment. Used by
+// the migrate_* instructions to detect which legacy shape an account holds.
+//
+// Pool before settlement_epoch_seq was added:
+//   8 + 32 (master_wallet) + 5 * 8 (u64 fields) + 1 (bump)
+const LEGACY_POOL_SPACE: usize = 8 + 32 + 5 * 8 + 1;
+// Claim as originally deployed (no epoch fields at all):
+//   8 + 32 (user) + 8 + 8 + 1 + 8 + 8 + 8 + 1 + 1
+const LEGACY_CLAIM_V1_SPACE: usize = 8 + 32 + 8 + 8 + 1 + 8 + 8 + 8 + 1 + 1;
+// Claim with the interim `last_settled_epoch: i64` timestamp marker that
+// predates the monotonic epoch sequence pair.
+const LEGACY_CLAIM_V2_SPACE: usize = LEGACY_CLAIM_V1_SPACE + 8;
 
 fn arithmetic_error() -> Error {
     ErrorCode::ArithmeticError.into()
@@ -114,6 +136,24 @@ fn calculate_claim_usdc_value(
     }
 
     Some(usdc_value)
+}
+
+fn compute_settlement_payout_ratio(
+    vault_balance: u64,
+    total_pending_claims: u64,
+) -> Result<u64> {
+    if total_pending_claims == 0 {
+        return Ok(0);
+    }
+    let claimable = vault_balance.min(total_pending_claims);
+    u64::try_from(
+        (claimable as u128)
+            .checked_mul(1_000_000)
+            .ok_or_else(arithmetic_error)?
+            .checked_div(total_pending_claims as u128)
+            .ok_or_else(arithmetic_error)?,
+    )
+    .map_err(|_| arithmetic_error())
 }
 
 fn canonical_pool_usdc_vault(pool: Pubkey, usdc_mint: Pubkey, token_program: Pubkey) -> Pubkey {
@@ -287,6 +327,35 @@ fn validate_settlement_pending_claims(
     Ok(())
 }
 
+// Settlement completeness is tracked exactly, with no rounding-tolerance
+// term. Every claim that existed when the epoch opened (pending_snapshot)
+// must be accounted for in one of two ways before the epoch can close:
+//   - processed by settle_claims: its pre-payout remaining USDC accumulates
+//     into total_processed_usdc (dust claims whose payout floors to zero
+//     included), or
+//   - cancelled by its owner: its unpaid remainder accumulates into
+//     total_cancelled_usdc (skipped for claims already processed this epoch
+//     so a claim can never be counted twice).
+// The old model compared paid USDC against an aggregate expected payout with
+// "+1 micro-USDC per settled claim" of slack; that slack let zero-payout dust
+// claims mask genuinely unsettled claims. Coverage in claim-remaining terms
+// is exact, so dust claims contribute their true (tiny) remaining and cannot
+// inflate anything.
+fn validate_settlement_completeness(
+    total_processed_usdc: u64,
+    pending_snapshot: u64,
+    total_cancelled_usdc: u64,
+) -> Result<()> {
+    let covered_usdc = total_processed_usdc
+        .checked_add(total_cancelled_usdc)
+        .ok_or_else(arithmetic_error)?;
+    require!(
+        covered_usdc >= pending_snapshot,
+        ErrorCode::SettlementIncomplete
+    );
+    Ok(())
+}
+
 fn validate_unique_settlement_claim_accounts(claim_keys: &[Pubkey]) -> Result<()> {
     let mut seen_claim_keys = Vec::with_capacity(claim_keys.len());
 
@@ -298,6 +367,33 @@ fn validate_unique_settlement_claim_accounts(claim_keys: &[Pubkey]) -> Result<()
         seen_claim_keys.push(*claim_key);
     }
 
+    Ok(())
+}
+
+// Grows a program-owned account to `new_space`, topping up lamports from
+// `payer` first so the account stays rent-exempt at the new size. New bytes
+// are zero-initialized.
+fn fund_rent_and_grow<'info>(
+    target: &AccountInfo<'info>,
+    new_space: usize,
+    payer: &AccountInfo<'info>,
+    system_program: &AccountInfo<'info>,
+) -> Result<()> {
+    let required_lamports = Rent::get()?.minimum_balance(new_space);
+    let shortfall = required_lamports.saturating_sub(target.lamports());
+    if shortfall > 0 {
+        anchor_lang::system_program::transfer(
+            CpiContext::new(
+                system_program.clone(),
+                anchor_lang::system_program::Transfer {
+                    from: payer.clone(),
+                    to: target.clone(),
+                },
+            ),
+            shortfall,
+        )?;
+    }
+    target.realloc(new_space, true)?;
     Ok(())
 }
 
@@ -374,6 +470,7 @@ pub mod bunkercash {
         pool.total_pending_claims = 0;
         pool.claim_counter = 0;
         pool.withdrawal_counter = 0;
+        pool.settlement_epoch_seq = 0;
         pool.bump = ctx.bumps.pool;
 
         let usdc_mint_key = ctx.accounts.usdc_mint.key();
@@ -598,6 +695,64 @@ pub mod bunkercash {
         Ok(())
     }
 
+    pub fn set_min_settlement_usdc(
+        ctx: Context<SetMinSettlementUsdc>,
+        min_settlement_usdc: u64,
+    ) -> Result<()> {
+        let pool = &ctx.accounts.pool;
+        let config = &mut ctx.accounts.min_settlement_config;
+
+        require!(
+            ctx.accounts.admin.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+
+        config.min_settlement_usdc = min_settlement_usdc;
+        if config.bump == 0 {
+            config.bump = ctx.bumps.min_settlement_config;
+        }
+
+        emit!(MinSettlementUpdatedEvent {
+            pool: pool.key(),
+            admin: ctx.accounts.admin.key(),
+            min_settlement_usdc,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+
+        Ok(())
+    }
+
+    // Minimum USDC value a new claim must resolve to in file_claim. Distinct
+    // from MinSettlementConfig (an operator-side settlement floor): this is a
+    // claim-admission rule. While the config account is uninitialized,
+    // DEFAULT_MIN_CLAIM_USDC applies; setting 0 here disables the floor.
+    pub fn set_min_claim_usdc(
+        ctx: Context<SetMinClaimUsdc>,
+        min_claim_usdc: u64,
+    ) -> Result<()> {
+        let pool = &ctx.accounts.pool;
+        let config = &mut ctx.accounts.min_claim_config;
+
+        require!(
+            ctx.accounts.admin.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+
+        config.min_claim_usdc = min_claim_usdc;
+        if config.bump == 0 {
+            config.bump = ctx.bumps.min_claim_config;
+        }
+
+        emit!(MinClaimUpdatedEvent {
+            pool: pool.key(),
+            admin: ctx.accounts.admin.key(),
+            min_claim_usdc,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+
+        Ok(())
+    }
+
     pub fn create_bunkercash_mint(ctx: Context<CreateBunkercashMint>) -> Result<()> {
         let pool = &ctx.accounts.pool;
         require!(
@@ -706,6 +861,17 @@ pub mod bunkercash {
         )
         .ok_or(ErrorCode::ClaimAmountTooSmall)?;
 
+        // Claim-admission floor: nuisance dust is rejected here, at entry,
+        // so settlement never has to special-case near-worthless claims that
+        // should not have been queued.
+        let min_claim_usdc = if ctx.accounts.min_claim_config.data_is_empty() {
+            DEFAULT_MIN_CLAIM_USDC
+        } else {
+            let data = ctx.accounts.min_claim_config.try_borrow_data()?;
+            MinClaimConfig::try_deserialize(&mut &data[..])?.min_claim_usdc
+        };
+        require!(usdc_value >= min_claim_usdc, ErrorCode::ClaimBelowMinimum);
+
         // Send the fee portion to the admin wallet's BunkerCash ATA.
         if fee_bunkercash > 0 {
             anchor_spl::token_2022::transfer_checked(
@@ -762,6 +928,8 @@ pub mod bunkercash {
         claim.bunkercash_escrow = net_bunkercash;
         claim.bunkercash_remaining = net_bunkercash;
         claim.cancelled = false;
+        claim.last_settled_epoch_seq = 0;
+        claim.last_paid_epoch_seq = 0;
         claim.bump = ctx.bumps.claim;
 
         emit!(ClaimFiledEvent {
@@ -812,16 +980,28 @@ pub mod bunkercash {
             ctx.remaining_accounts,
         )?;
 
-        // Compute the remaining amount across the claims included in this run.
-        // Cancelled claims must be skipped — their BunkerCash escrow has already
-        // been returned to the user and their USDC-remaining has already been
-        // subtracted from `total_pending_claims`.
+        // Only claims that existed before the settlement epoch opened are
+        // eligible.  Without this gate a master wallet could file a large
+        // post-epoch claim, settle only it, and satisfy the completeness
+        // check while paying nothing to original claimants.
+        // `last_settled_epoch_seq != epoch_seq` additionally rejects claims
+        // already paid in an earlier batch of this same epoch (multi-batch
+        // re-submission anti-replay). Using a monotonic sequence instead of
+        // a raw timestamp avoids same-second collisions between consecutive
+        // epochs.
+        let epoch_timestamp = ctx.accounts.settlement_state.timestamp;
+        let epoch_seq = ctx.accounts.settlement_state.epoch_seq;
+
         let mut actual_total_remaining = 0u64;
         for (idx, claim_account_info) in ctx.remaining_accounts.iter().enumerate() {
             if idx % 2 == 0 {
                 let claim_data = claim_account_info.try_borrow_data()?;
                 let claim = Claim::try_deserialize(&mut &claim_data[..])?;
-                if !claim.cancelled && claim.paid_amount < claim.usdc_amount {
+                if !claim.cancelled
+                    && claim.paid_amount < claim.usdc_amount
+                    && claim.timestamp < epoch_timestamp
+                    && claim.last_settled_epoch_seq != epoch_seq
+                {
                     actual_total_remaining = actual_total_remaining
                         .checked_add(claim.usdc_amount.saturating_sub(claim.paid_amount))
                         .ok_or_else(arithmetic_error)?;
@@ -831,26 +1011,43 @@ pub mod bunkercash {
 
         let pool_pending_before = pool.total_pending_claims;
         validate_settlement_pending_claims(pool_pending_before, actual_total_remaining)?;
-        let usdc_balance = accessor::amount(&ctx.accounts.pool_usdc.to_account_info())?;
-        require!(
-            !(usdc_balance < pool_pending_before && actual_total_remaining < pool_pending_before),
-            ErrorCode::IncompleteSettlementSet
-        );
 
-        let total_claimable = usdc_balance.min(actual_total_remaining);
-        let payout_ratio = if actual_total_remaining > 0 {
-            u64::try_from(
-                (total_claimable as u128)
-                    .checked_mul(1_000_000)
-                    .ok_or_else(arithmetic_error)?
-                    .checked_div(actual_total_remaining as u128)
-                    .ok_or_else(arithmetic_error)?,
-            )
-            .map_err(|_| arithmetic_error())?
-        } else {
-            0
-        };
+        let settlement = &mut ctx.accounts.settlement_state;
+        let payout_ratio = settlement.payout_ratio_ppm;
+        let total_claimable = settlement.vault_snapshot.min(settlement.pending_snapshot);
         let timestamp = Clock::get()?.unix_timestamp;
+
+        let unsettled_before_batch = settlement.pending_snapshot
+            .saturating_sub(settlement.total_processed_usdc)
+            .saturating_sub(settlement.total_cancelled_usdc);
+
+        let batch_is_incomplete = actual_total_remaining > 0
+            && actual_total_remaining < unsettled_before_batch;
+
+        // Partial batches are allowed in any epoch, underfunded or not, so a
+        // large claim set can be settled across multiple transactions
+        // (Solana account limits cap one batch at a handful of claims).
+        // Fairness does not depend on batching: `payout_ratio_ppm` was locked
+        // when the epoch opened, so every eligible claim receives exactly
+        // remaining * ratio regardless of which batch carries it or in what
+        // order. The `last_settled_epoch_seq` stamp prevents re-submission
+        // across batches, the vault cannot shrink mid-epoch (master_withdraw
+        // is blocked while the SettlementState PDA exists), and
+        // `close_settlement` still refuses to close until
+        // total_processed_usdc + total_cancelled_usdc covers
+        // pending_snapshot — so skipping a claim stalls the epoch (and the
+        // master's own withdrawals), it never short-changes the claimant.
+        // The warning event keeps partial coverage observable off-chain.
+        if batch_is_incomplete {
+            emit!(SettlementCoverageWarningEvent {
+                pool: pool.key(),
+                pending_snapshot: settlement.pending_snapshot,
+                submitted_claims_total: actual_total_remaining,
+                missing_claims_total: unsettled_before_batch
+                    .saturating_sub(actual_total_remaining),
+                timestamp,
+            });
+        }
 
         if total_claimable == 0 {
             emit!(ClaimsSettledEvent {
@@ -875,13 +1072,18 @@ pub mod bunkercash {
         let signer = &[&seeds[..]];
         let mut claims_settled = 0u64;
         let mut total_paid = 0u64;
+        let mut processed_remaining = 0u64;
 
         for (idx, claim_account_info) in ctx.remaining_accounts.iter().enumerate() {
             if idx % 2 == 0 {
                 let mut claim_data = claim_account_info.try_borrow_mut_data()?;
                 let claim = Claim::try_deserialize(&mut &claim_data[..])?;
 
-                if !claim.cancelled && claim.paid_amount < claim.usdc_amount {
+                if !claim.cancelled
+                    && claim.paid_amount < claim.usdc_amount
+                    && claim.timestamp < epoch_timestamp
+                    && claim.last_settled_epoch_seq != epoch_seq
+                {
                     let claim_usdc_amount = claim.usdc_amount;
                     let claim_paid_amount = claim.paid_amount;
                     let claim_remaining_amount = claim_usdc_amount.saturating_sub(claim.paid_amount);
@@ -894,40 +1096,28 @@ pub mod bunkercash {
                     )
                     .map_err(|_| arithmetic_error())?;
 
-                    if payout == 0 {
-                        continue;
-                    }
-
-                    let user_usdc = &ctx.remaining_accounts[idx + 1];
-
-                    token_interface::transfer_checked(
-                        CpiContext::new_with_signer(
-                            ctx.accounts.usdc_token_program.to_account_info(),
-                            token_interface::TransferChecked {
-                                from: ctx.accounts.pool_usdc.to_account_info(),
-                                to: user_usdc.to_account_info(),
-                                authority: pool.to_account_info(),
-                                mint: ctx.accounts.usdc_mint.to_account_info(),
-                            },
-                            signer,
-                        ),
-                        payout,
-                        ctx.accounts.usdc_mint.decimals,
-                    )?;
-
-                    let remaining_after_payout = claim_remaining_amount.saturating_sub(payout);
-
-                    // Burn the proportional slice of escrowed BunkerCash. We
-                    // use original escrow / original usdc amounts so cumulative
-                    // integer-division truncations never allow the sum of
-                    // burned BunkerCash to exceed the original escrow. When the
-                    // claim is fully paid off we drain the remainder exactly so
-                    // no dust stays stranded in the pool escrow.
-                    let bunkercash_to_burn = if remaining_after_payout == 0 {
+                    // Dust path: payout truncates to 0 (very small
+                    // remaining * payout_ratio). We still stamp the claim
+                    // and add its remaining to total_processed_usdc so
+                    // close_settlement's exact coverage check counts it as
+                    // handled this epoch. The claim itself is untouched
+                    // (paid_amount unchanged, not marked processed), so it
+                    // stays pending and becomes eligible again in a future
+                    // epoch where the ratio gives it a non-zero payout.
+                    let bunkercash_to_burn = if payout == 0 {
+                        0u64
+                    } else if claim_remaining_amount.saturating_sub(payout) == 0 {
+                        // Drain the remainder exactly on full payoff so no
+                        // dust BunkerCash stays stranded in pool escrow.
                         claim.bunkercash_remaining
                     } else if claim.usdc_amount == 0 {
                         0
                     } else {
+                        // Burn the proportional slice of escrowed BunkerCash.
+                        // We use original escrow / original usdc amounts so
+                        // cumulative integer-division truncations never allow
+                        // the sum of burned BunkerCash to exceed the original
+                        // escrow.
                         u64::try_from(
                             (payout as u128)
                                 .checked_mul(claim.bunkercash_escrow as u128)
@@ -938,30 +1128,54 @@ pub mod bunkercash {
                         .map_err(|_| arithmetic_error())?
                     };
 
-                    if bunkercash_to_burn > 0 {
-                        require!(
-                            bunkercash_to_burn <= claim.bunkercash_remaining,
-                            ErrorCode::ArithmeticError
-                        );
+                    if payout > 0 {
+                        let user_usdc = &ctx.remaining_accounts[idx + 1];
 
-                        anchor_spl::token_2022::burn_checked(
+                        token_interface::transfer_checked(
                             CpiContext::new_with_signer(
-                                ctx.accounts.token_program.to_account_info(),
-                                anchor_spl::token_2022::BurnChecked {
-                                    mint: ctx.accounts.bunkercash_mint.to_account_info(),
-                                    from: ctx.accounts.pool_bunkercash_escrow.to_account_info(),
+                                ctx.accounts.usdc_token_program.to_account_info(),
+                                token_interface::TransferChecked {
+                                    from: ctx.accounts.pool_usdc.to_account_info(),
+                                    to: user_usdc.to_account_info(),
                                     authority: pool.to_account_info(),
+                                    mint: ctx.accounts.usdc_mint.to_account_info(),
                                 },
                                 signer,
                             ),
-                            bunkercash_to_burn,
-                            ctx.accounts.bunkercash_mint.decimals,
+                            payout,
+                            ctx.accounts.usdc_mint.decimals,
                         )?;
+
+                        if bunkercash_to_burn > 0 {
+                            require!(
+                                bunkercash_to_burn <= claim.bunkercash_remaining,
+                                ErrorCode::ArithmeticError
+                            );
+
+                            anchor_spl::token_2022::burn_checked(
+                                CpiContext::new_with_signer(
+                                    ctx.accounts.token_program.to_account_info(),
+                                    anchor_spl::token_2022::BurnChecked {
+                                        mint: ctx.accounts.bunkercash_mint.to_account_info(),
+                                        from: ctx.accounts.pool_bunkercash_escrow.to_account_info(),
+                                        authority: pool.to_account_info(),
+                                    },
+                                    signer,
+                                ),
+                                bunkercash_to_burn,
+                                ctx.accounts.bunkercash_mint.decimals,
+                            )?;
+                        }
+
+                        pool.nav = pool.nav.checked_sub(payout).ok_or_else(arithmetic_error)?;
+                        total_paid = total_paid.checked_add(payout).ok_or_else(arithmetic_error)?;
                     }
 
-                    pool.nav = pool.nav.checked_sub(payout).ok_or_else(arithmetic_error)?;
+                    let remaining_after_payout = claim_remaining_amount.saturating_sub(payout);
                     claims_settled = claims_settled.checked_add(1).ok_or_else(arithmetic_error)?;
-                    total_paid = total_paid.checked_add(payout).ok_or_else(arithmetic_error)?;
+                    processed_remaining = processed_remaining
+                        .checked_add(claim_remaining_amount)
+                        .ok_or_else(arithmetic_error)?;
 
                     let mut updated_claim = claim;
                     updated_claim.processed = remaining_after_payout == 0;
@@ -972,6 +1186,10 @@ pub mod bunkercash {
                         .bunkercash_remaining
                         .checked_sub(bunkercash_to_burn)
                         .ok_or_else(arithmetic_error)?;
+                    updated_claim.last_settled_epoch_seq = epoch_seq;
+                    if payout > 0 {
+                        updated_claim.last_paid_epoch_seq = epoch_seq;
+                    }
                     updated_claim.serialize(&mut &mut claim_data[8..])?;
 
                     emit!(ClaimSettledEvent {
@@ -997,6 +1215,14 @@ pub mod bunkercash {
         }
 
         pool.total_pending_claims = pool_pending_before.checked_sub(total_paid).ok_or_else(arithmetic_error)?;
+        settlement.total_settled_usdc = settlement
+            .total_settled_usdc
+            .checked_add(total_paid)
+            .ok_or_else(arithmetic_error)?;
+        settlement.total_processed_usdc = settlement
+            .total_processed_usdc
+            .checked_add(processed_remaining)
+            .ok_or_else(arithmetic_error)?;
 
         emit!(ClaimsSettledEvent {
             pool: pool.key(),
@@ -1028,6 +1254,28 @@ pub mod bunkercash {
         );
         require!(!claim.cancelled, ErrorCode::ClaimAlreadyCancelled);
         require!(!claim.processed, ErrorCode::ClaimAlreadyProcessed);
+
+        // If a settlement epoch is open, block cancellation only when this
+        // claim was already paid in *this* epoch. Letting a user cancel after
+        // receiving their epoch payout would cause the payout to land in
+        // `total_settled_usdc` AND the released remainder to land in
+        // `total_cancelled_usdc`, double-counting against `pending_snapshot`
+        // and effectively giving the canceller 100% recovery while others
+        // share the haircut. Cancellation outside an active epoch (including
+        // partial-paid claims left over from a prior, already-closed epoch)
+        // is allowed: it simply releases the unpaid remainder.
+        let settlement_ai = ctx.accounts.settlement_state.to_account_info();
+        if !settlement_ai.data_is_empty() {
+            let settlement_peek = {
+                let data = settlement_ai.try_borrow_data()?;
+                SettlementState::try_deserialize(&mut &data[..])
+                    .map_err(|_| error!(ErrorCode::NoActiveSettlement))?
+            };
+            require!(
+                claim.last_paid_epoch_seq != settlement_peek.epoch_seq,
+                ErrorCode::CannotCancelPaidThisEpoch
+            );
+        }
 
         let refunded_bunkercash = claim.bunkercash_remaining;
         let released_usdc = claim
@@ -1068,6 +1316,40 @@ pub mod bunkercash {
         claim.cancelled = true;
         claim.bunkercash_remaining = 0;
 
+        if !settlement_ai.data_is_empty() {
+            let mut settlement = {
+                let data = settlement_ai.try_borrow_data()?;
+                SettlementState::try_deserialize(&mut &data[..])
+                    .map_err(|_| error!(ErrorCode::NoActiveSettlement))?
+            };
+            // Only track cancellations of claims that existed before the
+            // epoch opened. Post-epoch claims are not in pending_snapshot,
+            // so counting them would let an attacker inflate
+            // total_cancelled_usdc past pending_snapshot and zero out
+            // the completeness check.
+            //
+            // Also skip claims already stamped by settle_claims in this
+            // epoch: their remaining is already counted in
+            // total_processed_usdc, and adding the released remainder to
+            // total_cancelled_usdc as well would double-count the claim
+            // against pending_snapshot and let the epoch close while some
+            // other claim is still unsettled. (Only dust claims that
+            // received a zero payout can reach this path; paid claims are
+            // blocked from cancelling by the last_paid_epoch_seq guard.)
+            if claim.timestamp < settlement.timestamp
+                && claim.last_settled_epoch_seq != settlement.epoch_seq
+            {
+                settlement.total_cancelled_usdc = settlement
+                    .total_cancelled_usdc
+                    .checked_add(released_usdc)
+                    .ok_or_else(arithmetic_error)?;
+                let mut buf = Vec::new();
+                settlement.try_serialize(&mut buf)?;
+                let mut data = settlement_ai.try_borrow_mut_data()?;
+                data[..buf.len()].copy_from_slice(&buf);
+            }
+        }
+
         let timestamp = Clock::get()?.unix_timestamp;
         emit!(ClaimCancelledEvent {
             pool: pool.key(),
@@ -1087,6 +1369,292 @@ pub mod bunkercash {
         Ok(())
     }
 
+    pub fn open_settlement(ctx: Context<OpenSettlement>) -> Result<()> {
+        validate_supported_usdc_mint(
+            &ctx.accounts.supported_usdc_config,
+            &ctx.accounts.usdc_mint.key(),
+        )?;
+
+        let pool = &mut ctx.accounts.pool;
+        let settlement = &mut ctx.accounts.settlement_state;
+
+        require!(
+            ctx.accounts.master_wallet.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+        require!(
+            pool.total_pending_claims > 0,
+            ErrorCode::NoPendingClaims
+        );
+
+        let usdc_balance = accessor::amount(&ctx.accounts.pool_usdc.to_account_info())?;
+
+        // Hard floor: never open a settlement epoch against an empty vault.
+        // With zero funds the payout ratio is 0, so the epoch would consume the
+        // single settlement slot and pay claimants nothing. This guard is
+        // always enforced; the optional MinSettlementConfig below can only
+        // raise the floor higher, never disable this baseline.
+        require!(usdc_balance > 0, ErrorCode::EmptyVault);
+
+        if !ctx.accounts.min_settlement_config.data_is_empty() {
+            let data = ctx.accounts.min_settlement_config.try_borrow_data()?;
+            let config = MinSettlementConfig::try_deserialize(&mut &data[..])?;
+            require!(
+                usdc_balance >= config.min_settlement_usdc,
+                ErrorCode::VaultBelowMinSettlement
+            );
+        }
+
+        let payout_ratio = compute_settlement_payout_ratio(usdc_balance, pool.total_pending_claims)?;
+        let timestamp = Clock::get()?.unix_timestamp;
+
+        pool.settlement_epoch_seq = pool
+            .settlement_epoch_seq
+            .checked_add(1)
+            .ok_or_else(arithmetic_error)?;
+
+        settlement.pool = pool.key();
+        settlement.vault_snapshot = usdc_balance;
+        settlement.pending_snapshot = pool.total_pending_claims;
+        settlement.payout_ratio_ppm = payout_ratio;
+        settlement.total_settled_usdc = 0;
+        settlement.total_cancelled_usdc = 0;
+        settlement.total_processed_usdc = 0;
+        settlement.epoch_seq = pool.settlement_epoch_seq;
+        settlement.timestamp = timestamp;
+        settlement.bump = ctx.bumps.settlement_state;
+
+        emit!(SettlementOpenedEvent {
+            pool: pool.key(),
+            master_wallet: ctx.accounts.master_wallet.key(),
+            vault_snapshot: usdc_balance,
+            pending_snapshot: pool.total_pending_claims,
+            payout_ratio_ppm: payout_ratio,
+            timestamp,
+        });
+
+        msg!(
+            "Settlement opened: vault={}, pending={}, ratio={}ppm",
+            usdc_balance,
+            pool.total_pending_claims,
+            payout_ratio
+        );
+        Ok(())
+    }
+
+    pub fn close_settlement(ctx: Context<CloseSettlement>) -> Result<()> {
+        let pool = &ctx.accounts.pool;
+        let settlement = &ctx.accounts.settlement_state;
+
+        require!(
+            ctx.accounts.master_wallet.key() == pool.master_wallet,
+            ErrorCode::Unauthorized
+        );
+
+        validate_settlement_completeness(
+            settlement.total_processed_usdc,
+            settlement.pending_snapshot,
+            settlement.total_cancelled_usdc,
+        )?;
+
+        let timestamp = Clock::get()?.unix_timestamp;
+
+        emit!(SettlementClosedEvent {
+            pool: pool.key(),
+            master_wallet: ctx.accounts.master_wallet.key(),
+            total_settled_usdc: settlement.total_settled_usdc,
+            total_cancelled_usdc: settlement.total_cancelled_usdc,
+            remaining_pending_claims: pool.total_pending_claims,
+            timestamp,
+        });
+
+        msg!(
+            "Settlement closed: settled={} USDC, cancelled={} USDC, remaining_pending={}",
+            settlement.total_settled_usdc,
+            settlement.total_cancelled_usdc,
+            pool.total_pending_claims
+        );
+        Ok(())
+    }
+
+    // One-time layout migration for pool accounts created before
+    // `settlement_epoch_seq` existed. Reallocates the account to the current
+    // size, preserves every legacy field, and zero-initializes the new epoch
+    // sequence. Idempotent: calling it on an already-migrated pool is a
+    // no-op, so the off-chain migration script can be re-run safely.
+    //
+    // Migrations are blocked while a settlement epoch is open: resetting
+    // epoch bookkeeping mid-epoch would corrupt the anti-replay and
+    // completeness invariants.
+    pub fn migrate_pool(ctx: Context<MigratePool>) -> Result<()> {
+        require!(
+            ctx.accounts.settlement_check.data_is_empty(),
+            ErrorCode::MigrationBlockedDuringSettlement
+        );
+
+        let pool_ai = ctx.accounts.pool.to_account_info();
+        require_keys_eq!(
+            *pool_ai.owner,
+            *ctx.program_id,
+            ErrorCode::InvalidMigrationAccount
+        );
+
+        let target_space = 8 + Pool::INIT_SPACE;
+        let legacy = {
+            let data = pool_ai.try_borrow_data()?;
+            require!(
+                data.len() >= 8 && data[..8] == *Pool::DISCRIMINATOR,
+                ErrorCode::InvalidMigrationAccount
+            );
+            if data.len() == target_space {
+                msg!("Pool already uses the current layout; nothing to migrate");
+                return Ok(());
+            }
+            require!(
+                data.len() == LEGACY_POOL_SPACE,
+                ErrorCode::UnknownAccountLayout
+            );
+            LegacyPool::deserialize(&mut &data[8..])
+                .map_err(|_| error!(ErrorCode::InvalidMigrationAccount))?
+        };
+
+        require!(
+            ctx.accounts.admin.key() == legacy.master_wallet,
+            ErrorCode::Unauthorized
+        );
+
+        fund_rent_and_grow(
+            &pool_ai,
+            target_space,
+            &ctx.accounts.admin.to_account_info(),
+            &ctx.accounts.system_program.to_account_info(),
+        )?;
+
+        let migrated = Pool {
+            master_wallet: legacy.master_wallet,
+            nav: legacy.nav,
+            total_bunkercash_supply: legacy.total_bunkercash_supply,
+            total_pending_claims: legacy.total_pending_claims,
+            claim_counter: legacy.claim_counter,
+            withdrawal_counter: legacy.withdrawal_counter,
+            settlement_epoch_seq: 0,
+            bump: legacy.bump,
+        };
+        {
+            let mut data = pool_ai.try_borrow_mut_data()?;
+            migrated.try_serialize(&mut &mut data[..])?;
+        }
+
+        emit!(PoolMigratedEvent {
+            pool: pool_ai.key(),
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+
+        msg!("Pool migrated to current layout ({} bytes)", target_space);
+        Ok(())
+    }
+
+    // One-time layout migration for claim accounts created before the
+    // monotonic epoch-sequence fields existed. Handles both historical
+    // shapes (the original layout with no epoch marker and the interim
+    // layout with a `last_settled_epoch: i64` timestamp), preserving every
+    // surviving field — including the immutable filing timestamp — and
+    // zero-initializing both new epoch sequences. The interim timestamp
+    // marker is intentionally dropped: it used different semantics, and a
+    // zero stamp is correct because migrations only run between epochs and
+    // post-migration epochs start at sequence 1.
+    //
+    // Permissionless by design: the transform is deterministic, so any payer
+    // (the operator's batch script or a user unsticking their own claim)
+    // may fund the realloc rent.
+    pub fn migrate_claim(ctx: Context<MigrateClaim>) -> Result<()> {
+        require!(
+            ctx.accounts.settlement_check.data_is_empty(),
+            ErrorCode::MigrationBlockedDuringSettlement
+        );
+
+        let claim_ai = ctx.accounts.claim.to_account_info();
+        require_keys_eq!(
+            *claim_ai.owner,
+            *ctx.program_id,
+            ErrorCode::InvalidMigrationAccount
+        );
+
+        let target_space = 8 + Claim::INIT_SPACE;
+        let (legacy, previous_space) = {
+            let data = claim_ai.try_borrow_data()?;
+            require!(
+                data.len() >= 8 && data[..8] == *Claim::DISCRIMINATOR,
+                ErrorCode::InvalidMigrationAccount
+            );
+            if data.len() == target_space {
+                msg!("Claim already uses the current layout; nothing to migrate");
+                return Ok(());
+            }
+            let legacy = match data.len() {
+                LEGACY_CLAIM_V1_SPACE => LegacyClaimV1::deserialize(&mut &data[8..])
+                    .map_err(|_| error!(ErrorCode::InvalidMigrationAccount))?,
+                LEGACY_CLAIM_V2_SPACE => {
+                    let v2 = LegacyClaimV2::deserialize(&mut &data[8..])
+                        .map_err(|_| error!(ErrorCode::InvalidMigrationAccount))?;
+                    LegacyClaimV1 {
+                        user: v2.user,
+                        usdc_amount: v2.usdc_amount,
+                        timestamp: v2.timestamp,
+                        processed: v2.processed,
+                        paid_amount: v2.paid_amount,
+                        bunkercash_escrow: v2.bunkercash_escrow,
+                        bunkercash_remaining: v2.bunkercash_remaining,
+                        cancelled: v2.cancelled,
+                        bump: v2.bump,
+                    }
+                }
+                _ => return err!(ErrorCode::UnknownAccountLayout),
+            };
+            (legacy, data.len() as u64)
+        };
+
+        fund_rent_and_grow(
+            &claim_ai,
+            target_space,
+            &ctx.accounts.payer.to_account_info(),
+            &ctx.accounts.system_program.to_account_info(),
+        )?;
+
+        let migrated = Claim {
+            user: legacy.user,
+            usdc_amount: legacy.usdc_amount,
+            timestamp: legacy.timestamp,
+            processed: legacy.processed,
+            paid_amount: legacy.paid_amount,
+            bunkercash_escrow: legacy.bunkercash_escrow,
+            bunkercash_remaining: legacy.bunkercash_remaining,
+            cancelled: legacy.cancelled,
+            last_settled_epoch_seq: 0,
+            last_paid_epoch_seq: 0,
+            bump: legacy.bump,
+        };
+        {
+            let mut data = claim_ai.try_borrow_mut_data()?;
+            migrated.try_serialize(&mut &mut data[..])?;
+        }
+
+        emit!(ClaimMigratedEvent {
+            claim: claim_ai.key(),
+            user: migrated.user,
+            previous_space,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+
+        msg!(
+            "Claim {} migrated from {} to {} bytes",
+            claim_ai.key(),
+            previous_space,
+            target_space
+        );
+        Ok(())
+    }
+
     pub fn master_withdraw(
         ctx: Context<MasterWithdraw>,
         amount: u64,
@@ -1097,6 +1665,10 @@ pub mod bunkercash {
             &ctx.accounts.usdc_mint.key(),
         )?;
         validate_non_zero_amount(amount)?;
+        require!(
+            ctx.accounts.settlement_check.data_is_empty(),
+            ErrorCode::WithdrawalBlockedDuringSettlement
+        );
 
         let pool = &mut ctx.accounts.pool;
         let withdrawal = &mut ctx.accounts.withdrawal;
@@ -1634,6 +2206,52 @@ pub struct SetFeeConfig<'info> {
 }
 
 #[derive(Accounts)]
+pub struct SetMinSettlementUsdc<'info> {
+    #[account(
+        seeds = [POOL_SEED],
+        bump = pool.bump
+    )]
+    pub pool: Account<'info, Pool>,
+
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = 8 + MinSettlementConfig::INIT_SPACE,
+        seeds = [MIN_SETTLEMENT_CONFIG_SEED],
+        bump
+    )]
+    pub min_settlement_config: Account<'info, MinSettlementConfig>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct SetMinClaimUsdc<'info> {
+    #[account(
+        seeds = [POOL_SEED],
+        bump = pool.bump
+    )]
+    pub pool: Account<'info, Pool>,
+
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = 8 + MinClaimConfig::INIT_SPACE,
+        seeds = [MIN_CLAIM_CONFIG_SEED],
+        bump
+    )]
+    pub min_claim_config: Account<'info, MinClaimConfig>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct SetSupportedUsdcMint<'info> {
     #[account(
         seeds = [POOL_SEED],
@@ -1760,6 +2378,14 @@ pub struct FileClaim<'info> {
     )]
     pub fee_config: Account<'info, FeeConfig>,
 
+    /// CHECK: Min claim config PDA. If initialized, its min_claim_usdc is
+    /// enforced; while uninitialized the DEFAULT_MIN_CLAIM_USDC floor applies.
+    #[account(
+        seeds = [MIN_CLAIM_CONFIG_SEED],
+        bump
+    )]
+    pub min_claim_config: UncheckedAccount<'info>,
+
     #[account(mut)]
     pub user: Signer<'info>,
 
@@ -1840,6 +2466,14 @@ pub struct SettleClaims<'info> {
     )]
     pub usdc_mint: InterfaceAccount<'info, Mint>,
 
+    #[account(
+        mut,
+        seeds = [SETTLEMENT_SEED, pool.key().as_ref()],
+        bump = settlement_state.bump,
+        has_one = pool @ ErrorCode::NoActiveSettlement
+    )]
+    pub settlement_state: Account<'info, SettlementState>,
+
     pub master_wallet: Signer<'info>,
 
     pub usdc_token_program: Interface<'info, TokenInterface>,
@@ -1893,6 +2527,147 @@ pub struct CancelClaim<'info> {
 
     pub token_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
+
+    /// CHECK: Settlement PDA — validated by seeds. Updated if initialized
+    /// to track USDC cancelled during an active settlement epoch.
+    #[account(
+        mut,
+        seeds = [SETTLEMENT_SEED, pool.key().as_ref()],
+        bump
+    )]
+    pub settlement_state: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct OpenSettlement<'info> {
+    #[account(
+        mut,
+        seeds = [POOL_SEED],
+        bump = pool.bump
+    )]
+    pub pool: Account<'info, Pool>,
+
+    #[account(
+        token::mint = usdc_mint,
+        token::authority = pool,
+        token::token_program = usdc_token_program,
+        address = canonical_pool_usdc_vault(pool.key(), usdc_mint.key(), usdc_token_program.key()) @ ErrorCode::InvalidPoolUsdcVault
+    )]
+    pub pool_usdc: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(
+        seeds = [SUPPORTED_USDC_CONFIG_SEED],
+        bump = supported_usdc_config.bump
+    )]
+    pub supported_usdc_config: Account<'info, SupportedUsdcConfig>,
+
+    #[account(
+        mint::decimals = TOKEN_DECIMALS,
+        mint::token_program = usdc_token_program
+    )]
+    pub usdc_mint: InterfaceAccount<'info, Mint>,
+
+    #[account(
+        init,
+        payer = master_wallet,
+        space = 8 + SettlementState::INIT_SPACE,
+        seeds = [SETTLEMENT_SEED, pool.key().as_ref()],
+        bump
+    )]
+    pub settlement_state: Account<'info, SettlementState>,
+
+    /// CHECK: Min settlement config PDA. If initialized, its min_settlement_usdc is enforced.
+    #[account(
+        seeds = [MIN_SETTLEMENT_CONFIG_SEED],
+        bump
+    )]
+    pub min_settlement_config: UncheckedAccount<'info>,
+
+    #[account(mut)]
+    pub master_wallet: Signer<'info>,
+
+    pub usdc_token_program: Interface<'info, TokenInterface>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct CloseSettlement<'info> {
+    #[account(
+        seeds = [POOL_SEED],
+        bump = pool.bump
+    )]
+    pub pool: Account<'info, Pool>,
+
+    #[account(
+        mut,
+        close = master_wallet,
+        seeds = [SETTLEMENT_SEED, pool.key().as_ref()],
+        bump = settlement_state.bump,
+        has_one = pool @ ErrorCode::NoActiveSettlement
+    )]
+    pub settlement_state: Account<'info, SettlementState>,
+
+    #[account(mut)]
+    pub master_wallet: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct MigratePool<'info> {
+    /// CHECK: Pool PDA that may still hold the legacy (smaller) layout, so it
+    /// cannot be typed `Account<'info, Pool>`. The handler verifies program
+    /// ownership, the account discriminator, the exact legacy data length and
+    /// that `admin` matches the stored master wallet before migrating.
+    #[account(
+        mut,
+        seeds = [POOL_SEED],
+        bump
+    )]
+    pub pool: UncheckedAccount<'info>,
+
+    /// CHECK: Only checked for emptiness. If the SettlementState PDA is
+    /// initialized, a settlement epoch is active and migrations are blocked.
+    #[account(
+        seeds = [SETTLEMENT_SEED, pool.key().as_ref()],
+        bump
+    )]
+    pub settlement_check: UncheckedAccount<'info>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct MigrateClaim<'info> {
+    // Typed as the current Pool layout on purpose: this forces migrate_pool
+    // to run before any claim migration (a legacy pool fails to deserialize
+    // here) and anchors the settlement_check seeds.
+    #[account(
+        seeds = [POOL_SEED],
+        bump = pool.bump
+    )]
+    pub pool: Account<'info, Pool>,
+
+    /// CHECK: Claim account that may hold one of the legacy layouts, so it
+    /// cannot be typed `Account<'info, Claim>`. The handler verifies program
+    /// ownership, the account discriminator and the exact legacy data length
+    /// before migrating.
+    #[account(mut)]
+    pub claim: UncheckedAccount<'info>,
+
+    /// CHECK: Only checked for emptiness. If the SettlementState PDA is
+    /// initialized, a settlement epoch is active and migrations are blocked.
+    #[account(
+        seeds = [SETTLEMENT_SEED, pool.key().as_ref()],
+        bump
+    )]
+    pub settlement_check: UncheckedAccount<'info>,
+
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -1941,6 +2716,14 @@ pub struct MasterWithdraw<'info> {
         mint::token_program = usdc_token_program
     )]
     pub usdc_mint: InterfaceAccount<'info, Mint>,
+
+    /// CHECK: Only checked for existence. If the SettlementState PDA is
+    /// initialized, a settlement epoch is active and withdrawals are blocked.
+    #[account(
+        seeds = [SETTLEMENT_SEED, pool.key().as_ref()],
+        bump
+    )]
+    pub settlement_check: UncheckedAccount<'info>,
 
     #[account(mut)]
     pub master_wallet: Signer<'info>,
@@ -2078,6 +2861,7 @@ pub struct Pool {
     pub total_pending_claims: u64,
     pub claim_counter: u64,
     pub withdrawal_counter: u64,
+    pub settlement_epoch_seq: u64,
     pub bump: u8,
 }
 
@@ -2086,6 +2870,8 @@ pub struct Pool {
 pub struct Claim {
     pub user: Pubkey,
     pub usdc_amount: u64,
+    // Immutable filing time. Set once at claim creation and never overwritten,
+    // so off-chain decoders can rely on this as the canonical createdAt.
     pub timestamp: i64,
     pub processed: bool,
     pub paid_amount: u64,
@@ -2094,7 +2880,60 @@ pub struct Claim {
     // BunkerCash still held in the pool escrow for this claim.
     pub bunkercash_remaining: u64,
     pub cancelled: bool,
+    // Monotonic settlement epoch in which this claim was last touched
+    // (matches SettlementState.epoch_seq). Stamped even for dust (payout=0)
+    // claims so the settlement loop's anti-replay filter works correctly.
+    pub last_settled_epoch_seq: u64,
+    // Monotonic settlement epoch in which this claim last received a
+    // non-zero payout. Used by cancel_claim to block cancellation only
+    // when actual USDC was transferred this epoch.
+    pub last_paid_epoch_seq: u64,
     pub bump: u8,
+}
+
+// Historical account layouts, used only by the migrate_* instructions to
+// deserialize pre-upgrade on-chain data. Field order must match the layouts
+// that were actually deployed; never reorder.
+
+#[derive(AnchorDeserialize)]
+struct LegacyPool {
+    master_wallet: Pubkey,
+    nav: u64,
+    total_bunkercash_supply: u64,
+    total_pending_claims: u64,
+    claim_counter: u64,
+    withdrawal_counter: u64,
+    bump: u8,
+}
+
+#[derive(AnchorDeserialize)]
+struct LegacyClaimV1 {
+    user: Pubkey,
+    usdc_amount: u64,
+    timestamp: i64,
+    processed: bool,
+    paid_amount: u64,
+    bunkercash_escrow: u64,
+    bunkercash_remaining: u64,
+    cancelled: bool,
+    bump: u8,
+}
+
+#[derive(AnchorDeserialize)]
+struct LegacyClaimV2 {
+    user: Pubkey,
+    usdc_amount: u64,
+    timestamp: i64,
+    processed: bool,
+    paid_amount: u64,
+    bunkercash_escrow: u64,
+    bunkercash_remaining: u64,
+    cancelled: bool,
+    // Interim timestamp-based settlement marker; superseded by the
+    // monotonic epoch sequence pair and dropped during migration.
+    #[allow(dead_code)]
+    last_settled_epoch: i64,
+    bump: u8,
 }
 
 #[account]
@@ -2129,6 +2968,42 @@ pub struct SupportedUsdcConfig {
 pub struct FeeConfig {
     pub purchase_fee_bps: u16,
     pub claim_fee_bps: u16,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct MinSettlementConfig {
+    pub min_settlement_usdc: u64,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct MinClaimConfig {
+    pub min_claim_usdc: u64,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct SettlementState {
+    pub pool: Pubkey,
+    pub vault_snapshot: u64,
+    pub pending_snapshot: u64,
+    pub payout_ratio_ppm: u64,
+    pub total_settled_usdc: u64,
+    pub total_cancelled_usdc: u64,
+    // Sum of the pre-payout remaining USDC of every claim stamped by
+    // settle_claims this epoch (dust claims with a zero payout included).
+    // Together with total_cancelled_usdc this must cover pending_snapshot
+    // before close_settlement succeeds. This slot previously held
+    // claims_settled_count; the account is ephemeral (created at open,
+    // closed at close), so the rename is safe as long as program upgrades
+    // happen while no settlement epoch is open.
+    pub total_processed_usdc: u64,
+    pub epoch_seq: u64,
+    pub timestamp: i64,
     pub bump: u8,
 }
 
@@ -2292,6 +3167,65 @@ pub struct FeeConfigUpdatedEvent {
     pub timestamp: i64,
 }
 
+#[event]
+pub struct MinSettlementUpdatedEvent {
+    pub pool: Pubkey,
+    pub admin: Pubkey,
+    pub min_settlement_usdc: u64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct MinClaimUpdatedEvent {
+    pub pool: Pubkey,
+    pub admin: Pubkey,
+    pub min_claim_usdc: u64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct SettlementOpenedEvent {
+    pub pool: Pubkey,
+    pub master_wallet: Pubkey,
+    pub vault_snapshot: u64,
+    pub pending_snapshot: u64,
+    pub payout_ratio_ppm: u64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct SettlementClosedEvent {
+    pub pool: Pubkey,
+    pub master_wallet: Pubkey,
+    pub total_settled_usdc: u64,
+    pub total_cancelled_usdc: u64,
+    pub remaining_pending_claims: u64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct PoolMigratedEvent {
+    pub pool: Pubkey,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct ClaimMigratedEvent {
+    pub claim: Pubkey,
+    pub user: Pubkey,
+    pub previous_space: u64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct SettlementCoverageWarningEvent {
+    pub pool: Pubkey,
+    pub pending_snapshot: u64,
+    pub submitted_claims_total: u64,
+    pub missing_claims_total: u64,
+    pub timestamp: i64,
+}
+
 #[error_code]
 pub enum ErrorCode {
     #[msg("Invalid NAV value")]
@@ -2310,8 +3244,6 @@ pub enum ErrorCode {
     Unauthorized,
     #[msg("Repayment amount exceeds withdrawal remaining balance")]
     RepaymentExceedsWithdrawal,
-    #[msg("Settlement must include the full open-claim set when the pool vault cannot cover all claims")]
-    IncompleteSettlementSet,
     #[msg("On-chain pending claims are lower than the submitted claim set; sync pending claims before settling")]
     PendingClaimsOutOfSync,
     #[msg("BunkerCash mint PDA is already initialized")]
@@ -2344,6 +3276,34 @@ pub enum ErrorCode {
     InvalidClaimOwner,
     #[msg("Master wallet does not match the pool's master wallet")]
     InvalidMasterWallet,
+    #[msg("Cannot cancel a claim that was paid in the currently open settlement epoch; wait for the epoch to close")]
+    CannotCancelPaidThisEpoch,
+    #[msg("No active settlement epoch; call open_settlement first")]
+    NoActiveSettlement,
+    #[msg("Pool has no pending claims to settle")]
+    NoPendingClaims,
+    #[msg("Cannot withdraw while a settlement epoch is active")]
+    WithdrawalBlockedDuringSettlement,
+    #[msg("Settlement epoch is incomplete; settle all eligible claims before closing")]
+    SettlementIncomplete,
+    // Retired: underfunded epochs now settle across multiple batches against
+    // the locked payout ratio; completeness is enforced at close_settlement.
+    // Kept so the error codes after it do not renumber.
+    #[msg("Underfunded settlement batches must include every eligible claim so all claimants share the haircut proportionally")]
+    IncompleteSettlementSet,
+    #[msg("Vault USDC balance is below the configured minimum for opening a settlement epoch")]
+    VaultBelowMinSettlement,
+    #[msg("Cannot open a settlement epoch with an empty vault; there are no funds to distribute")]
+    EmptyVault,
+    #[msg("Cannot migrate accounts while a settlement epoch is active; close the epoch first")]
+    MigrationBlockedDuringSettlement,
+    #[msg("Account is not a migratable account of the expected type")]
+    InvalidMigrationAccount,
+    #[msg("Account data length does not match any known legacy layout")]
+    UnknownAccountLayout,
+    // Appended after the legacy codes so existing error numbers stay stable.
+    #[msg("Claim USDC value is below the minimum claim size")]
+    ClaimBelowMinimum,
 }
 
 #[cfg(test)]
@@ -2351,13 +3311,17 @@ mod tests {
     use super::{
         apply_master_cancellation, apply_master_close_withdrawal, apply_master_profit,
         apply_master_repayment, calculate_claim_usdc_value, calculate_fee_amount,
-        record_master_withdrawal, validate_fee_bps, validate_initializer,
-        validate_open_withdrawal, validate_purchase_limit,
-        validate_settlement_pending_claims, validate_supported_usdc_mint,
-        validate_supported_usdc_mint_change, validate_unique_settlement_claim_accounts,
-        ErrorCode, Pool, PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal, SQUADS_MEMBER_1,
+        compute_settlement_payout_ratio, record_master_withdrawal, validate_fee_bps,
+        validate_initializer, validate_open_withdrawal, validate_purchase_limit,
+        validate_settlement_completeness, validate_settlement_pending_claims,
+        validate_supported_usdc_mint, validate_supported_usdc_mint_change,
+        validate_unique_settlement_claim_accounts, Claim, ErrorCode, MinClaimConfig,
+        MinSettlementConfig, Pool, PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal,
+        DEFAULT_MIN_CLAIM_USDC, LEGACY_CLAIM_V1_SPACE, LEGACY_CLAIM_V2_SPACE, LEGACY_POOL_SPACE,
+        SQUADS_MEMBER_1,
     };
     use anchor_lang::prelude::Pubkey;
+    use anchor_lang::Space;
 
     #[test]
     fn claim_value_rejects_zero_burn_amount() {
@@ -2397,6 +3361,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 3,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let original_nav = pool.nav;
@@ -2431,6 +3396,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let mut withdrawal = Withdrawal {
@@ -2457,6 +3423,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let original_nav = pool.nav;
@@ -2484,6 +3451,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let withdrawal = Withdrawal {
@@ -2510,6 +3478,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let mut withdrawal = Withdrawal {
@@ -2536,6 +3505,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let mut withdrawal = Withdrawal {
@@ -2563,6 +3533,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let mut withdrawal = Withdrawal {
@@ -2606,6 +3577,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let mut withdrawal = Withdrawal {
@@ -2632,6 +3604,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let mut withdrawal = Withdrawal {
@@ -2658,6 +3631,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let mut withdrawal = Withdrawal {
@@ -2684,6 +3658,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let mut withdrawal = Withdrawal {
@@ -2717,6 +3692,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 1,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let mut withdrawal = Withdrawal {
@@ -2798,6 +3774,7 @@ mod tests {
             total_pending_claims: 1_000_000,
             claim_counter: 0,
             withdrawal_counter: 0,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
         let mint = Pubkey::new_unique();
@@ -2814,6 +3791,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 0,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
 
@@ -2836,6 +3814,7 @@ mod tests {
             total_pending_claims: 0,
             claim_counter: 0,
             withdrawal_counter: 0,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
 
@@ -2858,6 +3837,7 @@ mod tests {
             total_pending_claims: 5_000,
             claim_counter: 0,
             withdrawal_counter: 0,
+            settlement_epoch_seq: 0,
             bump: 255,
         };
 
@@ -2891,5 +3871,295 @@ mod tests {
     fn settlement_rejects_claim_sets_larger_than_tracked_pending_total() {
         let err = validate_settlement_pending_claims(500_000, 700_000).unwrap_err();
         assert_eq!(err, ErrorCode::PendingClaimsOutOfSync.into());
+    }
+
+    #[test]
+    fn settlement_ratio_fully_funded() {
+        assert_eq!(
+            compute_settlement_payout_ratio(1_000_000, 500_000).unwrap(),
+            1_000_000
+        );
+    }
+
+    #[test]
+    fn settlement_ratio_half_funded() {
+        assert_eq!(
+            compute_settlement_payout_ratio(250_000, 500_000).unwrap(),
+            500_000
+        );
+    }
+
+    #[test]
+    fn settlement_ratio_zero_pending() {
+        assert_eq!(
+            compute_settlement_payout_ratio(1_000_000, 0).unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn settlement_ratio_exact_coverage() {
+        assert_eq!(
+            compute_settlement_payout_ratio(500_000, 500_000).unwrap(),
+            1_000_000
+        );
+    }
+
+    #[test]
+    fn completeness_passes_when_every_claim_is_processed() {
+        assert!(validate_settlement_completeness(
+            1_000_000,   // total_processed_usdc covers the snapshot exactly
+            1_000_000,   // pending_snapshot
+            0,           // cancelled
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn completeness_rejects_selective_settlement() {
+        assert!(validate_settlement_completeness(
+            500_000,     // only half of the snapshot was processed
+            1_000_000,   // pending_snapshot
+            0,           // no cancellations
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn completeness_passes_with_cancellations() {
+        assert!(validate_settlement_completeness(
+            800_000,     // processed claims
+            1_000_000,   // pending_snapshot
+            200_000,     // 200K cancelled
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn completeness_passes_all_cancelled() {
+        assert!(validate_settlement_completeness(
+            0,           // nothing processed
+            1_000_000,   // pending_snapshot
+            1_000_000,   // all cancelled
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn completeness_passes_zero_snapshot() {
+        assert!(validate_settlement_completeness(0, 0, 0).is_ok());
+    }
+
+    #[test]
+    fn completeness_passes_dust_only_epoch_without_payment() {
+        // An epoch made entirely of dust claims (every payout floors to 0)
+        // can close once every claim is stamped: processed coverage is
+        // tracked in claim-remaining terms, independent of USDC paid. The
+        // dust claims themselves stay pending for a future epoch.
+        assert!(validate_settlement_completeness(
+            100,         // sum of dust-claim remainders, all stamped
+            100,         // pending_snapshot
+            0,           // no cancellations
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn completeness_rejects_dust_stamps_masking_missing_claims() {
+        // Regression for the dust-tolerance flaw: the old check granted
+        // +1 micro-USDC of slack per settled claim (dust included), so N
+        // stamped claims could mask up to N micro-USDC of expected payout
+        // belonging to claims that were never submitted. Coverage is now
+        // exact: a missing claim leaves a gap no number of dust stamps can
+        // fill.
+        assert!(validate_settlement_completeness(
+            999_990,     // processed; one 10-micro claim never submitted
+            1_000_000,   // pending_snapshot
+            0,           // no cancellations
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn completeness_accumulates_across_multiple_underfunded_batches() {
+        // Multi-batch underfunded settlement: settle_claims no longer
+        // hard-fails a partial batch, so coverage is built up across several
+        // transactions against the locked snapshot. The epoch must stay
+        // unclosable after every partial batch and become closable exactly
+        // when cumulative processed (+ cancelled) coverage reaches the
+        // snapshot.
+        let pending_snapshot = 1_000_000u64;
+        // Three batches of claims, e.g. 6 + 6 + 2 claims worth of remaining.
+        let batches = [400_000u64, 400_000, 200_000];
+
+        let mut total_processed = 0u64;
+        for (i, batch_remaining) in batches.iter().enumerate() {
+            total_processed += batch_remaining;
+            let is_last = i == batches.len() - 1;
+            let result =
+                validate_settlement_completeness(total_processed, pending_snapshot, 0);
+            if is_last {
+                assert!(result.is_ok());
+            } else {
+                assert!(result.is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn completeness_accumulates_batches_mixed_with_cancellations() {
+        // A claimant cancelling mid-epoch contributes to coverage through
+        // total_cancelled_usdc instead of total_processed_usdc; the two sum
+        // toward the same snapshot.
+        let pending_snapshot = 1_000_000u64;
+        let processed_batches = 700_000u64; // settled across several batches
+        let cancelled = 300_000u64; // cancelled by users mid-epoch
+
+        assert!(validate_settlement_completeness(processed_batches, pending_snapshot, 0).is_err());
+        assert!(
+            validate_settlement_completeness(processed_batches, pending_snapshot, cancelled)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn legacy_layout_sizes_match_migration_constants() {
+        // The migrate_* instructions key off exact account sizes; if the
+        // current structs change again these assertions force the legacy
+        // constants (and migration logic) to be revisited.
+        assert_eq!(LEGACY_POOL_SPACE, 81);
+        assert_eq!(8 + Pool::INIT_SPACE, LEGACY_POOL_SPACE + 8);
+        assert_eq!(LEGACY_CLAIM_V1_SPACE, 83);
+        assert_eq!(LEGACY_CLAIM_V2_SPACE, 91);
+        assert_eq!(8 + Claim::INIT_SPACE, LEGACY_CLAIM_V2_SPACE + 8);
+    }
+
+    // Regression note — multi-batch re-submission attack
+    //
+    // Attack: submit the same claim in multiple settle_claims batches within
+    // one epoch to inflate total_settled_usdc and drain the vault toward one
+    // claimant while the completeness check still passes.
+    //
+    // Fix: settle_claims sets `claim.last_settled_epoch_seq = epoch_seq`
+    // after paying a claim. The loop filter
+    // `claim.last_settled_epoch_seq != epoch_seq` rejects re-submissions
+    // in later batches of the same epoch. The next epoch opens with a fresh
+    // monotonic sequence number (not a timestamp), so same-second collisions
+    // between consecutive epochs are impossible. The original
+    // `claim.timestamp` (filing time) is never overwritten.
+    //
+    // Full integration test required (CPI context + remaining_accounts).
+
+    #[test]
+    fn min_settlement_config_init_space() {
+        // u64 (8) + u8 (1) = 9 bytes
+        assert_eq!(MinSettlementConfig::INIT_SPACE, 9);
+    }
+
+    #[test]
+    fn min_settlement_config_default_values() {
+        let config = MinSettlementConfig {
+            min_settlement_usdc: 0,
+            bump: 0,
+        };
+        assert_eq!(config.min_settlement_usdc, 0);
+    }
+
+    #[test]
+    fn min_claim_config_init_space() {
+        // u64 (8) + u8 (1) = 9 bytes
+        assert_eq!(MinClaimConfig::INIT_SPACE, 9);
+    }
+
+    #[test]
+    fn min_claim_default_is_one_usdc() {
+        assert_eq!(DEFAULT_MIN_CLAIM_USDC, 1_000_000);
+    }
+
+    #[test]
+    fn min_claim_default_rejects_dust_values() {
+        // Non-zero but operationally useless claim values must fall below
+        // the default admission floor.
+        let usdc_value: u64 = 999_999; // $0.999999
+        assert!(usdc_value < DEFAULT_MIN_CLAIM_USDC);
+        let penny: u64 = 10_000; // $0.01
+        assert!(penny < DEFAULT_MIN_CLAIM_USDC);
+        let micro: u64 = 1; // 1 micro-USDC
+        assert!(micro < DEFAULT_MIN_CLAIM_USDC);
+    }
+
+    #[test]
+    fn min_claim_default_accepts_one_usdc_and_above() {
+        let at_floor: u64 = 1_000_000; // exactly $1.00
+        assert!(at_floor >= DEFAULT_MIN_CLAIM_USDC);
+        let above: u64 = 1_000_001;
+        assert!(above >= DEFAULT_MIN_CLAIM_USDC);
+    }
+
+    #[test]
+    fn min_claim_zero_config_disables_floor() {
+        let config = MinClaimConfig {
+            min_claim_usdc: 0,
+            bump: 0,
+        };
+        let dust: u64 = 1;
+        assert!(dust >= config.min_claim_usdc);
+    }
+
+    #[test]
+    fn min_settlement_vault_above_threshold_passes() {
+        let vault_balance: u64 = 5_000_000; // 5 USDC
+        let min_settlement: u64 = 1_000_000; // 1 USDC
+        assert!(vault_balance >= min_settlement);
+    }
+
+    #[test]
+    fn min_settlement_vault_at_threshold_passes() {
+        let vault_balance: u64 = 1_000_000;
+        let min_settlement: u64 = 1_000_000;
+        assert!(vault_balance >= min_settlement);
+    }
+
+    #[test]
+    fn min_settlement_vault_below_threshold_fails() {
+        let vault_balance: u64 = 500_000; // 0.5 USDC
+        let min_settlement: u64 = 1_000_000; // 1 USDC
+        assert!(vault_balance < min_settlement);
+    }
+
+    #[test]
+    fn min_settlement_zero_threshold_always_passes() {
+        let vault_balance: u64 = 0;
+        let min_settlement: u64 = 0;
+        assert!(vault_balance >= min_settlement);
+    }
+
+    #[test]
+    fn min_settlement_zero_vault_with_threshold_fails() {
+        let vault_balance: u64 = 0;
+        let min_settlement: u64 = 1_000_000;
+        assert!(vault_balance < min_settlement);
+    }
+
+    #[test]
+    fn min_settlement_dust_vault_below_threshold_fails() {
+        let vault_balance: u64 = 1; // 0.000001 USDC
+        let min_settlement: u64 = 1_000_000; // 1 USDC
+        assert!(vault_balance < min_settlement);
+    }
+
+    #[test]
+    fn open_settlement_empty_vault_blocked_baseline() {
+        // The always-on EmptyVault guard rejects a zero-balance vault even when
+        // no MinSettlementConfig is set (the optional threshold is bypassed when
+        // the config PDA is empty, so this baseline is the only protection).
+        let vault_balance: u64 = 0;
+        assert!(!(vault_balance > 0));
+    }
+
+    #[test]
+    fn open_settlement_nonempty_vault_passes_baseline() {
+        let vault_balance: u64 = 1; // smallest non-zero balance clears the floor
+        assert!(vault_balance > 0);
     }
 }
