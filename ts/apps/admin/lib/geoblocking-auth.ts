@@ -8,6 +8,26 @@ const SIGNATURE_TTL_MS = 5 * 60 * 1000;
 const CLOCK_SKEW_TOLERANCE_MS = 30 * 1000; // allow 30 s of clock skew for future timestamps
 const ADMIN_WALLETS_TTL_MS = 60 * 1000;
 const ADMIN_WALLETS_FAILURE_BACKOFF_MS = 15 * 1000;
+const USED_SIGNATURE_CLEANUP_INTERVAL_MS = 60 * 1000;
+
+const usedSignatures = new Map<string, number>();
+let usedSignaturesLastCleanup = Date.now();
+
+function consumeSignature(wallet: string, issuedAt: string, signature: string): boolean {
+  const now = Date.now();
+  if (now - usedSignaturesLastCleanup > USED_SIGNATURE_CLEANUP_INTERVAL_MS) {
+    const cutoff = now - SIGNATURE_TTL_MS - CLOCK_SKEW_TOLERANCE_MS;
+    for (const [key, ts] of usedSignatures) {
+      if (ts < cutoff) usedSignatures.delete(key);
+    }
+    usedSignaturesLastCleanup = now;
+  }
+
+  const key = `${wallet}:${issuedAt}:${signature}`;
+  if (usedSignatures.has(key)) return false;
+  usedSignatures.set(key, now);
+  return true;
+}
 
 interface PoolAccountLike {
   masterWallet: { toBase58: () => string };
@@ -172,6 +192,10 @@ export async function authorizeGeoblockingUpdate(args: {
       return { ok: false as const, error: "Invalid admin signature" };
     }
 
+    if (!consumeSignature(wallet, issuedAt, signature)) {
+      return { ok: false as const, error: "Authorization has already been used" };
+    }
+
     const authorizedWallets = await getAuthorizedAdminWallets();
     if (!authorizedWallets.has(wallet)) {
       return { ok: false as const, error: "Connected wallet is not authorized" };
@@ -216,6 +240,10 @@ export async function authorizeAdminAccess(args: {
     );
     if (!isValidSignature) {
       return { ok: false as const, error: "Invalid admin signature" };
+    }
+
+    if (!consumeSignature(wallet, issuedAt, signature)) {
+      return { ok: false as const, error: "Authorization has already been used" };
     }
 
     const authorizedWallets = await getAuthorizedAdminWallets();

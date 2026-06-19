@@ -21,6 +21,7 @@ import { useSupportedUsdcMint } from "@/hooks/useSupportedUsdcMint";
 const USDC_DECIMALS = 6;
 const CLAIMS_PER_TX = 6;
 const MIGRATIONS_PER_TX = 8;
+const EPOCH_FRESHNESS_MS = 30 * 1000;
 
 interface AccountMetaLike {
   pubkey: PublicKey;
@@ -158,6 +159,7 @@ export function SettlementCard() {
   const [minSettlementInput, setMinSettlementInput] = useState("");
   const [savingMinSettlement, setSavingMinSettlement] = useState(false);
   const [epochOpen, setEpochOpen] = useState(false);
+  const [epochFetchedAt, setEpochFetchedAt] = useState<number | null>(null);
   const [epochLoading, setEpochLoading] = useState(false);
   const [migrating, setMigrating] = useState(false);
   const [migrationProgress, setMigrationProgress] = useState({ current: 0, total: 0 });
@@ -224,6 +226,20 @@ export function SettlementCard() {
     () => claims.filter((claim) => claim.needsMigration).length,
     [claims]
   );
+  const [epochStaleFlag, setEpochStaleFlag] = useState(0);
+  const epochStateFresh = epochFetchedAt !== null && (Date.now() - epochFetchedAt) < EPOCH_FRESHNESS_MS;
+
+  useEffect(() => {
+    if (epochFetchedAt === null) return;
+    const remaining = EPOCH_FRESHNESS_MS - (Date.now() - epochFetchedAt);
+    if (remaining <= 0) {
+      setEpochStaleFlag((n) => n + 1);
+      return;
+    }
+    const timer = setTimeout(() => setEpochStaleFlag((n) => n + 1), remaining);
+    return () => clearTimeout(timer);
+  }, [epochFetchedAt, epochStaleFlag]);
+
   const pendingClaimsMismatch = poolPendingClaims !== null && poolPendingClaims !== totalRequested;
   const pendingClaimsSyncRequired =
     poolPendingClaims !== null && totalRequested > poolPendingClaims;
@@ -278,6 +294,7 @@ export function SettlementCard() {
       const state = await accountApi.settlementState.fetch(settlementStatePda);
       if (signal?.aborted) return;
       setEpochOpen(true);
+      setEpochFetchedAt(Date.now());
       setEpochError(null);
       setEpochVaultSnapshot(BigInt(state.vaultSnapshot.toString()));
       setEpochPendingSnapshot(BigInt(state.pendingSnapshot.toString()));
@@ -298,7 +315,10 @@ export function SettlementCard() {
       setEpochCoveredUsdc(null);
       const isAccountNotFound =
         e instanceof Error && e.message.includes("could not find account");
-      if (!isAccountNotFound) {
+      if (isAccountNotFound) {
+        setEpochFetchedAt(Date.now());
+      } else {
+        setEpochFetchedAt(null);
         setEpochError(getErrorMessage(e, "Failed to fetch settlement epoch"));
       }
     }
@@ -368,6 +388,10 @@ export function SettlementCard() {
 
   const handleOpenSettlement = useCallback(async () => {
     if (!program || !publicKey || !usdcMint || !usdcTokenProgram || !payoutVault) return;
+    if (!epochFetchedAt || (Date.now() - epochFetchedAt) >= EPOCH_FRESHNESS_MS) {
+      setEpochError("Epoch state is stale. Refresh before opening a settlement epoch.");
+      return;
+    }
     if (needsMigrationCount > 0) {
       setEpochError(
         `${needsMigrationCount} legacy claim${needsMigrationCount === 1 ? "" : "s"} must be migrated before a settlement epoch can open.`
@@ -406,10 +430,14 @@ export function SettlementCard() {
     } finally {
       setEpochLoading(false);
     }
-  }, [fetchPoolPendingClaims, fetchSettlementEpoch, minSettlementConfigPda, needsMigrationCount, payoutVault, poolPda, program, publicKey, refreshVault, settlementStatePda, supportedUsdcConfigPda, usdcMint, usdcTokenProgram]);
+  }, [epochFetchedAt, fetchPoolPendingClaims, fetchSettlementEpoch, minSettlementConfigPda, needsMigrationCount, payoutVault, poolPda, program, publicKey, refreshVault, settlementStatePda, supportedUsdcConfigPda, usdcMint, usdcTokenProgram]);
 
   const handleCloseSettlement = useCallback(async () => {
     if (!program || !publicKey) return;
+    if (!epochFetchedAt || (Date.now() - epochFetchedAt) >= EPOCH_FRESHNESS_MS) {
+      setEpochError("Epoch state is stale. Refresh before closing the settlement epoch.");
+      return;
+    }
     setEpochLoading(true);
     setEpochError(null);
     setTxError(null);
@@ -441,7 +469,7 @@ export function SettlementCard() {
     } finally {
       setEpochLoading(false);
     }
-  }, [fetchPoolPendingClaims, poolPda, program, publicKey, refreshClaims, refreshVault, settlementStatePda]);
+  }, [epochFetchedAt, fetchPoolPendingClaims, poolPda, program, publicKey, refreshClaims, refreshVault, settlementStatePda]);
 
   // migrate_claim is permissionless on-chain (the connected wallet only pays
   // the realloc rent), so this works for any operator wallet. It reverts if a
@@ -720,6 +748,7 @@ export function SettlementCard() {
     !!program &&
     !!usdcMint &&
     epochOpen &&
+    epochStateFresh &&
     settlementPlan.length > 0 &&
     !settling &&
     !pendingClaimsSyncRequired &&
@@ -858,7 +887,7 @@ export function SettlementCard() {
             {!epochOpen ? (
               <button
                 onClick={() => void handleOpenSettlement()}
-                disabled={!wallet.publicKey || !program || epochLoading || migrating || claims.length === 0 || needsMigrationCount > 0 || vaultBelowMinSettlement}
+                disabled={!wallet.publicKey || !program || epochLoading || migrating || claims.length === 0 || needsMigrationCount > 0 || vaultBelowMinSettlement || !epochStateFresh}
                 className="inline-flex items-center gap-2 rounded-lg bg-[#00FFB2] px-4 py-2 text-sm font-medium text-black transition hover:bg-[#33FFC1] disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
               >
                 {epochLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -867,7 +896,7 @@ export function SettlementCard() {
             ) : (
               <button
                 onClick={() => void handleCloseSettlement()}
-                disabled={!wallet.publicKey || !program || epochLoading || settling || epochCoverageComplete === false}
+                disabled={!wallet.publicKey || !program || epochLoading || settling || epochCoverageComplete === false || !epochStateFresh}
                 title={epochCoverageComplete === false ? "Every claim in the epoch snapshot must be settled or cancelled before the epoch can close." : undefined}
                 className="inline-flex items-center gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-2 text-sm font-medium text-rose-300 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -877,6 +906,13 @@ export function SettlementCard() {
             )}
           </div>
         </div>
+
+        {!epochStateFresh && epochFetchedAt !== null && (
+          <div className="mt-4 flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            Epoch state is stale. Refresh before taking any settlement action.
+          </div>
+        )}
 
         {epochOpen && (
           <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-4">
