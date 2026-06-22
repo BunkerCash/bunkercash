@@ -27,6 +27,8 @@ import { invalidateTransactionCache } from "@/hooks/useMyTransactions";
 import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
 import { useOptionalWallet } from "@/hooks/useOptionalWallet";
 import { PhantomConnectButton } from "@/components/wallet/PhantomConnectButton";
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
+import { GLOSSARY } from "@/lib/glossary";
 
 const USDC_DECIMALS = 6
 const USDC_SCALE = 10n ** BigInt(USDC_DECIMALS)
@@ -76,6 +78,22 @@ interface FeeConfigAccount {
   purchaseFeeBps: Stringable;
 }
 
+type BuyPoolState = {
+  masterWallet: PublicKey;
+  nav: bigint;
+  totalBunkercashSupply: bigint;
+  purchaseLimitUsdc: bigint;
+  totalDepositedUsdc: bigint;
+  purchaseFeeBps: number;
+};
+
+// Module-level cache of the last successfully fetched pool state. Survives
+// component unmount/remount (Buy tab switches, Home buy-modal open/close) so
+// the price shows instantly and we revalidate in the background instead of
+// gating the whole UI behind "Loading pool price…". Keyed by RPC endpoint so a
+// cluster switch never surfaces stale data.
+let buyPoolStateCache: { endpoint: string; state: BuyPoolState } | null = null;
+
 interface BuyPrimaryMethods {
   depositUsdc: (amount: BN) => {
     accounts: (accounts: {
@@ -111,14 +129,11 @@ export function BuyPrimaryInterface() {
   const [txSig, setTxSig] = useState<string | null>(null);
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
   const txInFlight = useRef(false);
-  const [poolState, setPoolState] = useState<{
-    masterWallet: PublicKey;
-    nav: bigint;
-    totalBunkercashSupply: bigint;
-    purchaseLimitUsdc: bigint;
-    totalDepositedUsdc: bigint;
-    purchaseFeeBps: number;
-  } | null>(null);
+  const endpoint = connection.rpcEndpoint ?? "";
+  const [poolState, setPoolState] = useState<BuyPoolState | null>(() =>
+    buyPoolStateCache?.endpoint === endpoint ? buyPoolStateCache.state : null,
+  );
+  const [poolRefreshing, setPoolRefreshing] = useState(false);
   const [poolError, setPoolError] = useState<string | null>(null);
 
   const program = useMemo(
@@ -151,6 +166,7 @@ export function BuyPrimaryInterface() {
 
   const fetchPoolState = useCallback(async () => {
     if (!program || !connection) return;
+    if (buyPoolStateCache?.endpoint === endpoint) setPoolRefreshing(true);
     try {
       const accountApi = (program as Program<Idl>).account as {
         pool: { fetch: (key: PublicKey) => Promise<PoolAccount> };
@@ -192,20 +208,24 @@ export function BuyPrimaryInterface() {
       const totalPendingClaims = BigInt(state.totalPendingClaims.toString())
       const availableNav = nav > totalPendingClaims ? nav - totalPendingClaims : 0n
 
-      setPoolState({
+      const nextState: BuyPoolState = {
         masterWallet: state.masterWallet,
         nav: availableNav,
         totalBunkercashSupply: BigInt(state.totalBunkercashSupply.toString()),
         purchaseLimitUsdc,
         totalDepositedUsdc,
         purchaseFeeBps,
-      });
+      };
+      buyPoolStateCache = { endpoint, state: nextState };
+      setPoolState(nextState);
       setPoolError(null);
     } catch {
       setPoolError("not_initialized");
       setPoolState(null);
+    } finally {
+      setPoolRefreshing(false);
     }
-  }, [program, poolPda, connection, purchaseLimitConfigPda, feeConfigPda]);
+  }, [program, poolPda, connection, purchaseLimitConfigPda, feeConfigPda, endpoint]);
 
   useEffect(() => {
     void fetchPoolState();
@@ -570,8 +590,15 @@ export function BuyPrimaryInterface() {
       <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4 sm:p-6">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6">
           <div>
-            <div className="mb-2 text-xs uppercase tracking-wider text-neutral-500">
+            <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-wider text-neutral-500">
               Reference Rate
+              <InfoTooltip text={GLOSSARY.referenceRate} label="Reference Rate" />
+              {poolRefreshing && (
+                <span className="inline-flex items-center gap-1 text-[10px] normal-case tracking-normal text-neutral-600">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#00FFB2]" />
+                  refreshing
+                </span>
+              )}
             </div>
             <div className="text-xl font-bold text-[#00FFB2] sm:text-2xl">
               ${pricePerToken != null ? pricePerToken.toFixed(2) : "—"} per
@@ -586,6 +613,11 @@ export function BuyPrimaryInterface() {
           </div>
         </div>
       </div>
+
+      <p className="text-xs text-neutral-500">
+        Purchases are made in USDC — BunkerCash does not accept SOL. Keep a small
+        amount of SOL in your wallet to cover Solana network fees.
+      </p>
 
       <div className="space-y-3">
         <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4 sm:p-6">

@@ -703,8 +703,12 @@ export function WithdrawInterface() {
             </div>
           )}
           {txSig && (
-            <div className="rounded-xl border border-[#00FFB2]/30 bg-[#00FFB2]/10 px-4 py-3 text-sm text-[#00FFB2]">
-              Sell request submitted. Tx: {txSig.slice(0, 8)}…{txSig.slice(-8)}
+            <div className="space-y-1 rounded-xl border border-[#00FFB2]/30 bg-[#00FFB2]/10 px-4 py-3 text-sm text-[#00FFB2]">
+              <div>Sell request submitted. Tx: {txSig.slice(0, 8)}…{txSig.slice(-8)}</div>
+              <div className="text-[#00FFB2]/70">
+                Your USDC arrives when the next settlement runs (subject to pool
+                liquidity). Track status under Transactions or History.
+              </div>
             </div>
           )}
 

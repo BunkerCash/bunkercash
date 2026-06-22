@@ -370,11 +370,13 @@ export default function WalletPageClient() {
                                   ) : (
                                     <AlertCircle className="mr-1 h-3 w-3" />
                                   )}
-                                  {claim.processed
-                                    ? "Settled"
-                                    : isPartiallySettled
-                                      ? "Partially Settled"
-                                      : "Open"}
+                                  {claim.cancelled
+                                    ? "Cancelled"
+                                    : claim.processed
+                                      ? "Settled"
+                                      : isPartiallySettled
+                                        ? "Partially Settled"
+                                        : "Pending"}
                                 </Badge>
                               </td>
                             </tr>

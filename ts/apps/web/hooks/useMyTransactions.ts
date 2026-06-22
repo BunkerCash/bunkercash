@@ -46,6 +46,9 @@ export function useMyTransactions() {
         tokenAmount: tx.tokenAmount,
         timestamp: new Date(tx.timestamp),
         txSignature: tx.txSignature,
+        status: tx.status,
+        requestedUsdc: tx.requestedUsdc,
+        settledUsdc: tx.settledUsdc,
       }));
 
       txCache = { key: wallet.publicKey.toBase58(), data: parsed };

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { PoolDataResponse } from "@/lib/solana-server";
+import { fetchPoolDataCached, getCachedPoolData } from "@/lib/poolDataClient";
 
 export interface PoolStats {
   totalSupply: string | null;
@@ -37,37 +38,49 @@ function fmt(n: number): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+function mapPoolData(data: PoolDataResponse): PoolStats {
+  return {
+    totalSupply: fmt(data.totalSupplyRaw),
+    circulatingSupply: fmt(data.circulatingSupplyRaw),
+    pendingClaimsUsdc: fmt(data.pendingClaimsUsdcRaw),
+    treasuryUsdc: data.treasuryUsdcRaw != null ? fmt(data.treasuryUsdcRaw) : null,
+    navUsdc: fmt(data.navUsdcRaw),
+    pricePerToken: data.pricePerToken,
+    lastRefreshed: new Date(data.ts),
+    totalSupplyRaw: data.totalSupplyRaw,
+    circulatingSupplyRaw: data.circulatingSupplyRaw,
+    pendingClaimsUsdcRaw: data.pendingClaimsUsdcRaw,
+    treasuryUsdcRaw: data.treasuryUsdcRaw,
+    navUsdcRaw: data.navUsdcRaw,
+  };
+}
+
 export function usePoolStats() {
-  const [stats, setStats] = useState<PoolStats>(emptyStats);
-  const [loading, setLoading] = useState(true);
+  // Seed from the shared cache so tab/page re-mounts render the last known
+  // values immediately instead of flashing a full loading state.
+  const [stats, setStats] = useState<PoolStats>(() => {
+    const cached = getCachedPoolData();
+    return cached ? mapPoolData(cached) : emptyStats;
+  });
+  // `loading` = no data to show yet (first ever load). `refreshing` = we have
+  // cached data on screen and are revalidating in the background.
+  const [loading, setLoading] = useState(() => getCachedPoolData() == null);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchStats = useCallback(async () => {
-    setLoading(true);
+    const hasData = getCachedPoolData() != null;
+    if (hasData) setRefreshing(true);
+    else setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/pool-data");
-      if (!res.ok) throw new Error(`pool-data: ${res.status}`);
-      const data: PoolDataResponse = await res.json();
-
-      setStats({
-        totalSupply: fmt(data.totalSupplyRaw),
-        circulatingSupply: fmt(data.totalSupplyRaw),
-        pendingClaimsUsdc: fmt(data.pendingClaimsUsdcRaw),
-        treasuryUsdc: data.treasuryUsdcRaw != null ? fmt(data.treasuryUsdcRaw) : null,
-        navUsdc: fmt(data.navUsdcRaw),
-        pricePerToken: data.pricePerToken,
-        lastRefreshed: new Date(data.ts),
-        totalSupplyRaw: data.totalSupplyRaw,
-        circulatingSupplyRaw: data.totalSupplyRaw,
-        pendingClaimsUsdcRaw: data.pendingClaimsUsdcRaw,
-        treasuryUsdcRaw: data.treasuryUsdcRaw,
-        navUsdcRaw: data.navUsdcRaw,
-      });
+      const data = await fetchPoolDataCached();
+      setStats(mapPoolData(data));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to fetch pool stats");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
@@ -75,5 +88,5 @@ export function usePoolStats() {
     void fetchStats();
   }, [fetchStats]);
 
-  return { stats, loading, error, refresh: fetchStats };
+  return { stats, loading, refreshing, error, refresh: fetchStats };
 }

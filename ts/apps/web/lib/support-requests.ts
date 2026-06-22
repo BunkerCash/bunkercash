@@ -96,22 +96,7 @@ function normalizeSource(value: unknown): SupportRequestSource {
 
 function getClientIp(request: Request): string | null {
   const cfConnectingIp = readString(request.headers.get("cf-connecting-ip"));
-  if (cfConnectingIp) {
-    return cfConnectingIp;
-  }
-
-  const xRealIp = readString(request.headers.get("x-real-ip"));
-  if (xRealIp) {
-    return xRealIp;
-  }
-
-  const forwardedFor = readString(request.headers.get("x-forwarded-for"));
-  if (!forwardedFor) {
-    return null;
-  }
-
-  const [firstIp] = forwardedFor.split(",");
-  return readString(firstIp);
+  return cfConnectingIp ?? null;
 }
 
 async function hashIdentifier(value: string): Promise<string> {
