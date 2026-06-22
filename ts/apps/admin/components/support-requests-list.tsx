@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import {
   AlertCircle,
@@ -10,12 +10,10 @@ import {
   RefreshCw,
   ShieldAlert,
 } from "lucide-react";
-import { buildAdminAccessMessage } from "@/lib/admin-auth-message";
+import { buildAdminAuthHeaders } from "@/lib/admin-auth-client";
 import type { SupportRequestRecord } from "@/lib/support-requests";
 
 const PAGE_SIZE = 25;
-const ACCESS_HEADER_TTL_MS = 4 * 60 * 1000;
-
 function getErrorMessage(value: unknown, fallback: string): string {
   if (
     value &&
@@ -46,51 +44,19 @@ export function SupportRequestsList() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const accessHeadersRef = useRef<{
-    wallet: string;
-    issuedAtMs: number;
-    headers: Record<string, string>;
-  } | null>(null);
 
-  const buildAccessHeaders = useCallback(async (forceRefresh = false) => {
+  const buildAccessHeaders = useCallback(async (route: string) => {
     if (!publicKey || !signMessage) {
       throw new Error("Connect an admin wallet that supports message signing");
     }
 
-    const wallet = publicKey.toBase58();
-    const cachedHeaders = accessHeadersRef.current;
-    if (
-      !forceRefresh &&
-      cachedHeaders &&
-      cachedHeaders.wallet === wallet &&
-      Date.now() - cachedHeaders.issuedAtMs < ACCESS_HEADER_TTL_MS
-    ) {
-      return cachedHeaders.headers;
-    }
-
-    const issuedAt = new Date().toISOString();
-    const signatureBytes = await signMessage(
-      new TextEncoder().encode(buildAdminAccessMessage(issuedAt)),
-    );
-    const signature = btoa(String.fromCharCode(...signatureBytes));
-
-    const headers = {
-      "x-admin-wallet": publicKey.toBase58(),
-      "x-admin-issued-at": issuedAt,
-      "x-admin-signature": signature,
-    };
-    accessHeadersRef.current = {
-      wallet,
-      issuedAtMs: Date.now(),
-      headers,
-    };
-
-    return headers;
+    return buildAdminAuthHeaders({
+      publicKey,
+      signMessage,
+      method: "GET",
+      route,
+    });
   }, [publicKey, signMessage]);
-
-  useEffect(() => {
-    accessHeadersRef.current = null;
-  }, [publicKey]);
 
   const fetchRequests = useCallback(async (options?: {
     cursor?: string | null;
@@ -116,13 +82,12 @@ export function SupportRequestsList() {
 
       const requestUrl = `/api/support-requests?${searchParams.toString()}`;
       let response = await fetch(requestUrl, {
-        headers: await buildAccessHeaders(),
+        headers: await buildAccessHeaders(requestUrl),
       });
 
       if (response.status === 401) {
-        accessHeadersRef.current = null;
         response = await fetch(requestUrl, {
-          headers: await buildAccessHeaders(true),
+          headers: await buildAccessHeaders(requestUrl),
         });
       }
 

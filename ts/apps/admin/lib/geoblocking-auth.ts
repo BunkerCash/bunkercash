@@ -1,10 +1,14 @@
 import { createHash } from "crypto";
 import { clusterApiUrl, Connection, PublicKey } from "@solana/web3.js";
-import { buildAdminAccessMessage } from "./admin-auth-message";
+import {
+  ADMIN_AUTH_SIGNATURE_TTL_MS,
+  buildAdminAccessMessage,
+  type AdminAuthRequestChallenge,
+} from "./admin-auth-message";
+import { consumeAdminAuthNonce } from "./admin-auth-nonce";
 import { getPoolPda, getReadonlyProgram } from "./program";
 import { getConfiguredRpcCluster } from "./solana-env";
 
-const SIGNATURE_TTL_MS = 5 * 60 * 1000;
 const CLOCK_SKEW_TOLERANCE_MS = 30 * 1000; // allow 30 s of clock skew for future timestamps
 const ADMIN_WALLETS_TTL_MS = 60 * 1000;
 const ADMIN_WALLETS_FAILURE_BACKOFF_MS = 15 * 1000;
@@ -134,20 +138,22 @@ async function verifySignature(
   );
 }
 
-export function buildGeoblockingMessage(bodyText: string, issuedAt: string) {
-  const bodyHash = createHash("sha256").update(bodyText).digest("hex");
-  return `bunkercash-admin:geoblocking:update\n${issuedAt}\n${bodyHash}`;
+function hashBodyText(bodyText: string): string {
+  return createHash("sha256").update(bodyText).digest("hex");
 }
 
-export async function authorizeGeoblockingUpdate(args: {
-  wallet: string | null;
-  signature: string | null;
+function validateSignedChallenge(args: {
   issuedAt: string | null;
-  bodyText: string;
-}) {
-  const { wallet, signature, issuedAt, bodyText } = args;
+  nonce: string | null;
+  method: string;
+  route: string;
+  bodyHash: string;
+}):
+  | { ok: true; challenge: AdminAuthRequestChallenge }
+  | { ok: false; error: string } {
+  const { issuedAt, nonce, method, route, bodyHash } = args;
 
-  if (!wallet || !signature || !issuedAt) {
+  if (!issuedAt || !nonce) {
     return { ok: false as const, error: "Missing admin authorization headers" };
   }
 
@@ -158,13 +164,54 @@ export async function authorizeGeoblockingUpdate(args: {
 
   const now = Date.now();
   if (issuedAtMs > now + CLOCK_SKEW_TOLERANCE_MS) {
-    return { ok: false as const, error: "Authorization timestamp is in the future" };
+    return {
+      ok: false as const,
+      error: "Authorization timestamp is in the future",
+    };
   }
-  if (now - issuedAtMs > SIGNATURE_TTL_MS) {
+  if (now - issuedAtMs > ADMIN_AUTH_SIGNATURE_TTL_MS) {
     return { ok: false as const, error: "Authorization timestamp expired" };
   }
 
-  const message = buildGeoblockingMessage(bodyText, issuedAt);
+  return {
+    ok: true as const,
+    challenge: {
+      method,
+      route,
+      bodyHash,
+      issuedAt,
+      nonce,
+    },
+  };
+}
+
+export async function authorizeGeoblockingUpdate(args: {
+  wallet: string | null;
+  signature: string | null;
+  issuedAt: string | null;
+  nonce: string | null;
+  method: string;
+  route: string;
+  bodyText: string;
+}) {
+  const { wallet, signature, issuedAt, nonce, method, route, bodyText } = args;
+
+  if (!wallet || !signature) {
+    return { ok: false as const, error: "Missing admin authorization headers" };
+  }
+
+  const challenge = validateSignedChallenge({
+    issuedAt,
+    nonce,
+    method,
+    route,
+    bodyHash: hashBodyText(bodyText),
+  });
+  if (!challenge.ok) {
+    return challenge;
+  }
+
+  const message = buildAdminAccessMessage(challenge.challenge);
 
   try {
     const isValidSignature = await verifySignature(wallet, message, signature);
@@ -175,6 +222,14 @@ export async function authorizeGeoblockingUpdate(args: {
     const authorizedWallets = await getAuthorizedAdminWallets();
     if (!authorizedWallets.has(wallet)) {
       return { ok: false as const, error: "Connected wallet is not authorized" };
+    }
+
+    const nonceResult = await consumeAdminAuthNonce(challenge.challenge);
+    if (!nonceResult.ok) {
+      return {
+        ok: false as const,
+        error: nonceResult.error ?? "Admin authorization nonce is invalid",
+      };
     }
   } catch (e: unknown) {
     console.error("[geoblocking-auth] Authorization verification failed:", e instanceof Error ? e.message : e);
@@ -188,30 +243,32 @@ export async function authorizeAdminAccess(args: {
   wallet: string | null;
   signature: string | null;
   issuedAt: string | null;
+  nonce: string | null;
+  method: string;
+  route: string;
+  bodyHash: string;
 }) {
-  const { wallet, signature, issuedAt } = args;
+  const { wallet, signature, issuedAt, nonce, method, route, bodyHash } = args;
 
-  if (!wallet || !signature || !issuedAt) {
+  if (!wallet || !signature) {
     return { ok: false as const, error: "Missing admin authorization headers" };
   }
 
-  const issuedAtMs = Date.parse(issuedAt);
-  if (!Number.isFinite(issuedAtMs)) {
-    return { ok: false as const, error: "Invalid authorization timestamp" };
-  }
-
-  const now = Date.now();
-  if (issuedAtMs > now + CLOCK_SKEW_TOLERANCE_MS) {
-    return { ok: false as const, error: "Authorization timestamp is in the future" };
-  }
-  if (now - issuedAtMs > SIGNATURE_TTL_MS) {
-    return { ok: false as const, error: "Authorization timestamp expired" };
+  const challenge = validateSignedChallenge({
+    issuedAt,
+    nonce,
+    method,
+    route,
+    bodyHash,
+  });
+  if (!challenge.ok) {
+    return challenge;
   }
 
   try {
     const isValidSignature = await verifySignature(
       wallet,
-      buildAdminAccessMessage(issuedAt),
+      buildAdminAccessMessage(challenge.challenge),
       signature
     );
     if (!isValidSignature) {
@@ -219,7 +276,20 @@ export async function authorizeAdminAccess(args: {
     }
 
     const authorizedWallets = await getAuthorizedAdminWallets();
-    return { ok: true as const, isAdmin: authorizedWallets.has(wallet) };
+    const isAdmin = authorizedWallets.has(wallet);
+    if (!isAdmin) {
+      return { ok: true as const, isAdmin: false };
+    }
+
+    const nonceResult = await consumeAdminAuthNonce(challenge.challenge);
+    if (!nonceResult.ok) {
+      return {
+        ok: false as const,
+        error: nonceResult.error ?? "Admin authorization nonce is invalid",
+      };
+    }
+
+    return { ok: true as const, isAdmin: true };
   } catch (e: unknown) {
     console.error("[admin-auth] Access verification failed:", e instanceof Error ? e.message : e);
     return { ok: false as const, error: "Failed to verify admin authorization" };

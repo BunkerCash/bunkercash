@@ -3,8 +3,10 @@
 import { useMemo } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { StatCard } from "@/components/ui/StatCard";
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { Info, RefreshCw } from "lucide-react";
 import { usePoolStats } from "@/hooks/usePoolStats";
+import { GLOSSARY } from "@/lib/glossary";
 import {
   PieChart,
   Pie,
@@ -138,7 +140,12 @@ const PoolStatus = () => {
           {/* Supply stats row */}
           <div className="grid sm:grid-cols-3 gap-6 mb-8">
             <StatCard
-              label="Total Supply"
+              label={
+                <>
+                  Total Supply
+                  <InfoTooltip text={GLOSSARY.totalSupply} label="Total Supply" />
+                </>
+              }
               value={
                 loading
                   ? renderLoading
@@ -148,7 +155,7 @@ const PoolStatus = () => {
                     </span>
                   )
               }
-              note="Current token supply"
+              note="All tokens that exist, incl. escrowed for pending sells"
               className="glass-card h-full"
             />
             <StatCard
@@ -166,7 +173,15 @@ const PoolStatus = () => {
               className="glass-card h-full"
             />
             <StatCard
-              label="Circulating Supply"
+              label={
+                <>
+                  Circulating Supply
+                  <InfoTooltip
+                    text={GLOSSARY.circulatingSupply}
+                    label="Circulating Supply"
+                  />
+                </>
+              }
               value={
                 loading
                   ? renderLoading
@@ -176,7 +191,7 @@ const PoolStatus = () => {
                     </span>
                   )
               }
-              note="Requests reduce circulating supply"
+              note="Excludes tokens escrowed for pending sell requests"
               className="glow-primary h-full"
             />
           </div>

@@ -42,7 +42,16 @@ interface PoolAccountLike {
 
 export interface PoolDataResponse {
   tokenPrice: number;
+  // Total BNKR that exists on the mint = circulating + escrowed. Escrowed
+  // tokens back pending (cancelable) sell requests and are only burned at
+  // settlement, so they still count toward total supply until then.
   totalSupplyRaw: number;
+  // BNKR freely held by users (the on-chain pool.total_bunkercash_supply,
+  // which is reduced when a sell is filed and restored if it is cancelled).
+  // This is the denominator used for per-token pricing.
+  circulatingSupplyRaw: number;
+  // BNKR locked in pool escrow for pending sell requests.
+  escrowBunkercashRaw: number;
   navUsdcRaw: number;
   pendingClaimsUsdcRaw: number;
   treasuryUsdcRaw: number | null;
@@ -115,15 +124,38 @@ export async function fetchPoolData(): Promise<PoolDataResponse> {
   };
 
   const poolAccount = await accountApi.pool.fetch(poolPda);
-  const totalSupplyRaw =
+  // pool.total_bunkercash_supply already excludes BNKR escrowed for pending
+  // sells (it is subtracted at file time, restored on cancel), so it is the
+  // circulating supply and the correct pricing denominator.
+  const circulatingSupplyRaw =
     Number(poolAccount.totalBunkercashSupply.toString()) / 10 ** BUNKERCASH_DECIMALS;
   const navUsdcRaw =
     Number(poolAccount.nav.toString()) / 10 ** USDC_DECIMALS;
   const pendingClaimsUsdcRaw =
     Number(poolAccount.totalPendingClaims.toString()) / 10 ** USDC_DECIMALS;
 
+  // BNKR locked in escrow for pending (cancelable) sell requests. These tokens
+  // still exist on the mint until burned at settlement.
+  let escrowBunkercashRaw = 0;
+  try {
+    const bunkercashMint = getBunkercashMintPda(PROGRAM_ID);
+    const escrowAta = getAssociatedTokenAddressSync(
+      bunkercashMint,
+      poolPda,
+      true,
+      TOKEN_2022_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID,
+    );
+    const escrowBal = await connection.getTokenAccountBalance(escrowAta);
+    escrowBunkercashRaw = escrowBal.value.uiAmount ?? 0;
+  } catch {
+    escrowBunkercashRaw = 0;
+  }
+
+  const totalSupplyRaw = circulatingSupplyRaw + escrowBunkercashRaw;
   const availableNavUsdcRaw = Math.max(navUsdcRaw - pendingClaimsUsdcRaw, 0);
-  const tokenPrice = totalSupplyRaw > 0 ? availableNavUsdcRaw / totalSupplyRaw : 1;
+  const tokenPrice =
+    circulatingSupplyRaw > 0 ? availableNavUsdcRaw / circulatingSupplyRaw : 1;
   const adminWallet = poolAccount.masterWallet.toBase58();
 
   // Vault balance
@@ -164,6 +196,8 @@ export async function fetchPoolData(): Promise<PoolDataResponse> {
   return {
     tokenPrice,
     totalSupplyRaw,
+    circulatingSupplyRaw,
+    escrowBunkercashRaw,
     navUsdcRaw,
     pendingClaimsUsdcRaw,
     treasuryUsdcRaw,
@@ -203,6 +237,8 @@ export async function fetchAllClaims(): Promise<ClaimsResponse> {
 
 // ── Transaction types & fetcher ────────────────────────
 
+export type SellStatus = "pending" | "partial" | "settled" | "cancelled";
+
 export interface SerializedTransaction {
   id: string;
   type: "investment" | "withdrawal";
@@ -210,6 +246,13 @@ export interface SerializedTransaction {
   tokenAmount?: number;
   timestamp: number; // epoch ms
   txSignature?: string;
+  // Settlement state for "withdrawal" (sell) rows. A sell is a request that is
+  // paid out from pool liquidity during a later settlement, so the list must
+  // distinguish "requested" from "actually settled" rather than implying the
+  // USDC already left.
+  status?: SellStatus;
+  requestedUsdc?: number;
+  settledUsdc?: number;
 }
 
 export interface TransactionsResponse {
@@ -236,10 +279,9 @@ export async function fetchTransactionsForWallet(
 
   const results: SerializedTransaction[] = [];
 
-  // Use the already-cached claims data as the primary source.
-  // This avoids expensive per-signature RPC parsing entirely.
-  // Claims cover all withdrawals; deposits are detected via
-  // a single lightweight getSignaturesForAddress call filtered to our program.
+  // Withdrawals come from the already-cached claims data (complete set).
+  // Deposits (buys) are detected by scanning the wallet's own recent
+  // signatures and matching the deposit_usdc instruction.
   try {
     const { kvGet } = await import("@bunkercash/cloudflare-kv");
     // Read claims from KV directly — this function is already called inside
@@ -259,10 +301,21 @@ export async function fetchTransactionsForWallet(
       const createdAt = Number(claim.createdAt);
       const claimTs = createdAt ? createdAt * 1000 : Date.now();
 
+      let status: SellStatus;
+      if (claim.cancelled) status = "cancelled";
+      else if (claim.processed) status = "settled";
+      else if (paidUsdc > 0) status = "partial";
+      else status = "pending";
+
       results.push({
         id: `claim-${claim.id}`,
         type: "withdrawal",
-        amount: paidUsdc > 0 ? paidUsdc : requestedUsdc,
+        // `amount` reflects USDC actually settled (0 while pending), so wallet
+        // totals count real proceeds, not just requested amounts.
+        amount: paidUsdc,
+        requestedUsdc,
+        settledUsdc: paidUsdc,
+        status,
         timestamp: claimTs,
       });
     }
@@ -270,14 +323,16 @@ export async function fetchTransactionsForWallet(
     // Claims lookup failed
   }
 
-  // Detect deposits via program signature scan (single RPC call, no tx parsing)
+  // Detect deposits (buys) from the wallet's own signature history.
+  // Scanning program-wide signatures meant a user's buy was pushed out of
+  // the window by other users' bunkercash activity, so buys silently
+  // disappeared from this list. Scoping to the wallet keeps every buy the
+  // user made (within the window) visible regardless of global volume.
   try {
     const connection = getConnection();
 
-    // Query program signatures rather than wallet signatures so that
-    // non-bunkercash transactions don't push deposits out of the window.
     const signatures = await connection.getSignaturesForAddress(
-      PROGRAM_ID,
+      new PublicKey(wallet),
       { limit: 100 },
       "confirmed",
     );

@@ -7,6 +7,8 @@ import { WithdrawInterface } from "@/components/WithdrawInterface";
 import { DisclaimerBanner } from "@/components/ui/DisclaimerBanner";
 import { PriceChart } from "@/components/PriceChart";
 import { usePoolStats } from "@/hooks/usePoolStats";
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
+import { GLOSSARY } from "@/lib/glossary";
 
 function fmt(value: string | null) {
   if (value == null) return null;
@@ -103,17 +105,26 @@ export default function Home() {
           <div className="hp-overview">
             <div className="hp-stats">
               <div className="hp-stat">
-                <span className="hp-stat-label">Pool NAV</span>
+                <span className="hp-stat-label">
+                  Pool NAV{" "}
+                  <InfoTooltip text={GLOSSARY.poolNav} label="Pool NAV" />
+                </span>
                 <span className="hp-stat-value">{nav != null ? `$${nav}` : "—"}</span>
               </div>
               <div className="hp-stat">
-                <span className="hp-stat-label">Liquid USDC</span>
+                <span className="hp-stat-label">
+                  Liquid USDC{" "}
+                  <InfoTooltip text={GLOSSARY.liquidUsdc} label="Liquid USDC" />
+                </span>
                 <span className="hp-stat-value">
                   {liquid != null ? `$${liquid}` : "—"}
                 </span>
               </div>
               <div className="hp-stat">
-                <span className="hp-stat-label">Pending Claims</span>
+                <span className="hp-stat-label">
+                  Pending Claims{" "}
+                  <InfoTooltip text={GLOSSARY.pendingClaims} label="Pending Claims" />
+                </span>
                 <span className="hp-stat-value">
                   {pending != null ? `$${pending}` : "—"}
                 </span>

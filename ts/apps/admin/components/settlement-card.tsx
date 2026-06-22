@@ -4,17 +4,39 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Buffer } from "buffer";
 import BN from "bn.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { PublicKey, SendTransactionError, SystemProgram, Transaction, type TransactionInstruction } from "@solana/web3.js";
+import {
+  PublicKey,
+  SendTransactionError,
+  SystemProgram,
+  Transaction,
+  type TransactionInstruction,
+} from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
   createAssociatedTokenAccountIdempotentInstruction,
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
-import { AlertCircle, CheckCircle2, Loader2, RefreshCw, Wallet } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  Loader2,
+  RefreshCw,
+  Wallet,
+} from "lucide-react";
 import { useAllOpenClaims, type OpenClaim } from "@/hooks/useAllOpenClaims";
 import { usePayoutVault } from "@/hooks/usePayoutVault";
-import { getBunkercashMintPda, getMinSettlementConfigPda, getProgram, getPoolPda, getPoolSignerPda, getReadonlyProgram, getSettlementStatePda, getSupportedUsdcConfigPda, PROGRAM_ID } from "@/lib/program";
+import {
+  getBunkercashMintPda,
+  getMinSettlementConfigPda,
+  getProgram,
+  getPoolPda,
+  getPoolSignerPda,
+  getReadonlyProgram,
+  getSettlementStatePda,
+  getSupportedUsdcConfigPda,
+  PROGRAM_ID,
+} from "@/lib/program";
 import type { ProgramWallet } from "@/lib/program";
 import { useSupportedUsdcMint } from "@/hooks/useSupportedUsdcMint";
 
@@ -75,6 +97,12 @@ interface SettlementItem {
   payout: bigint;
 }
 
+type EpochState = "unknown" | "open" | "closed";
+
+interface FetchSettlementEpochOptions {
+  missingAccountMeansClosed?: boolean;
+}
+
 function formatUsdc(raw: bigint): string {
   if (raw === BigInt(0)) return "0.00";
   const normalized = raw.toString().padStart(USDC_DECIMALS + 1, "0");
@@ -87,8 +115,14 @@ function parseUiUsdc(value: string | null): bigint {
   if (!value) return BigInt(0);
   const [whole, fraction = ""] = value.split(".");
   const normalizedWhole = whole.replace(/[^\d]/g, "") || "0";
-  const normalizedFraction = fraction.replace(/[^\d]/g, "").slice(0, USDC_DECIMALS).padEnd(USDC_DECIMALS, "0");
-  return BigInt(normalizedWhole) * BigInt(10 ** USDC_DECIMALS) + BigInt(normalizedFraction);
+  const normalizedFraction = fraction
+    .replace(/[^\d]/g, "")
+    .slice(0, USDC_DECIMALS)
+    .padEnd(USDC_DECIMALS, "0");
+  return (
+    BigInt(normalizedWhole) * BigInt(10 ** USDC_DECIMALS) +
+    BigInt(normalizedFraction)
+  );
 }
 
 function chunkClaims<T>(items: T[], size: number): T[][] {
@@ -130,6 +164,12 @@ function isAlreadyProcessedError(error: unknown): boolean {
   return /already been processed/i.test(getErrorText(error));
 }
 
+function isAccountNotFoundError(error: unknown): boolean {
+  return /could not find account|account does not exist|account not found/i.test(
+    getErrorText(error),
+  );
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -146,34 +186,74 @@ export function SettlementCard() {
     error: claimsError,
     refresh: refreshClaims,
   } = useAllOpenClaims();
-  const { balance: vaultBalance, loading: vaultLoading, error: vaultError, refresh: refreshVault } = usePayoutVault();
+  const {
+    balance: vaultBalance,
+    loading: vaultLoading,
+    error: vaultError,
+    refresh: refreshVault,
+  } = usePayoutVault();
 
   const [settling, setSettling] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
-  const [results, setResults] = useState<{ settledClaims: number; failedClaims: number; signatures: string[] } | null>(null);
+  const [results, setResults] = useState<{
+    settledClaims: number;
+    failedClaims: number;
+    signatures: string[];
+  } | null>(null);
   const [txError, setTxError] = useState<string | null>(null);
-  const [poolPendingClaims, setPoolPendingClaims] = useState<bigint | null>(null);
+  const [poolPendingClaims, setPoolPendingClaims] = useState<bigint | null>(
+    null,
+  );
   const [poolStateError, setPoolStateError] = useState<string | null>(null);
-  const [minSettlementUsdc, setMinSettlementUsdc] = useState<bigint | null>(null);
+  const [minSettlementUsdc, setMinSettlementUsdc] = useState<bigint | null>(
+    null,
+  );
   const [minSettlementInput, setMinSettlementInput] = useState("");
   const [savingMinSettlement, setSavingMinSettlement] = useState(false);
-  const [epochOpen, setEpochOpen] = useState(false);
+  const [epochState, setEpochState] = useState<EpochState>("unknown");
+  const [epochStateFresh, setEpochStateFresh] = useState(false);
   const [epochLoading, setEpochLoading] = useState(false);
   const [migrating, setMigrating] = useState(false);
-  const [migrationProgress, setMigrationProgress] = useState({ current: 0, total: 0 });
-  const [epochError, setEpochError] = useState<string | null>(null);
+  const [migrationProgress, setMigrationProgress] = useState({
+    current: 0,
+    total: 0,
+  });
+  const [epochStateError, setEpochStateError] = useState<string | null>(null);
+  const [epochActionError, setEpochActionError] = useState<string | null>(null);
   const [epochPayoutRatio, setEpochPayoutRatio] = useState<number | null>(null);
-  const [epochPayoutRatioPpm, setEpochPayoutRatioPpm] = useState<bigint | null>(null);
-  const [epochVaultSnapshot, setEpochVaultSnapshot] = useState<bigint | null>(null);
-  const [epochPendingSnapshot, setEpochPendingSnapshot] = useState<bigint | null>(null);
+  const [epochPayoutRatioPpm, setEpochPayoutRatioPpm] = useState<bigint | null>(
+    null,
+  );
+  const [epochVaultSnapshot, setEpochVaultSnapshot] = useState<bigint | null>(
+    null,
+  );
+  const [epochPendingSnapshot, setEpochPendingSnapshot] = useState<
+    bigint | null
+  >(null);
   // total_processed_usdc + total_cancelled_usdc from the settlement state:
   // how much of pending_snapshot has been covered so far this epoch.
   // close_settlement succeeds only once this reaches the pending snapshot.
   const [epochCoveredUsdc, setEpochCoveredUsdc] = useState<bigint | null>(null);
+  const epochOpen = epochState === "open";
+  const epochStateUnknown = epochState === "unknown";
+
+  const clearEpochSnapshot = useCallback(() => {
+    setEpochPayoutRatio(null);
+    setEpochPayoutRatioPpm(null);
+    setEpochVaultSnapshot(null);
+    setEpochPendingSnapshot(null);
+    setEpochCoveredUsdc(null);
+  }, []);
 
   const poolPda = useMemo(() => getPoolPda(PROGRAM_ID), []);
-  const poolSignerPda = useMemo(() => getPoolSignerPda(poolPda, PROGRAM_ID), [poolPda]);
-  const settlementStatePda = useMemo(() => getSettlementStatePda(poolPda, PROGRAM_ID), [poolPda]);
+  const poolSignerPda = useMemo(
+    () => getPoolSignerPda(poolPda, PROGRAM_ID),
+    [poolPda],
+  );
+  const settlementStatePda = useMemo(
+    () => getSettlementStatePda(poolPda, PROGRAM_ID),
+    [poolPda],
+  );
   const bunkercashMintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), []);
   const poolBunkercashEscrow = useMemo(
     () =>
@@ -195,13 +275,16 @@ export function SettlementCard() {
             signAllTransactions,
           } satisfies ProgramWallet)
         : null,
-    [connection, publicKey, signTransaction, signAllTransactions]
+    [connection, publicKey, signTransaction, signAllTransactions],
   );
-  const readonlyProgram = useMemo(() => getReadonlyProgram(connection), [connection]);
+  const readonlyProgram = useMemo(
+    () => getReadonlyProgram(connection),
+    [connection],
+  );
   const { usdcMint, usdcTokenProgram } = useSupportedUsdcMint();
   const supportedUsdcConfigPda = useMemo(
     () => getSupportedUsdcConfigPda(PROGRAM_ID),
-    []
+    [],
   );
   const payoutVault = useMemo(() => {
     if (!usdcMint || !usdcTokenProgram) return null;
@@ -210,7 +293,7 @@ export function SettlementCard() {
       poolSignerPda,
       true,
       usdcTokenProgram,
-      ASSOCIATED_TOKEN_PROGRAM_ID
+      ASSOCIATED_TOKEN_PROGRAM_ID,
     );
   }, [poolSignerPda, usdcMint, usdcTokenProgram]);
 
@@ -222,9 +305,10 @@ export function SettlementCard() {
   // master withdrawals until the epoch is force-resolved.
   const needsMigrationCount = useMemo(
     () => claims.filter((claim) => claim.needsMigration).length,
-    [claims]
+    [claims],
   );
-  const pendingClaimsMismatch = poolPendingClaims !== null && poolPendingClaims !== totalRequested;
+  const pendingClaimsMismatch =
+    poolPendingClaims !== null && poolPendingClaims !== totalRequested;
   const pendingClaimsSyncRequired =
     poolPendingClaims !== null && totalRequested > poolPendingClaims;
   const underfundedPoolMismatch =
@@ -232,21 +316,26 @@ export function SettlementCard() {
     vaultRaw < poolPendingClaims &&
     totalRequested !== poolPendingClaims;
 
-  const fetchPoolPendingClaims = useCallback(async (signal?: AbortSignal) => {
-    try {
-      setPoolStateError(null);
-      const accountApi = readonlyProgram.account as {
-        pool: { fetch: (pubkey: typeof poolPda) => Promise<PoolAccountLike> };
-      };
-      const poolState = await accountApi.pool.fetch(poolPda);
-      if (signal?.aborted) return;
-      setPoolPendingClaims(BigInt(poolState.totalPendingClaims.toString()));
-    } catch (e: unknown) {
-      if (signal?.aborted) return;
-      setPoolPendingClaims(null);
-      setPoolStateError(e instanceof Error ? e.message : "Failed to fetch pool state");
-    }
-  }, [poolPda, readonlyProgram]);
+  const fetchPoolPendingClaims = useCallback(
+    async (signal?: AbortSignal) => {
+      try {
+        setPoolStateError(null);
+        const accountApi = readonlyProgram.account as {
+          pool: { fetch: (pubkey: typeof poolPda) => Promise<PoolAccountLike> };
+        };
+        const poolState = await accountApi.pool.fetch(poolPda);
+        if (signal?.aborted) return;
+        setPoolPendingClaims(BigInt(poolState.totalPendingClaims.toString()));
+      } catch (e: unknown) {
+        if (signal?.aborted) return;
+        setPoolPendingClaims(null);
+        setPoolStateError(
+          e instanceof Error ? e.message : "Failed to fetch pool state",
+        );
+      }
+    },
+    [poolPda, readonlyProgram],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -267,42 +356,71 @@ export function SettlementCard() {
     bump: number;
   }
 
-  const fetchSettlementEpoch = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const accountApi = readonlyProgram.account as {
-        settlementState?: {
-          fetch: (pubkey: PublicKey) => Promise<SettlementStateAccount>;
+  const fetchSettlementEpoch = useCallback(
+    async (
+      signal?: AbortSignal,
+      { missingAccountMeansClosed = true }: FetchSettlementEpochOptions = {},
+    ) => {
+      try {
+        const accountApi = readonlyProgram.account as {
+          settlementState?: {
+            fetch: (pubkey: PublicKey) => Promise<SettlementStateAccount>;
+            fetchNullable?: (
+              pubkey: PublicKey,
+            ) => Promise<SettlementStateAccount | null>;
+          };
         };
-      };
-      if (!accountApi.settlementState) return;
-      const state = await accountApi.settlementState.fetch(settlementStatePda);
-      if (signal?.aborted) return;
-      setEpochOpen(true);
-      setEpochError(null);
-      setEpochVaultSnapshot(BigInt(state.vaultSnapshot.toString()));
-      setEpochPendingSnapshot(BigInt(state.pendingSnapshot.toString()));
-      setEpochCoveredUsdc(
-        BigInt(state.totalProcessedUsdc.toString()) +
-          BigInt(state.totalCancelledUsdc.toString())
-      );
-      const ppm = BigInt(state.payoutRatioPpm.toString());
-      setEpochPayoutRatioPpm(ppm);
-      setEpochPayoutRatio(Number(ppm) / 10_000);
-    } catch (e: unknown) {
-      if (signal?.aborted) return;
-      setEpochOpen(false);
-      setEpochPayoutRatio(null);
-      setEpochPayoutRatioPpm(null);
-      setEpochVaultSnapshot(null);
-      setEpochPendingSnapshot(null);
-      setEpochCoveredUsdc(null);
-      const isAccountNotFound =
-        e instanceof Error && e.message.includes("could not find account");
-      if (!isAccountNotFound) {
-        setEpochError(getErrorMessage(e, "Failed to fetch settlement epoch"));
+        setEpochStateFresh(false);
+        setEpochStateError(null);
+        if (!accountApi.settlementState) {
+          throw new Error("Settlement state account client unavailable");
+        }
+        const state = accountApi.settlementState.fetchNullable
+          ? await accountApi.settlementState.fetchNullable(settlementStatePda)
+          : await accountApi.settlementState.fetch(settlementStatePda);
+        if (signal?.aborted) return;
+        if (!state) {
+          if (!missingAccountMeansClosed) {
+            throw new Error(
+              "Settlement state account missing after epoch operation",
+            );
+          }
+          setEpochState("closed");
+          setEpochStateFresh(true);
+          setEpochStateError(null);
+          clearEpochSnapshot();
+          return;
+        }
+        setEpochState("open");
+        setEpochStateFresh(true);
+        setEpochStateError(null);
+        setEpochVaultSnapshot(BigInt(state.vaultSnapshot.toString()));
+        setEpochPendingSnapshot(BigInt(state.pendingSnapshot.toString()));
+        setEpochCoveredUsdc(
+          BigInt(state.totalProcessedUsdc.toString()) +
+            BigInt(state.totalCancelledUsdc.toString()),
+        );
+        const ppm = BigInt(state.payoutRatioPpm.toString());
+        setEpochPayoutRatioPpm(ppm);
+        setEpochPayoutRatio(Number(ppm) / 10_000);
+      } catch (e: unknown) {
+        if (signal?.aborted) return;
+        if (isAccountNotFoundError(e) && missingAccountMeansClosed) {
+          setEpochState("closed");
+          setEpochStateFresh(true);
+          setEpochStateError(null);
+          clearEpochSnapshot();
+          return;
+        }
+        setEpochStateFresh(false);
+        setEpochStateError(
+          "Failed to refresh settlement epoch state. Last known state is still shown.",
+        );
+        console.error("Failed to refresh settlement epoch state:", e);
       }
-    }
-  }, [readonlyProgram, settlementStatePda]);
+    },
+    [clearEpochSnapshot, readonlyProgram, settlementStatePda],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -310,17 +428,24 @@ export function SettlementCard() {
     return () => controller.abort();
   }, [fetchSettlementEpoch]);
 
-  const minSettlementConfigPda = useMemo(() => getMinSettlementConfigPda(PROGRAM_ID), []);
+  const minSettlementConfigPda = useMemo(
+    () => getMinSettlementConfigPda(PROGRAM_ID),
+    [],
+  );
 
   const fetchMinSettlementConfig = useCallback(async () => {
     try {
       const accountApi = readonlyProgram.account as {
         minSettlementConfig?: {
-          fetch: (pubkey: PublicKey) => Promise<{ minSettlementUsdc: { toString(): string } }>;
+          fetch: (
+            pubkey: PublicKey,
+          ) => Promise<{ minSettlementUsdc: { toString(): string } }>;
         };
       };
       if (!accountApi.minSettlementConfig) return;
-      const config = await accountApi.minSettlementConfig.fetch(minSettlementConfigPda);
+      const config = await accountApi.minSettlementConfig.fetch(
+        minSettlementConfigPda,
+      );
       const raw = BigInt(config.minSettlementUsdc.toString());
       setMinSettlementUsdc(raw);
       setMinSettlementInput(formatUsdc(raw));
@@ -334,7 +459,9 @@ export function SettlementCard() {
   }, [fetchMinSettlementConfig]);
 
   const vaultBelowMinSettlement =
-    minSettlementUsdc !== null && minSettlementUsdc > BigInt(0) && vaultRaw < minSettlementUsdc;
+    minSettlementUsdc !== null &&
+    minSettlementUsdc > BigInt(0) &&
+    vaultRaw < minSettlementUsdc;
 
   const handleSaveMinSettlement = useCallback(async () => {
     if (!program || !publicKey) return;
@@ -360,22 +487,47 @@ export function SettlementCard() {
         .rpc();
       setMinSettlementUsdc(rawValue);
     } catch (e: unknown) {
-      setTxError(e instanceof Error ? e.message : "Failed to save minimum settlement threshold");
+      setTxError(
+        e instanceof Error
+          ? e.message
+          : "Failed to save minimum settlement threshold",
+      );
     } finally {
       setSavingMinSettlement(false);
     }
   }, [minSettlementConfigPda, minSettlementInput, poolPda, program, publicKey]);
 
   const handleOpenSettlement = useCallback(async () => {
-    if (!program || !publicKey || !usdcMint || !usdcTokenProgram || !payoutVault) return;
+    if (
+      !program ||
+      !publicKey ||
+      !usdcMint ||
+      !usdcTokenProgram ||
+      !payoutVault
+    )
+      return;
+    if (!epochStateFresh) {
+      setEpochActionError(
+        "Refresh settlement epoch state before opening an epoch.",
+      );
+      return;
+    }
+    if (epochState !== "closed") {
+      setEpochActionError(
+        epochState === "open"
+          ? "A settlement epoch is already active."
+          : "Settlement epoch state is still unknown.",
+      );
+      return;
+    }
     if (needsMigrationCount > 0) {
-      setEpochError(
-        `${needsMigrationCount} legacy claim${needsMigrationCount === 1 ? "" : "s"} must be migrated before a settlement epoch can open.`
+      setEpochActionError(
+        `${needsMigrationCount} legacy claim${needsMigrationCount === 1 ? "" : "s"} must be migrated before a settlement epoch can open.`,
       );
       return;
     }
     setEpochLoading(true);
-    setEpochError(null);
+    setEpochActionError(null);
     setTxError(null);
     try {
       const methods = program.methods as unknown as {
@@ -399,19 +551,51 @@ export function SettlementCard() {
           systemProgram: SystemProgram.programId,
         })
         .rpc();
-      await fetchSettlementEpoch();
+      setEpochState("open");
+      setEpochStateFresh(false);
+      await fetchSettlementEpoch(undefined, {
+        missingAccountMeansClosed: false,
+      });
       await Promise.all([refreshVault(), fetchPoolPendingClaims()]);
     } catch (e: unknown) {
-      setEpochError(getErrorMessage(e, "Failed to open settlement epoch"));
+      setEpochActionError(
+        getErrorMessage(e, "Failed to open settlement epoch"),
+      );
     } finally {
       setEpochLoading(false);
     }
-  }, [fetchPoolPendingClaims, fetchSettlementEpoch, minSettlementConfigPda, needsMigrationCount, payoutVault, poolPda, program, publicKey, refreshVault, settlementStatePda, supportedUsdcConfigPda, usdcMint, usdcTokenProgram]);
+  }, [
+    epochState,
+    epochStateFresh,
+    fetchPoolPendingClaims,
+    fetchSettlementEpoch,
+    minSettlementConfigPda,
+    needsMigrationCount,
+    payoutVault,
+    poolPda,
+    program,
+    publicKey,
+    refreshVault,
+    settlementStatePda,
+    supportedUsdcConfigPda,
+    usdcMint,
+    usdcTokenProgram,
+  ]);
 
   const handleCloseSettlement = useCallback(async () => {
     if (!program || !publicKey) return;
+    if (!epochStateFresh) {
+      setEpochActionError(
+        "Refresh settlement epoch state before closing the epoch.",
+      );
+      return;
+    }
+    if (!epochOpen) {
+      setEpochActionError("No active settlement epoch is verified.");
+      return;
+    }
     setEpochLoading(true);
-    setEpochError(null);
+    setEpochActionError(null);
     setTxError(null);
     try {
       const methods = program.methods as unknown as {
@@ -429,26 +613,47 @@ export function SettlementCard() {
           masterWallet: publicKey,
         })
         .rpc();
-      setEpochOpen(false);
-      setEpochPayoutRatio(null);
-      setEpochPayoutRatioPpm(null);
-      setEpochVaultSnapshot(null);
-      setEpochPendingSnapshot(null);
-      setEpochCoveredUsdc(null);
-      await Promise.all([refreshClaims(), refreshVault(), fetchPoolPendingClaims()]);
+      setEpochState("closed");
+      setEpochStateFresh(true);
+      setEpochStateError(null);
+      clearEpochSnapshot();
+      await Promise.all([
+        refreshClaims(),
+        refreshVault(),
+        fetchPoolPendingClaims(),
+      ]);
     } catch (e: unknown) {
-      setEpochError(getErrorMessage(e, "Failed to close settlement epoch"));
+      setEpochActionError(
+        getErrorMessage(e, "Failed to close settlement epoch"),
+      );
     } finally {
       setEpochLoading(false);
     }
-  }, [fetchPoolPendingClaims, poolPda, program, publicKey, refreshClaims, refreshVault, settlementStatePda]);
+  }, [
+    clearEpochSnapshot,
+    epochOpen,
+    epochStateFresh,
+    fetchPoolPendingClaims,
+    poolPda,
+    program,
+    publicKey,
+    refreshClaims,
+    refreshVault,
+    settlementStatePda,
+  ]);
 
   // migrate_claim is permissionless on-chain (the connected wallet only pays
   // the realloc rent), so this works for any operator wallet. It reverts if a
-  // settlement epoch is open, which cannot happen from this card because
-  // epoch-open is blocked while legacy claims exist.
+  // settlement epoch is open, so this card only enables migration after a
+  // fresh epoch-state check confirms no epoch is active.
   const handleMigrateClaims = useCallback(async () => {
     if (!program || !publicKey || !signTransaction) return;
+    if (!epochStateFresh || epochOpen) {
+      setTxError(
+        "Refresh settlement epoch state before migrating legacy claims.",
+      );
+      return;
+    }
     const legacyClaims = claims.filter((claim) => claim.needsMigration);
     if (legacyClaims.length === 0) return;
 
@@ -470,10 +675,11 @@ export function SettlementCard() {
                 payer: publicKey,
                 systemProgram: SystemProgram.programId,
               })
-              .instruction()
+              .instruction(),
           );
         }
-        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+        const { blockhash, lastValidBlockHeight } =
+          await connection.getLatestBlockhash("confirmed");
         tx.recentBlockhash = blockhash;
         tx.feePayer = publicKey;
         const signed = await signTransaction(tx);
@@ -485,7 +691,10 @@ export function SettlementCard() {
           { signature: sig, blockhash, lastValidBlockHeight },
           "confirmed",
         );
-        setMigrationProgress((prev) => ({ current: prev.current + batch.length, total: prev.total }));
+        setMigrationProgress((prev) => ({
+          current: prev.current + batch.length,
+          total: prev.total,
+        }));
       }
     } catch (e: unknown) {
       setTxError(getErrorMessage(e, "Failed to migrate legacy claims"));
@@ -495,7 +704,18 @@ export function SettlementCard() {
       // operator can attempt to open an epoch.
       await refreshClaims();
     }
-  }, [claims, connection, poolPda, program, publicKey, refreshClaims, settlementStatePda, signTransaction]);
+  }, [
+    claims,
+    connection,
+    epochOpen,
+    epochStateFresh,
+    poolPda,
+    program,
+    publicKey,
+    refreshClaims,
+    settlementStatePda,
+    signTransaction,
+  ]);
 
   const settlementPlan = useMemo((): SettlementItem[] => {
     // Legacy claims (pre-epoch-fields layout) cannot be passed to
@@ -506,27 +726,33 @@ export function SettlementCard() {
     const settleableClaims = claims.filter((claim) => !claim.needsMigration);
     const settleableTotalRequested = settleableClaims.reduce(
       (sum, claim) => sum + BigInt(claim.remainingUsdc),
-      BigInt(0)
+      BigInt(0),
     );
-    if (settleableClaims.length === 0 || settleableTotalRequested === BigInt(0)) return [];
+    if (settleableClaims.length === 0 || settleableTotalRequested === BigInt(0))
+      return [];
 
     if (epochOpen && epochPayoutRatioPpm !== null) {
       const fullyFunded = epochPayoutRatioPpm >= BigInt(1_000_000);
-      return settleableClaims
-        .map((claim) => {
-          const remaining = BigInt(claim.remainingUsdc);
-          const payout = (remaining * epochPayoutRatioPpm) / BigInt(1_000_000);
-          const capped = payout > remaining ? remaining : payout;
-          return { claim, requested: remaining, payout: capped };
-        })
-        // In an underfunded epoch the program rejects any batch that omits an
-        // eligible claim (IncompleteSettlementSet), including dust whose
-        // payout truncates to 0 — those must be submitted so the chain can
-        // stamp them into the epoch's completeness accounting. Batch
-        // inclusion is therefore decided by remaining amount, not payout
-        // positivity. Fully funded epochs can keep the payout filter since
-        // every remaining claim pays out in full anyway.
-        .filter((item) => (fullyFunded ? item.payout > BigInt(0) : item.requested > BigInt(0)));
+      return (
+        settleableClaims
+          .map((claim) => {
+            const remaining = BigInt(claim.remainingUsdc);
+            const payout =
+              (remaining * epochPayoutRatioPpm) / BigInt(1_000_000);
+            const capped = payout > remaining ? remaining : payout;
+            return { claim, requested: remaining, payout: capped };
+          })
+          // In an underfunded epoch the locked ratio can floor dust payouts to
+          // 0, but those claims still count toward the epoch's exact coverage:
+          // total_processed_usdc + total_cancelled_usdc must reach
+          // pending_snapshot before close_settlement succeeds. Include them so
+          // the chain can stamp their remaining amount as processed. Fully
+          // funded epochs can keep the payout filter since every remaining
+          // claim pays out in full anyway.
+          .filter((item) =>
+            fullyFunded ? item.payout > BigInt(0) : item.requested > BigInt(0),
+          )
+      );
     }
 
     if (vaultRaw === BigInt(0)) return [];
@@ -562,7 +788,7 @@ export function SettlementCard() {
 
   const totalPayout = useMemo(
     () => settlementPlan.reduce((sum, item) => sum + item.payout, BigInt(0)),
-    [settlementPlan]
+    [settlementPlan],
   );
   // Preview ratio (no epoch open yet) mirrors the on-chain
   // compute_settlement_payout_ratio: vault over ALL pending claims, since
@@ -571,14 +797,29 @@ export function SettlementCard() {
   // which is restricted to the settleable subset — that would understate the
   // ratio whenever legacy claims are present. The on-chain epoch branch above
   // uses the authoritative ratio once an epoch is open.
-  const payoutRatio = epochOpen && epochPayoutRatio !== null
-    ? epochPayoutRatio
-    : totalRequested > BigInt(0)
-      ? Number(((vaultRaw < totalRequested ? vaultRaw : totalRequested) * BigInt(10_000)) / totalRequested) / 100
-      : 0;
+  const payoutRatio =
+    epochOpen && epochPayoutRatio !== null
+      ? epochPayoutRatio
+      : totalRequested > BigInt(0)
+        ? Number(
+            ((vaultRaw < totalRequested ? vaultRaw : totalRequested) *
+              BigInt(10_000)) /
+              totalRequested,
+          ) / 100
+        : 0;
 
   const handleSettleAll = useCallback(async () => {
-    if (!program || !publicKey || !usdcMint || !usdcTokenProgram || !payoutVault || settlementPlan.length === 0) return;
+    if (
+      !program ||
+      !publicKey ||
+      !usdcMint ||
+      !usdcTokenProgram ||
+      !payoutVault ||
+      !epochOpen ||
+      !epochStateFresh ||
+      settlementPlan.length === 0
+    )
+      return;
 
     setSettling(true);
     setTxError(null);
@@ -591,7 +832,9 @@ export function SettlementCard() {
 
     const batches = chunkClaims(settlementPlan, CLAIMS_PER_TX);
 
-    const sendSettlementBatch = async (batch: SettlementItem[]): Promise<string> => {
+    const sendSettlementBatch = async (
+      batch: SettlementItem[],
+    ): Promise<string> => {
       let lastError: unknown;
 
       for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -607,7 +850,7 @@ export function SettlementCard() {
               claimUser,
               false,
               usdcTokenProgram,
-              ASSOCIATED_TOKEN_PROGRAM_ID
+              ASSOCIATED_TOKEN_PROGRAM_ID,
             );
 
             tx.add(
@@ -617,17 +860,21 @@ export function SettlementCard() {
                 claimUser,
                 usdcMint,
                 usdcTokenProgram,
-                ASSOCIATED_TOKEN_PROGRAM_ID
-              )
+                ASSOCIATED_TOKEN_PROGRAM_ID,
+              ),
             );
 
             remainingAccounts.push(
               { pubkey: claimPubkey, isSigner: false, isWritable: true },
-              { pubkey: userUsdcAta, isSigner: false, isWritable: true }
+              { pubkey: userUsdcAta, isSigner: false, isWritable: true },
             );
           }
 
-          const settleIx = await ((program.methods as unknown as { settleClaims: (claimIndices: Buffer) => InstructionBuilder })
+          const settleIx = await (
+            program.methods as unknown as {
+              settleClaims: (claimIndices: Buffer) => InstructionBuilder;
+            }
+          )
             .settleClaims(Buffer.alloc(0))
             .accounts({
               pool: poolPda,
@@ -642,16 +889,18 @@ export function SettlementCard() {
               tokenProgram: TOKEN_2022_PROGRAM_ID,
             })
             .remainingAccounts(remainingAccounts)
-            .instruction());
+            .instruction();
 
           tx.add(settleIx);
 
           // Fetch a fresh blockhash for each attempt to avoid stale blockhash reuse
-          const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+          const { blockhash, lastValidBlockHeight } =
+            await connection.getLatestBlockhash("confirmed");
           tx.recentBlockhash = blockhash;
           tx.feePayer = publicKey;
 
-          if (!signTransaction) throw new Error("Wallet does not support signTransaction");
+          if (!signTransaction)
+            throw new Error("Wallet does not support signTransaction");
           const signed = await signTransaction(tx);
           const rawTx = signed.serialize();
 
@@ -668,14 +917,18 @@ export function SettlementCard() {
           return sig;
         } catch (e: unknown) {
           if (isAlreadyProcessedError(e)) {
-            console.info("settle_claims: transaction already processed (likely succeeded on a prior attempt)");
+            console.info(
+              "settle_claims: transaction already processed (likely succeeded on a prior attempt)",
+            );
             return "already-processed";
           }
           lastError = e;
           if (!isBlockhashNotFoundError(e) || attempt === 3) {
             throw e;
           }
-          console.warn(`settle_claims: blockhash expired, retrying (${attempt}/3)`);
+          console.warn(
+            `settle_claims: blockhash expired, retrying (${attempt}/3)`,
+          );
           await sleep(500 * attempt);
         }
       }
@@ -690,12 +943,20 @@ export function SettlementCard() {
           succeeded.push(sig);
         }
         settledClaims += batch.length;
-        setProgress((prev) => ({ current: prev.current + batch.length, total: prev.total }));
+        setProgress((prev) => ({
+          current: prev.current + batch.length,
+          total: prev.total,
+        }));
       } catch (e: unknown) {
         if (isAlreadyProcessedError(e)) {
-          console.info("settle_claims: batch already processed on-chain, treating as success");
+          console.info(
+            "settle_claims: batch already processed on-chain, treating as success",
+          );
           settledClaims += batch.length;
-          setProgress((prev) => ({ current: prev.current + batch.length, total: prev.total }));
+          setProgress((prev) => ({
+            current: prev.current + batch.length,
+            total: prev.total,
+          }));
           continue;
         }
         console.error("Failed to settle claim batch:", e);
@@ -706,13 +967,40 @@ export function SettlementCard() {
           }
         }
         failedClaims += batch.length;
-        setTxError(getErrorMessage(e, "Failed to settle one of the settlement batches."));
+        setTxError(
+          getErrorMessage(e, "Failed to settle one of the settlement batches."),
+        );
       }
     }
     setResults({ settledClaims, failedClaims, signatures: succeeded });
     setSettling(false);
-    await Promise.all([refreshClaims(), refreshVault(), fetchPoolPendingClaims(), fetchSettlementEpoch()]);
-  }, [bunkercashMintPda, connection, fetchPoolPendingClaims, fetchSettlementEpoch, payoutVault, poolBunkercashEscrow, program, publicKey, signTransaction, refreshClaims, refreshVault, settlementPlan, settlementStatePda, usdcMint, usdcTokenProgram, poolPda, supportedUsdcConfigPda]);
+    await Promise.all([
+      refreshClaims(),
+      refreshVault(),
+      fetchPoolPendingClaims(),
+      fetchSettlementEpoch(),
+    ]);
+  }, [
+    bunkercashMintPda,
+    connection,
+    epochOpen,
+    epochStateFresh,
+    fetchPoolPendingClaims,
+    fetchSettlementEpoch,
+    payoutVault,
+    poolBunkercashEscrow,
+    program,
+    publicKey,
+    signTransaction,
+    refreshClaims,
+    refreshVault,
+    settlementPlan,
+    settlementStatePda,
+    usdcMint,
+    usdcTokenProgram,
+    poolPda,
+    supportedUsdcConfigPda,
+  ]);
 
   const loading = claimsLoading || vaultLoading;
   const canSettle =
@@ -720,18 +1008,34 @@ export function SettlementCard() {
     !!program &&
     !!usdcMint &&
     epochOpen &&
+    epochStateFresh &&
     settlementPlan.length > 0 &&
     !settling &&
     !pendingClaimsSyncRequired &&
     !vaultBelowMinSettlement;
+  const epochStatusCopy = epochOpen
+    ? epochStateFresh
+      ? "A settlement epoch is active. Settle all eligible claims in batches, then close the epoch once coverage is complete."
+      : "Last known state: a settlement epoch was active. Refresh epoch state before operator actions."
+    : epochState === "closed" && epochStateFresh
+      ? "Open an epoch to snapshot the vault balance and lock the payout ratio before settling."
+      : epochState === "closed"
+        ? "Last known state: no active settlement epoch. Refresh epoch state before operator actions."
+        : "Settlement epoch state has not been verified yet. Refresh before operator actions.";
+  const epochControlPauseTitle = !epochStateFresh
+    ? "Refresh settlement epoch state before using settlement controls."
+    : undefined;
 
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold text-white">Distribution Plan</h1>
+          <h1 className="text-xl font-semibold text-white">
+            Distribution Plan
+          </h1>
           <p className="mt-1 text-sm text-neutral-500">
-            Proportional distribution across current open requests using the live pool USDC vault.
+            Proportional distribution across current open requests using the
+            live pool USDC vault.
           </p>
         </div>
         <button
@@ -751,27 +1055,51 @@ export function SettlementCard() {
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-4">
         <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-5">
-          <div className="text-[11px] uppercase tracking-wider text-neutral-500">Vault Balance</div>
-          <p className="mt-2 font-mono text-lg font-semibold text-white">${vaultBalance ?? "0"}</p>
-          <p className="mt-1 text-xs text-neutral-500">USDC in the pool vault</p>
+          <div className="text-[11px] uppercase tracking-wider text-neutral-500">
+            Vault Balance
+          </div>
+          <p className="mt-2 font-mono text-lg font-semibold text-white">
+            ${vaultBalance ?? "0"}
+          </p>
+          <p className="mt-1 text-xs text-neutral-500">
+            USDC in the pool vault
+          </p>
         </div>
         <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-5">
-          <div className="text-[11px] uppercase tracking-wider text-neutral-500">Open Requests</div>
-          <p className="mt-2 text-lg font-semibold text-white">{claims.length}</p>
-          <p className="mt-1 text-xs text-neutral-500">eligible for settlement</p>
+          <div className="text-[11px] uppercase tracking-wider text-neutral-500">
+            Open Requests
+          </div>
+          <p className="mt-2 text-lg font-semibold text-white">
+            {claims.length}
+          </p>
+          <p className="mt-1 text-xs text-neutral-500">
+            eligible for settlement
+          </p>
         </div>
         <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-5">
-          <div className="text-[11px] uppercase tracking-wider text-neutral-500">Total Owed</div>
-          <p className="mt-2 font-mono text-lg font-semibold text-white">${formatUsdc(totalRequested)}</p>
-          <p className="mt-1 text-xs text-neutral-500">sum of all open request amounts</p>
+          <div className="text-[11px] uppercase tracking-wider text-neutral-500">
+            Total Owed
+          </div>
+          <p className="mt-2 font-mono text-lg font-semibold text-white">
+            ${formatUsdc(totalRequested)}
+          </p>
+          <p className="mt-1 text-xs text-neutral-500">
+            sum of all open request amounts
+          </p>
         </div>
         <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-5">
-          <div className="text-[11px] uppercase tracking-wider text-neutral-500">Payout Ratio</div>
-          <p className={`mt-2 text-lg font-semibold ${payoutRatio >= 100 ? "text-[#00FFB2]" : "text-amber-400"}`}>
+          <div className="text-[11px] uppercase tracking-wider text-neutral-500">
+            Payout Ratio
+          </div>
+          <p
+            className={`mt-2 text-lg font-semibold ${payoutRatio >= 100 ? "text-[#00FFB2]" : "text-amber-400"}`}
+          >
             {payoutRatio.toFixed(2)}%
           </p>
           <p className="mt-1 text-xs text-neutral-500">
-            {payoutRatio >= 100 ? "full settlement available" : "proportional distribution"}
+            {payoutRatio >= 100
+              ? "full settlement available"
+              : "proportional distribution"}
           </p>
         </div>
       </div>
@@ -781,20 +1109,33 @@ export function SettlementCard() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="text-base font-semibold text-rose-300">
-                {needsMigrationCount} claim{needsMigrationCount === 1 ? "" : "s"} must be migrated before settlement
+                {needsMigrationCount} claim
+                {needsMigrationCount === 1 ? "" : "s"} must be migrated before
+                settlement
               </h2>
               <p className="mt-1 text-sm text-rose-200/80">
-                {needsMigrationCount === 1 ? "This claim uses" : "These claims use"} a legacy account
-                layout from before the settlement-epoch upgrade. Opening a settlement epoch is
-                blocked: legacy claims cannot be settled or migrated while an epoch is open, yet
-                they still count toward the epoch snapshot, so an epoch opened now could never
-                close. Migrate them here (or via the
-                {" "}<span className="font-mono">migrate-accounts.ts</span> script), then re-check.
+                {needsMigrationCount === 1
+                  ? "This claim uses"
+                  : "These claims use"}{" "}
+                a legacy account layout from before the settlement-epoch
+                upgrade. Opening a settlement epoch is blocked: legacy claims
+                cannot be settled or migrated while an epoch is open, yet they
+                still count toward the epoch snapshot, so an epoch opened now
+                could never close. Migrate them here (or via the{" "}
+                <span className="font-mono">migrate-accounts.ts</span> script),
+                then re-check.
               </p>
             </div>
             <button
               onClick={() => void handleMigrateClaims()}
-              disabled={!wallet.publicKey || !program || migrating || epochOpen}
+              disabled={
+                !wallet.publicKey ||
+                !program ||
+                migrating ||
+                epochOpen ||
+                !epochStateFresh
+              }
+              title={epochControlPauseTitle}
               className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-rose-500/20 px-4 py-2 text-sm font-medium text-rose-200 transition hover:bg-rose-500/30 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {migrating ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -805,21 +1146,32 @@ export function SettlementCard() {
           </div>
           {epochOpen && (
             <p className="mt-3 text-sm text-rose-200/80">
-              A settlement epoch is currently open, so migration is blocked on-chain. Close the
-              epoch first, then migrate.
+              A settlement epoch is currently open, so migration is blocked
+              on-chain. Close the epoch first, then migrate.
+            </p>
+          )}
+          {!epochStateFresh && !epochOpen && (
+            <p className="mt-3 text-sm text-rose-200/80">
+              Migration is paused until the settlement epoch state refreshes
+              successfully.
             </p>
           )}
         </div>
       )}
 
       <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/30 p-5">
-        <h2 className="text-base font-semibold text-white">Minimum Settlement Threshold</h2>
+        <h2 className="text-base font-semibold text-white">
+          Minimum Settlement Threshold
+        </h2>
         <p className="mt-1 text-sm text-neutral-500">
-          Vault must hold at least this much USDC before a settlement epoch can open. Set to 0 to disable.
+          Vault must hold at least this much USDC before a settlement epoch can
+          open. Set to 0 to disable.
         </p>
         <div className="mt-4 flex items-end gap-3">
           <div className="flex-1">
-            <label className="mb-1 block text-xs text-neutral-400">Min USDC</label>
+            <label className="mb-1 block text-xs text-neutral-400">
+              Min USDC
+            </label>
             <input
               type="text"
               value={minSettlementInput}
@@ -833,13 +1185,19 @@ export function SettlementCard() {
             disabled={!wallet.publicKey || !program || savingMinSettlement}
             className="inline-flex items-center gap-2 rounded-lg bg-neutral-800 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {savingMinSettlement ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {savingMinSettlement ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : null}
             Save
           </button>
         </div>
         {minSettlementUsdc !== null && minSettlementUsdc > BigInt(0) && (
           <p className="mt-2 text-xs text-neutral-400">
-            Current on-chain minimum: <span className="font-mono text-white">${formatUsdc(minSettlementUsdc)}</span> USDC
+            Current on-chain minimum:{" "}
+            <span className="font-mono text-white">
+              ${formatUsdc(minSettlementUsdc)}
+            </span>{" "}
+            USDC
           </p>
         )}
       </div>
@@ -847,31 +1205,56 @@ export function SettlementCard() {
       <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/30 p-5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-base font-semibold text-white">Settlement Epoch</h2>
-            <p className="mt-1 text-sm text-neutral-500">
-              {epochOpen
-                ? "A settlement epoch is active. Settle all eligible claims in batches, then close the epoch once coverage is complete."
-                : "Open an epoch to snapshot the vault balance and lock the payout ratio before settling."}
-            </p>
+            <h2 className="text-base font-semibold text-white">
+              Settlement Epoch
+            </h2>
+            <p className="mt-1 text-sm text-neutral-500">{epochStatusCopy}</p>
           </div>
           <div className="flex items-center gap-2">
             {!epochOpen ? (
               <button
                 onClick={() => void handleOpenSettlement()}
-                disabled={!wallet.publicKey || !program || epochLoading || migrating || claims.length === 0 || needsMigrationCount > 0 || vaultBelowMinSettlement}
+                disabled={
+                  !wallet.publicKey ||
+                  !program ||
+                  epochLoading ||
+                  migrating ||
+                  !epochStateFresh ||
+                  epochState !== "closed" ||
+                  claims.length === 0 ||
+                  needsMigrationCount > 0 ||
+                  vaultBelowMinSettlement
+                }
+                title={epochControlPauseTitle}
                 className="inline-flex items-center gap-2 rounded-lg bg-[#00FFB2] px-4 py-2 text-sm font-medium text-black transition hover:bg-[#33FFC1] disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
               >
-                {epochLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {epochLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : null}
                 Open Epoch
               </button>
             ) : (
               <button
                 onClick={() => void handleCloseSettlement()}
-                disabled={!wallet.publicKey || !program || epochLoading || settling || epochCoverageComplete === false}
-                title={epochCoverageComplete === false ? "Every claim in the epoch snapshot must be settled or cancelled before the epoch can close." : undefined}
+                disabled={
+                  !wallet.publicKey ||
+                  !program ||
+                  epochLoading ||
+                  settling ||
+                  !epochStateFresh ||
+                  epochCoverageComplete === false
+                }
+                title={
+                  epochControlPauseTitle ??
+                  (epochCoverageComplete === false
+                    ? "Every claim in the epoch snapshot must be settled or cancelled before the epoch can close."
+                    : undefined)
+                }
                 className="inline-flex items-center gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-2 text-sm font-medium text-rose-300 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {epochLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {epochLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : null}
                 Close Epoch
               </button>
             )}
@@ -881,26 +1264,46 @@ export function SettlementCard() {
         {epochOpen && (
           <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-4">
             <div className="rounded-lg border border-neutral-800/60 bg-neutral-950/40 p-4">
-              <div className="text-[11px] uppercase tracking-wider text-neutral-500">Vault Snapshot</div>
+              <div className="text-[11px] uppercase tracking-wider text-neutral-500">
+                Vault Snapshot
+              </div>
               <div className="mt-2 font-mono text-lg font-semibold text-white">
-                ${epochVaultSnapshot !== null ? formatUsdc(epochVaultSnapshot) : "—"}
+                $
+                {epochVaultSnapshot !== null
+                  ? formatUsdc(epochVaultSnapshot)
+                  : "—"}
               </div>
             </div>
             <div className="rounded-lg border border-neutral-800/60 bg-neutral-950/40 p-4">
-              <div className="text-[11px] uppercase tracking-wider text-neutral-500">Pending Snapshot</div>
+              <div className="text-[11px] uppercase tracking-wider text-neutral-500">
+                Pending Snapshot
+              </div>
               <div className="mt-2 font-mono text-lg font-semibold text-white">
-                ${epochPendingSnapshot !== null ? formatUsdc(epochPendingSnapshot) : "—"}
+                $
+                {epochPendingSnapshot !== null
+                  ? formatUsdc(epochPendingSnapshot)
+                  : "—"}
               </div>
             </div>
             <div className="rounded-lg border border-neutral-800/60 bg-neutral-950/40 p-4">
-              <div className="text-[11px] uppercase tracking-wider text-neutral-500">Locked Payout Ratio</div>
-              <div className={`mt-2 text-lg font-semibold ${epochPayoutRatio !== null && epochPayoutRatio >= 100 ? "text-[#00FFB2]" : "text-amber-400"}`}>
-                {epochPayoutRatio !== null ? `${epochPayoutRatio.toFixed(2)}%` : "—"}
+              <div className="text-[11px] uppercase tracking-wider text-neutral-500">
+                Locked Payout Ratio
+              </div>
+              <div
+                className={`mt-2 text-lg font-semibold ${epochPayoutRatio !== null && epochPayoutRatio >= 100 ? "text-[#00FFB2]" : "text-amber-400"}`}
+              >
+                {epochPayoutRatio !== null
+                  ? `${epochPayoutRatio.toFixed(2)}%`
+                  : "—"}
               </div>
             </div>
             <div className="rounded-lg border border-neutral-800/60 bg-neutral-950/40 p-4">
-              <div className="text-[11px] uppercase tracking-wider text-neutral-500">Epoch Coverage</div>
-              <div className={`mt-2 font-mono text-lg font-semibold ${epochCoverageComplete ? "text-[#00FFB2]" : "text-amber-400"}`}>
+              <div className="text-[11px] uppercase tracking-wider text-neutral-500">
+                Epoch Coverage
+              </div>
+              <div
+                className={`mt-2 font-mono text-lg font-semibold ${epochCoverageComplete ? "text-[#00FFB2]" : "text-amber-400"}`}
+              >
                 {epochCoveredUsdc !== null && epochPendingSnapshot !== null
                   ? `$${formatUsdc(epochCoveredUsdc)} / $${formatUsdc(epochPendingSnapshot)}`
                   : "—"}
@@ -914,14 +1317,35 @@ export function SettlementCard() {
           </div>
         )}
 
-        {epochError && (
-          <div className="mt-4 flex items-start gap-3 rounded-lg border border-rose-500/20 bg-rose-500/5 px-4 py-3 text-sm text-rose-300">
+        {!epochStateFresh && !epochStateError && wallet.publicKey && (
+          <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            {epochError}
+            {epochStateUnknown
+              ? "Checking settlement epoch state before enabling operator actions."
+              : "Refreshing settlement epoch state before enabling operator actions."}
           </div>
         )}
 
-        {!epochOpen && wallet.publicKey && (
+        {epochStateError && (
+          <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              {epochStateError}{" "}
+              {epochStateUnknown
+                ? "Operator actions are paused because the active epoch state is unknown."
+                : "Operator actions are paused until a refresh succeeds."}
+            </span>
+          </div>
+        )}
+
+        {epochActionError && (
+          <div className="mt-4 flex items-start gap-3 rounded-lg border border-rose-500/20 bg-rose-500/5 px-4 py-3 text-sm text-rose-300">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            {epochActionError}
+          </div>
+        )}
+
+        {epochState === "closed" && epochStateFresh && wallet.publicKey && (
           <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             No active settlement epoch. Open an epoch before settling claims.
@@ -932,7 +1356,9 @@ export function SettlementCard() {
       {vaultBelowMinSettlement && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-          Vault balance (${vaultBalance ?? "0"}) is below the configured minimum settlement threshold (${formatUsdc(minSettlementUsdc ?? BigInt(0))}). Settlement is blocked until the vault is funded.
+          Vault balance (${vaultBalance ?? "0"}) is below the configured minimum
+          settlement threshold (${formatUsdc(minSettlementUsdc ?? BigInt(0))}).
+          Settlement is blocked until the vault is funded.
         </div>
       )}
 
@@ -953,7 +1379,9 @@ export function SettlementCard() {
       {pendingClaimsMismatch && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-          On-chain pending requests (${formatUsdc(poolPendingClaims ?? BigInt(0))}) do not match the decoded open-request set (${formatUsdc(totalRequested)}).
+          On-chain pending requests ($
+          {formatUsdc(poolPendingClaims ?? BigInt(0))}) do not match the decoded
+          open-request set (${formatUsdc(totalRequested)}).
           {pendingClaimsSyncRequired
             ? " Settlement is blocked because the on-chain tracker is stale low and must be synced before any settlement run."
             : underfundedPoolMismatch
@@ -962,12 +1390,12 @@ export function SettlementCard() {
         </div>
       )}
 
-
       {results && (
         <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-sm text-emerald-300">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4" />
-            Settled {results.settledClaims} requests across {results.signatures.length} transaction
+            Settled {results.settledClaims} requests across{" "}
+            {results.signatures.length} transaction
             {results.signatures.length === 1 ? "" : "s"}.
           </div>
           {results.failedClaims > 0 && (
@@ -981,11 +1409,14 @@ export function SettlementCard() {
       <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/30 p-5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-base font-semibold text-white">Settlement Run</h2>
+            <h2 className="text-base font-semibold text-white">
+              Settlement Run
+            </h2>
             <p className="mt-1 text-sm text-neutral-500">
-              Runs are split into batches of {CLAIMS_PER_TX} requests per transaction. Underfunded
-              epochs pay every request at the payout ratio locked when the epoch opened, across as
-              many batches as needed; the epoch can close once every request in the snapshot is
+              Runs are split into batches of {CLAIMS_PER_TX} requests per
+              transaction. Underfunded epochs pay every request at the payout
+              ratio locked when the epoch opened, across as many batches as
+              needed; the epoch can close once every request in the snapshot is
               processed.
             </p>
           </div>
@@ -1007,17 +1438,29 @@ export function SettlementCard() {
 
         <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
           <div className="rounded-lg border border-neutral-800/60 bg-neutral-950/40 p-4">
-            <div className="text-[11px] uppercase tracking-wider text-neutral-500">Requests in Run</div>
-            <div className="mt-2 text-lg font-semibold text-white">{settlementPlan.length}</div>
+            <div className="text-[11px] uppercase tracking-wider text-neutral-500">
+              Requests in Run
+            </div>
+            <div className="mt-2 text-lg font-semibold text-white">
+              {settlementPlan.length}
+            </div>
           </div>
           <div className="rounded-lg border border-neutral-800/60 bg-neutral-950/40 p-4">
-            <div className="text-[11px] uppercase tracking-wider text-neutral-500">Planned Payout</div>
-            <div className="mt-2 font-mono text-lg font-semibold text-white">${formatUsdc(totalPayout)}</div>
+            <div className="text-[11px] uppercase tracking-wider text-neutral-500">
+              Planned Payout
+            </div>
+            <div className="mt-2 font-mono text-lg font-semibold text-white">
+              ${formatUsdc(totalPayout)}
+            </div>
           </div>
           <div className="rounded-lg border border-neutral-800/60 bg-neutral-950/40 p-4">
-            <div className="text-[11px] uppercase tracking-wider text-neutral-500">Admin Wallet</div>
+            <div className="text-[11px] uppercase tracking-wider text-neutral-500">
+              Admin Wallet
+            </div>
             <div className="mt-2 font-mono text-sm text-white">
-              {wallet.publicKey ? truncateWallet(wallet.publicKey.toBase58()) : "Not connected"}
+              {wallet.publicKey
+                ? truncateWallet(wallet.publicKey.toBase58())
+                : "Not connected"}
             </div>
           </div>
         </div>
@@ -1034,7 +1477,10 @@ export function SettlementCard() {
               <div
                 className="h-full rounded-full bg-[#00FFB2] transition-all"
                 style={{
-                  width: progress.total > 0 ? `${(progress.current / progress.total) * 100}%` : "0%",
+                  width:
+                    progress.total > 0
+                      ? `${(progress.current / progress.total) * 100}%`
+                      : "0%",
                 }}
               />
             </div>
@@ -1044,7 +1490,9 @@ export function SettlementCard() {
 
       <section className="overflow-hidden rounded-xl border border-neutral-800/60">
         <div className="border-b border-neutral-800/60 bg-neutral-900/30 px-5 py-3">
-          <h3 className="text-sm font-medium text-white">Open Requests in Current Run</h3>
+          <h3 className="text-sm font-medium text-white">
+            Open Requests in Current Run
+          </h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px]">
@@ -1062,24 +1510,37 @@ export function SettlementCard() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-5 py-8 text-center text-sm text-neutral-500">
+                  <td
+                    colSpan={7}
+                    className="px-5 py-8 text-center text-sm text-neutral-500"
+                  >
                     Loading open requests...
                   </td>
                 </tr>
               ) : claims.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-5 py-8 text-center text-sm text-neutral-500">
+                  <td
+                    colSpan={7}
+                    className="px-5 py-8 text-center text-sm text-neutral-500"
+                  >
                     No open requests.
                   </td>
                 </tr>
               ) : (
                 claims.map((claim) => {
-                  const plannedItem = settlementPlan.find((item) => item.claim.pubkey === claim.pubkey);
+                  const plannedItem = settlementPlan.find(
+                    (item) => item.claim.pubkey === claim.pubkey,
+                  );
                   const plannedPayout = plannedItem?.payout ?? BigInt(0);
 
                   return (
-                    <tr key={claim.pubkey} className="border-b border-neutral-800/40 last:border-b-0">
-                      <td className="px-5 py-4 font-mono text-sm text-white">{claim.id}</td>
+                    <tr
+                      key={claim.pubkey}
+                      className="border-b border-neutral-800/40 last:border-b-0"
+                    >
+                      <td className="px-5 py-4 font-mono text-sm text-white">
+                        {claim.id}
+                      </td>
                       <td className="px-5 py-4 font-mono text-sm text-neutral-300">
                         {truncateWallet(claim.user)}
                       </td>
@@ -1100,7 +1561,9 @@ export function SettlementCard() {
                           plannedPayout > BigInt(0) ? (
                             <span className="text-amber-400">Included</span>
                           ) : (
-                            <span className="text-amber-400">Included (no payout)</span>
+                            <span className="text-amber-400">
+                              Included (no payout)
+                            </span>
                           )
                         ) : BigInt(claim.paidUsdc) > BigInt(0) ? (
                           <span className="text-sky-400">Partially Paid</span>
@@ -1136,20 +1599,31 @@ export function SettlementCard() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-8 text-center text-sm text-neutral-500">
+                  <td
+                    colSpan={6}
+                    className="px-5 py-8 text-center text-sm text-neutral-500"
+                  >
                     Loading settled requests...
                   </td>
                 </tr>
               ) : closedClaims.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-8 text-center text-sm text-neutral-500">
+                  <td
+                    colSpan={6}
+                    className="px-5 py-8 text-center text-sm text-neutral-500"
+                  >
                     No settled requests yet.
                   </td>
                 </tr>
               ) : (
                 closedClaims.map((claim) => (
-                  <tr key={claim.pubkey} className="border-b border-neutral-800/40 last:border-b-0">
-                    <td className="px-5 py-4 font-mono text-sm text-white">{claim.id}</td>
+                  <tr
+                    key={claim.pubkey}
+                    className="border-b border-neutral-800/40 last:border-b-0"
+                  >
+                    <td className="px-5 py-4 font-mono text-sm text-white">
+                      {claim.id}
+                    </td>
                     <td className="px-5 py-4 font-mono text-sm text-neutral-300">
                       {truncateWallet(claim.user)}
                     </td>
@@ -1162,7 +1636,9 @@ export function SettlementCard() {
                     <td className="px-5 py-4 text-right text-sm text-neutral-300">
                       {formatTimestamp(claim.createdAt)}
                     </td>
-                    <td className={`px-5 py-4 text-right text-sm ${claim.cancelled ? "text-red-300" : "text-[#00FFB2]"}`}>
+                    <td
+                      className={`px-5 py-4 text-right text-sm ${claim.cancelled ? "text-red-300" : "text-[#00FFB2]"}`}
+                    >
                       {claim.cancelled ? "Cancelled" : "Settled"}
                     </td>
                   </tr>

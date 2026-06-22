@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/lib/solana-server", () => ({
   fetchPoolData: vi.fn(),
   fetchAllClaims: vi.fn(),
+  getConnection: vi.fn(),
 }));
 
 vi.mock("@/lib/holder-count", () => ({
@@ -25,6 +26,8 @@ describe("collectSnapshot", () => {
     vi.mocked(fetchPoolData).mockResolvedValue({
       tokenPrice: 1.5,
       totalSupplyRaw: 10000,
+      circulatingSupplyRaw: 10000,
+      escrowBunkercashRaw: 0,
       navUsdcRaw: 15000,
       pendingClaimsUsdcRaw: 500,
       treasuryUsdcRaw: 14000,

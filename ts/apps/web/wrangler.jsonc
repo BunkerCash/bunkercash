@@ -40,6 +40,20 @@
       "preview_id": "a6f9582a6f8444bea09b37128e00bb17",
     },
   ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SUPPORT_RATE_LIMIT",
+        "class_name": "SupportRateLimitDurableObject",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1_support_rate_limit",
+      "new_sqlite_classes": ["SupportRateLimitDurableObject"],
+    },
+  ],
   "d1_databases": [
     {
       "binding": "METRICS_DB",

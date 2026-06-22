@@ -1,6 +1,6 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "main": ".open-next/worker.js",
+  "main": "worker.js",
   "name": "bunkercash-admin",
   "account_id": "9eb655a86ca1ba777efa7889d7eb93e6",
   "compatibility_date": "2024-09-23",
@@ -29,6 +29,20 @@
       "binding": "GEOBLOCKING_KV",
       "id": "9abcd5888b5c436fba6f445f8ba68e98",
       "preview_id": "a6f9582a6f8444bea09b37128e00bb17"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ADMIN_AUTH_NONCES",
+        "class_name": "AdminAuthNonceDurableObject"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1_admin_auth_nonces",
+      "new_sqlite_classes": ["AdminAuthNonceDurableObject"]
     }
   ],
   "d1_databases": [

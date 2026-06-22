@@ -13,13 +13,23 @@ import type {
   DateRangeQuery,
 } from "@bunkercash/metrics-data";
 import { authorizeAdminAccess } from "./geoblocking-auth";
+import { getAdminAuthRoute, getEmptyBodyHash } from "./admin-auth-nonce";
 
 async function getAuthenticatedClient(request: Request) {
   const wallet = request.headers.get("x-admin-wallet");
   const signature = request.headers.get("x-admin-signature");
   const issuedAt = request.headers.get("x-admin-issued-at");
+  const nonce = request.headers.get("x-admin-nonce");
 
-  const auth = await authorizeAdminAccess({ wallet, signature, issuedAt });
+  const auth = await authorizeAdminAccess({
+    wallet,
+    signature,
+    issuedAt,
+    nonce,
+    method: request.method,
+    route: getAdminAuthRoute(request),
+    bodyHash: getEmptyBodyHash(),
+  });
   if (!auth.ok) throw new Error(auth.error);
   if (!auth.isAdmin) throw new Error("Connected wallet is not authorized");
 

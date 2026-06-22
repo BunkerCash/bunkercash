@@ -10,6 +10,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "."),
+      "cloudflare:workers": path.resolve(
+        __dirname,
+        "test-shims/cloudflare-workers.ts",
+      ),
     },
   },
 });
