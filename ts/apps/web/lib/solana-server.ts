@@ -26,6 +26,7 @@ import { fetchDecodedClaimAccounts } from "@/lib/claim-accounts";
 import type { DecodedClaimAccount } from "@/lib/claim-accounts";
 import { getClusterFromEndpoint } from "@/lib/constants";
 import { getServerRpcEndpoint } from "@/lib/solana-env";
+import type { SellStatus } from "@/types";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -128,9 +129,9 @@ export async function fetchPoolData(): Promise<PoolDataResponse> {
   // sells (it is subtracted at file time, restored on cancel), so it is the
   // circulating supply and the correct pricing denominator.
   const circulatingSupplyRaw =
-    Number(poolAccount.totalBunkercashSupply.toString()) / 10 ** BUNKERCASH_DECIMALS;
-  const navUsdcRaw =
-    Number(poolAccount.nav.toString()) / 10 ** USDC_DECIMALS;
+    Number(poolAccount.totalBunkercashSupply.toString()) /
+    10 ** BUNKERCASH_DECIMALS;
+  const navUsdcRaw = Number(poolAccount.nav.toString()) / 10 ** USDC_DECIMALS;
   const pendingClaimsUsdcRaw =
     Number(poolAccount.totalPendingClaims.toString()) / 10 ** USDC_DECIMALS;
 
@@ -168,13 +169,20 @@ export async function fetchPoolData(): Promise<PoolDataResponse> {
     } catch {
       // Ignore initial fetch errors, handled by fallback
     }
-    
-    if (!usdcMint && process.env.NEXT_PUBLIC_USDC_MINT && cluster !== "localnet") {
+
+    if (
+      !usdcMint &&
+      process.env.NEXT_PUBLIC_USDC_MINT &&
+      cluster !== "localnet"
+    ) {
       usdcMint = new PublicKey(process.env.NEXT_PUBLIC_USDC_MINT);
     }
 
     if (usdcMint) {
-      const usdcTokenProgram = await fetchMintTokenProgram(connection, usdcMint);
+      const usdcTokenProgram = await fetchMintTokenProgram(
+        connection,
+        usdcMint,
+      );
       if (!usdcTokenProgram) {
         throw new Error("Unsupported configured USDC mint");
       }
@@ -237,7 +245,7 @@ export async function fetchAllClaims(): Promise<ClaimsResponse> {
 
 // ── Transaction types & fetcher ────────────────────────
 
-export type SellStatus = "pending" | "partial" | "settled" | "cancelled";
+export type { SellStatus } from "@/types";
 
 export interface SerializedTransaction {
   id: string;
@@ -289,8 +297,12 @@ export async function fetchTransactionsForWallet(
     // create redundant cache layers.  Fall back to a fresh RPC fetch if the
     // KV entry is missing or stale (cold start / expired).
     const CLAIMS_TTL_SECONDS = 30;
-    const cached = await kvGet<{ data: ClaimsResponse; ts: number }>("GEOBLOCKING_KV", "cache:claims");
-    const isFresh = cached && Date.now() - cached.ts < CLAIMS_TTL_SECONDS * 1000;
+    const cached = await kvGet<{ data: ClaimsResponse; ts: number }>(
+      "GEOBLOCKING_KV",
+      "cache:claims",
+    );
+    const isFresh =
+      cached && Date.now() - cached.ts < CLAIMS_TTL_SECONDS * 1000;
     const claimsData = isFresh ? cached.data : await fetchAllClaims();
     const allClaims = [...claimsData.open, ...claimsData.closed];
     const myClaims = allClaims.filter((c) => c.user === wallet);
@@ -376,7 +388,9 @@ export async function fetchTransactionsForWallet(
             ) {
               try {
                 if (typeof ix.data !== "string") continue;
-                const dataBytes = Array.from(bs58.default.decode(ix.data)) as number[];
+                const dataBytes = Array.from(
+                  bs58.default.decode(ix.data),
+                ) as number[];
                 const disc = dataBytes.slice(0, 8);
 
                 if (bytesEqual(disc, DEPOSIT_USDC_DISC)) {
@@ -415,7 +429,9 @@ export interface BalanceResponse {
   ts: number;
 }
 
-export async function fetchTokenBalance(wallet: string): Promise<BalanceResponse> {
+export async function fetchTokenBalance(
+  wallet: string,
+): Promise<BalanceResponse> {
   const connection = getConnection();
   const mintPda = getBunkercashMintPda(PROGRAM_ID);
   const walletPubkey = new PublicKey(wallet);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import {
   AlertCircle,
@@ -14,7 +14,6 @@ import { buildAdminAccessMessage } from "@/lib/admin-auth-message";
 import type { SupportRequestRecord } from "@/lib/support-requests";
 
 const PAGE_SIZE = 25;
-const ACCESS_HEADER_TTL_MS = 4 * 60 * 1000;
 
 function getErrorMessage(value: unknown, fallback: string): string {
   if (
@@ -46,26 +45,10 @@ export function SupportRequestsList() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const accessHeadersRef = useRef<{
-    wallet: string;
-    issuedAtMs: number;
-    headers: Record<string, string>;
-  } | null>(null);
 
-  const buildAccessHeaders = useCallback(async (forceRefresh = false) => {
+  const buildAccessHeaders = useCallback(async () => {
     if (!publicKey || !signMessage) {
       throw new Error("Connect an admin wallet that supports message signing");
-    }
-
-    const wallet = publicKey.toBase58();
-    const cachedHeaders = accessHeadersRef.current;
-    if (
-      !forceRefresh &&
-      cachedHeaders &&
-      cachedHeaders.wallet === wallet &&
-      Date.now() - cachedHeaders.issuedAtMs < ACCESS_HEADER_TTL_MS
-    ) {
-      return cachedHeaders.headers;
     }
 
     const issuedAt = new Date().toISOString();
@@ -79,103 +62,87 @@ export function SupportRequestsList() {
       "x-admin-issued-at": issuedAt,
       "x-admin-signature": signature,
     };
-    accessHeadersRef.current = {
-      wallet,
-      issuedAtMs: Date.now(),
-      headers,
-    };
 
     return headers;
   }, [publicKey, signMessage]);
 
-  useEffect(() => {
-    accessHeadersRef.current = null;
-  }, [publicKey]);
+  const fetchRequests = useCallback(
+    async (options?: { cursor?: string | null; append?: boolean }) => {
+      const cursor = options?.cursor ?? null;
+      const append = options?.append ?? false;
+      setError(null);
 
-  const fetchRequests = useCallback(async (options?: {
-    cursor?: string | null;
-    append?: boolean;
-  }) => {
-    const cursor = options?.cursor ?? null;
-    const append = options?.append ?? false;
-    setError(null);
-
-    if (append) {
-      setLoadingMore(true);
-    } else {
-      setLoading(true);
-    }
-
-    try {
-      const searchParams = new URLSearchParams({
-        limit: PAGE_SIZE.toString(),
-      });
-      if (cursor) {
-        searchParams.set("cursor", cursor);
+      if (append) {
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
       }
 
-      const requestUrl = `/api/support-requests?${searchParams.toString()}`;
-      let response = await fetch(requestUrl, {
-        headers: await buildAccessHeaders(),
-      });
-
-      if (response.status === 401) {
-        accessHeadersRef.current = null;
-        response = await fetch(requestUrl, {
-          headers: await buildAccessHeaders(true),
+      try {
+        const searchParams = new URLSearchParams({
+          limit: PAGE_SIZE.toString(),
         });
-      }
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          getErrorMessage(data, "Failed to load support requests"),
-        );
-      }
-
-      const nextRequests =
-        data &&
-        typeof data === "object" &&
-        "requests" in data &&
-        Array.isArray((data as { requests?: unknown }).requests)
-          ? ((data as { requests: SupportRequestRecord[] }).requests ?? [])
-          : [];
-      const nextPageCursor =
-        data &&
-        typeof data === "object" &&
-        "nextCursor" in data &&
-        (typeof (data as { nextCursor?: unknown }).nextCursor === "string" ||
-          (data as { nextCursor?: unknown }).nextCursor === null)
-          ? ((data as { nextCursor: string | null }).nextCursor ?? null)
-          : null;
-
-      setRequests((current) => {
-        if (!append) {
-          return nextRequests;
+        if (cursor) {
+          searchParams.set("cursor", cursor);
         }
 
-        const existingIds = new Set(current.map((request) => request.id));
-        return [
-          ...current,
-          ...nextRequests.filter((request) => !existingIds.has(request.id)),
-        ];
-      });
-      setNextCursor(nextPageCursor);
-    } catch (requestError: unknown) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Failed to load support requests",
-      );
-    } finally {
-      if (append) {
-        setLoadingMore(false);
-      } else {
-        setLoading(false);
+        const requestUrl = `/api/support-requests?${searchParams.toString()}`;
+        const response = await fetch(requestUrl, {
+          headers: await buildAccessHeaders(),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            getErrorMessage(data, "Failed to load support requests"),
+          );
+        }
+
+        const nextRequests =
+          data &&
+          typeof data === "object" &&
+          "requests" in data &&
+          Array.isArray((data as { requests?: unknown }).requests)
+            ? ((data as { requests: SupportRequestRecord[] }).requests ?? [])
+            : [];
+        const nextPageCursor =
+          data &&
+          typeof data === "object" &&
+          "nextCursor" in data &&
+          (typeof (data as { nextCursor?: unknown }).nextCursor === "string" ||
+            (data as { nextCursor?: unknown }).nextCursor === null)
+            ? ((data as { nextCursor: string | null }).nextCursor ?? null)
+            : null;
+
+        setRequests((current) => {
+          if (!append) {
+            return nextRequests;
+          }
+
+          const existingIds = new Set(current.map((request) => request.id));
+          return [
+            ...current,
+            ...nextRequests.filter((request) => !existingIds.has(request.id)),
+          ];
+        });
+        setNextCursor(nextPageCursor);
+      } catch (requestError: unknown) {
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Failed to load support requests",
+        );
+      } finally {
+        if (append) {
+          setLoadingMore(false);
+        } else {
+          setLoading(false);
+        }
       }
-    }
-  }, [buildAccessHeaders]);
+    },
+    [buildAccessHeaders],
+  );
 
   useEffect(() => {
     void fetchRequests();
@@ -191,7 +158,8 @@ export function SupportRequestsList() {
           </p>
           {requests.length > 0 ? (
             <p className="mt-2 text-xs text-neutral-600">
-              Showing {requests.length} request{requests.length === 1 ? "" : "s"}
+              Showing {requests.length} request
+              {requests.length === 1 ? "" : "s"}
               {nextCursor ? " with more available" : ""}
             </p>
           ) : null}

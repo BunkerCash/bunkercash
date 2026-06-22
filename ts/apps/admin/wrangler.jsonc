@@ -1,19 +1,33 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "main": ".open-next/worker.js",
+  "main": "worker.js",
   "name": "bunkercash-admin",
   "account_id": "9eb655a86ca1ba777efa7889d7eb93e6",
   "compatibility_date": "2024-09-23",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": {
     "directory": ".open-next/assets",
-    "binding": "ASSETS"
+    "binding": "ASSETS",
   },
   "services": [
     {
       "binding": "WORKER_SELF_REFERENCE",
-      "service": "bunkercash-admin"
-    }
+      "service": "bunkercash-admin",
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ADMIN_SIGNATURE_REPLAY",
+        "class_name": "AdminSignatureReplay",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["AdminSignatureReplay"],
+    },
   ],
   "vars": {
     "NEXT_PUBLIC_SOLANA_RPC_URL": "https://api.devnet.solana.com",
@@ -21,22 +35,22 @@
     "NEXT_PUBLIC_CLUSTER": "devnet",
     "NEXT_PUBLIC_USDC_MINT": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
     "NEXT_PUBLIC_TOKEN_METADATA_URI": "https://bunkercash-web.bunkercoin.workers.dev/bunkercash-metadata.json",
-    "NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY": "HEzTX4LNQ7cjrXTt1vKXyEZGtc94TKRUc9kWNFexJSGz"
+    "NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY": "HEzTX4LNQ7cjrXTt1vKXyEZGtc94TKRUc9kWNFexJSGz",
   },
   // Set ADMIN_OVERRIDE_WALLET in Cloudflare-managed worker env/secrets, not in version control.
   "kv_namespaces": [
     {
       "binding": "GEOBLOCKING_KV",
       "id": "9abcd5888b5c436fba6f445f8ba68e98",
-      "preview_id": "a6f9582a6f8444bea09b37128e00bb17"
-    }
+      "preview_id": "a6f9582a6f8444bea09b37128e00bb17",
+    },
   ],
   "d1_databases": [
     {
       "binding": "METRICS_DB",
       "database_id": "97cc29d2-b9e4-4430-83ce-bb1272e1d629",
       "database_name": "bunkercash-metrics",
-      "migrations_dir": "../../packages/metrics-data/migrations"
-    }
-  ]
+      "migrations_dir": "../../packages/metrics-data/migrations",
+    },
+  ],
 }

@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import { clusterApiUrl, Connection, PublicKey } from "@solana/web3.js";
 import { buildAdminAccessMessage } from "./admin-auth-message";
+import { consumeAdminSignature } from "./admin-signature-replay";
 import { getPoolPda, getReadonlyProgram } from "./program";
 import { getConfiguredRpcCluster } from "./solana-env";
 
@@ -8,26 +9,7 @@ const SIGNATURE_TTL_MS = 5 * 60 * 1000;
 const CLOCK_SKEW_TOLERANCE_MS = 30 * 1000; // allow 30 s of clock skew for future timestamps
 const ADMIN_WALLETS_TTL_MS = 60 * 1000;
 const ADMIN_WALLETS_FAILURE_BACKOFF_MS = 15 * 1000;
-const USED_SIGNATURE_CLEANUP_INTERVAL_MS = 60 * 1000;
-
-const usedSignatures = new Map<string, number>();
-let usedSignaturesLastCleanup = Date.now();
-
-function consumeSignature(wallet: string, issuedAt: string, signature: string): boolean {
-  const now = Date.now();
-  if (now - usedSignaturesLastCleanup > USED_SIGNATURE_CLEANUP_INTERVAL_MS) {
-    const cutoff = now - SIGNATURE_TTL_MS - CLOCK_SKEW_TOLERANCE_MS;
-    for (const [key, ts] of usedSignatures) {
-      if (ts < cutoff) usedSignatures.delete(key);
-    }
-    usedSignaturesLastCleanup = now;
-  }
-
-  const key = `${wallet}:${issuedAt}:${signature}`;
-  if (usedSignatures.has(key)) return false;
-  usedSignatures.set(key, now);
-  return true;
-}
+const SIGNATURE_REPLAY_TTL_MS = SIGNATURE_TTL_MS + CLOCK_SKEW_TOLERANCE_MS;
 
 interface PoolAccountLike {
   masterWallet: { toBase58: () => string };
@@ -44,7 +26,9 @@ function getRpcEndpoints(): string[] {
       process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
       clusterApiUrl(cluster),
     clusterApiUrl(cluster),
-    ...(cluster === "testnet" ? ["https://solana-testnet-rpc.publicnode.com"] : []),
+    ...(cluster === "testnet"
+      ? ["https://solana-testnet-rpc.publicnode.com"]
+      : []),
   ];
   return [...new Set(endpoints.filter(Boolean))];
 }
@@ -89,7 +73,11 @@ export async function getAuthorizedAdminWallets(): Promise<Set<string>> {
         const connection = new Connection(endpoint, "confirmed");
         const program = getReadonlyProgram(connection);
         const accountApi = program.account as {
-          pool: { fetch: (pubkey: ReturnType<typeof getPoolPda>) => Promise<PoolAccountLike> };
+          pool: {
+            fetch: (
+              pubkey: ReturnType<typeof getPoolPda>,
+            ) => Promise<PoolAccountLike>;
+          };
         };
         const poolState = await accountApi.pool.fetch(getPoolPda());
         const wallets = new Set([poolState.masterWallet.toBase58()]);
@@ -129,28 +117,28 @@ function decodeBase64(value: string) {
 function toArrayBuffer(bytes: Uint8Array) {
   return bytes.buffer.slice(
     bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength
+    bytes.byteOffset + bytes.byteLength,
   ) as ArrayBuffer;
 }
 
 async function verifySignature(
   wallet: string,
   message: string,
-  signature: string
+  signature: string,
 ) {
   const key = await crypto.subtle.importKey(
     "raw",
     toArrayBuffer(new PublicKey(wallet).toBytes()),
     { name: "Ed25519" },
     false,
-    ["verify"]
+    ["verify"],
   );
 
   return crypto.subtle.verify(
     "Ed25519",
     key,
     toArrayBuffer(decodeBase64(signature)),
-    toArrayBuffer(new TextEncoder().encode(message))
+    toArrayBuffer(new TextEncoder().encode(message)),
   );
 }
 
@@ -178,7 +166,10 @@ export async function authorizeGeoblockingUpdate(args: {
 
   const now = Date.now();
   if (issuedAtMs > now + CLOCK_SKEW_TOLERANCE_MS) {
-    return { ok: false as const, error: "Authorization timestamp is in the future" };
+    return {
+      ok: false as const,
+      error: "Authorization timestamp is in the future",
+    };
   }
   if (now - issuedAtMs > SIGNATURE_TTL_MS) {
     return { ok: false as const, error: "Authorization timestamp expired" };
@@ -192,17 +183,35 @@ export async function authorizeGeoblockingUpdate(args: {
       return { ok: false as const, error: "Invalid admin signature" };
     }
 
-    if (!consumeSignature(wallet, issuedAt, signature)) {
-      return { ok: false as const, error: "Authorization has already been used" };
+    const consumed = await consumeAdminSignature({
+      wallet,
+      issuedAt,
+      signature,
+      ttlMs: SIGNATURE_REPLAY_TTL_MS,
+    });
+    if (!consumed) {
+      return {
+        ok: false as const,
+        error: "Authorization has already been used",
+      };
     }
 
     const authorizedWallets = await getAuthorizedAdminWallets();
     if (!authorizedWallets.has(wallet)) {
-      return { ok: false as const, error: "Connected wallet is not authorized" };
+      return {
+        ok: false as const,
+        error: "Connected wallet is not authorized",
+      };
     }
   } catch (e: unknown) {
-    console.error("[geoblocking-auth] Authorization verification failed:", e instanceof Error ? e.message : e);
-    return { ok: false as const, error: "Failed to verify admin authorization" };
+    console.error(
+      "[geoblocking-auth] Authorization verification failed:",
+      e instanceof Error ? e.message : e,
+    );
+    return {
+      ok: false as const,
+      error: "Failed to verify admin authorization",
+    };
   }
 
   return { ok: true as const };
@@ -226,7 +235,10 @@ export async function authorizeAdminAccess(args: {
 
   const now = Date.now();
   if (issuedAtMs > now + CLOCK_SKEW_TOLERANCE_MS) {
-    return { ok: false as const, error: "Authorization timestamp is in the future" };
+    return {
+      ok: false as const,
+      error: "Authorization timestamp is in the future",
+    };
   }
   if (now - issuedAtMs > SIGNATURE_TTL_MS) {
     return { ok: false as const, error: "Authorization timestamp expired" };
@@ -236,20 +248,35 @@ export async function authorizeAdminAccess(args: {
     const isValidSignature = await verifySignature(
       wallet,
       buildAdminAccessMessage(issuedAt),
-      signature
+      signature,
     );
     if (!isValidSignature) {
       return { ok: false as const, error: "Invalid admin signature" };
     }
 
-    if (!consumeSignature(wallet, issuedAt, signature)) {
-      return { ok: false as const, error: "Authorization has already been used" };
+    const consumed = await consumeAdminSignature({
+      wallet,
+      issuedAt,
+      signature,
+      ttlMs: SIGNATURE_REPLAY_TTL_MS,
+    });
+    if (!consumed) {
+      return {
+        ok: false as const,
+        error: "Authorization has already been used",
+      };
     }
 
     const authorizedWallets = await getAuthorizedAdminWallets();
     return { ok: true as const, isAdmin: authorizedWallets.has(wallet) };
   } catch (e: unknown) {
-    console.error("[admin-auth] Access verification failed:", e instanceof Error ? e.message : e);
-    return { ok: false as const, error: "Failed to verify admin authorization" };
+    console.error(
+      "[admin-auth] Access verification failed:",
+      e instanceof Error ? e.message : e,
+    );
+    return {
+      ok: false as const,
+      error: "Failed to verify admin authorization",
+    };
   }
 }
