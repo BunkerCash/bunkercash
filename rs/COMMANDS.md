@@ -11,6 +11,7 @@ cd rs
 export ANCHOR_PROVIDER_URL=https://api.devnet.solana.com
 export ANCHOR_WALLET=~/.config/solana/id.json
 export USDC_MINT=4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+export SQUADS_PROGRAM_UPGRADE_AUTHORITY=<confirmed-squads-controlled-authority>
 ```
 
 Or source the example env:
@@ -22,19 +23,59 @@ source scripts/devnet.env.example.sh
 
 ---
 
-## 2. Build & Deploy (admin / deployer)
+## 2. Build & deploy with upgrade-authority handoff (admin / deployer)
+
+`SQUADS_PROGRAM_UPGRADE_AUTHORITY` is the expected authority for Solana program
+upgrades. Confirm this address separately. Do not assume it is the same address
+as `pool.master_wallet` / `SQUADS_VAULT_PUBKEY`.
 
 ```bash
 cd rs
 anchor build
 solana config set --url devnet
 solana airdrop 2
-anchor deploy
+npm run -s require:upgrade-authority
+npm run -s deploy:governed
+solana program show Fp8b6p287TL5oPMwLVdwGys5phHNLcmTKNvVoGdCJS6g
+npm run -s verify:upgrade-authority
 ```
+
+Manual equivalent:
+
+```bash
+anchor deploy
+solana program show Fp8b6p287TL5oPMwLVdwGys5phHNLcmTKNvVoGdCJS6g
+solana program set-upgrade-authority Fp8b6p287TL5oPMwLVdwGys5phHNLcmTKNvVoGdCJS6g \
+  --new-upgrade-authority "$SQUADS_PROGRAM_UPGRADE_AUTHORITY" \
+  --skip-new-upgrade-authority-signer-check
+solana program show Fp8b6p287TL5oPMwLVdwGys5phHNLcmTKNvVoGdCJS6g
+npm run -s verify:governance
+```
+
+Blockage rule: if `SQUADS_PROGRAM_UPGRADE_AUTHORITY` is missing, deploy is not
+allowed. If `solana program show` does not show that authority, or `none` for an
+intentionally immutable program, do not bootstrap or fund.
 
 ---
 
-## 3. Bootstrap pool (admin, first time only)
+## 3. Verify governance before bootstrap/funding
+
+```bash
+cd rs
+npm run -s verify:governance
+```
+
+This verifies both governance layers:
+
+- `pool.admin` is the expected Squads vault PDA.
+- program upgrade authority is the expected Squads-controlled authority, or the
+  program is explicitly immutable.
+
+Mainnet funding is blocked in scripts that move USDC until this check passes.
+
+---
+
+## 4. Bootstrap pool (admin, first time only)
 
 Creates the pool and BunkerCash mint if they don’t exist. The wallet in `ANCHOR_WALLET` becomes **pool admin** (stored in `PoolState.admin`).
 
@@ -54,7 +95,7 @@ TEST_BUY_USDC=2.5 npx ts-node -P tsconfig.json scripts/bootstrap-fixed-price.ts
 
 ---
 
-## 4. User: Buy (buy_primary)
+## 5. User: Buy (buy_primary)
 
 User spends USDC and receives BunkerCash at the current pool price.
 
@@ -79,7 +120,7 @@ Use the bRENT/Buy UI: connect wallet, enter USDC amount, submit. The app calls `
 
 ---
 
-## 5. User: Sell (register_sell)
+## 6. User: Sell (register_sell)
 
 User locks BunkerCash into the escrow vault and gets a claim. No burn; payouts happen when admin runs `process_claims`.
 
@@ -111,7 +152,7 @@ Use the Sell tab: connect wallet, enter token amount, submit. The app calls `reg
 
 ---
 
-## 6. Admin: Update price (update_price)
+## 7. Admin: Update price (update_price)
 
 Only the pool admin can change the fixed price (USDC per token, in base units).
 
@@ -127,9 +168,12 @@ Example: `1000000` = 1 USDC (6 decimals) per 1 token (9 decimals).
 
 ---
 
-## 7. Admin: Add liquidity (add_liquidity)
+## 8. Admin: Add liquidity (add_liquidity)
 
 Admin sends USDC into the payout vault so it can be distributed to sell claimants. No standalone script; use the E2E script with `LIQ_USDC`:
+
+On mainnet, this script refuses to move funds unless the program upgrade
+authority is verified against `SQUADS_PROGRAM_UPGRADE_AUTHORITY`.
 
 ```bash
 cd rs
@@ -143,7 +187,7 @@ This runs the full e2e flow (buy/sell if configured) and also calls `add_liquidi
 
 ---
 
-## 8. Admin: Process claims (process_claims)
+## 9. Admin: Process claims (process_claims)
 
 Admin triggers pro-rata USDC payouts from the payout vault to all open claims (and updates each claim’s `usdc_paid`). The E2E script does this when there are open claims and liquidity.
 
@@ -160,7 +204,7 @@ The script fetches open claims, ensures user USDC ATAs exist, then calls `proces
 
 ---
 
-## 9. Admin: Init token metadata (init_mint_metadata)
+## 10. Admin: Init token metadata (init_mint_metadata)
 
 So wallets (e.g. Phantom) show the token name/symbol/icon instead of “Unknown Token”. Admin only, once per mint.
 
@@ -177,7 +221,7 @@ npm run -s init:metadata
 
 ---
 
-## 10. Utility: Check pool & balances
+## 11. Utility: Check pool & balances
 
 ```bash
 cd rs
@@ -195,7 +239,7 @@ Prints pool PDA, pool state (price, claim_counter), and token balances (user USD
 
 ---
 
-## 11. Utility: Inspect open claims
+## 12. Utility: Inspect open claims
 
 ```bash
 cd rs
@@ -209,23 +253,27 @@ Optional: `TOP_N=20` to show top 20 by locked amount (default 10).
 
 ## Quick reference
 
-| Role   | Action           | Command / script / app |
-|--------|------------------|-------------------------|
-| User   | Buy (USDC → BNKR)| Web app, or `TEST_BUY_USDC=…` bootstrap, or `BUY_USDC=…` e2e |
-| User   | Sell (lock BNKR) | Web app, or `register-sell-escrow.ts` (SELL_TOKEN_AMOUNT), or e2e (SELL_BNKR) |
-| Admin  | Update price     | `update-price.ts` (NEW_PRICE_USDC_PER_TOKEN) |
-| Admin  | Add liquidity    | e2e with `LIQ_USDC=…` (wallet = admin) |
-| Admin  | Process claims   | e2e (wallet = admin; script calls process_claims when claims exist) |
-| Admin  | Init metadata    | `npm run -s init:metadata` (TOKEN_NAME, TOKEN_SYMBOL, TOKEN_URI) |
-| Anyone | Check balances   | `check-pool-balances.ts` / `npm run -s check:pool` |
-| Anyone | List open claims| `inspect-open-claims.ts` |
+| Role   | Action            | Command / script / app                                                        |
+| ------ | ----------------- | ----------------------------------------------------------------------------- |
+| User   | Buy (USDC → BNKR) | Web app, or `TEST_BUY_USDC=…` bootstrap, or `BUY_USDC=…` e2e                  |
+| User   | Sell (lock BNKR)  | Web app, or `register-sell-escrow.ts` (SELL_TOKEN_AMOUNT), or e2e (SELL_BNKR) |
+| Admin  | Update price      | `update-price.ts` (NEW_PRICE_USDC_PER_TOKEN)                                  |
+| Admin  | Add liquidity     | e2e with `LIQ_USDC=…` (wallet = admin)                                        |
+| Admin  | Process claims    | e2e (wallet = admin; script calls process_claims when claims exist)           |
+| Admin  | Init metadata     | `npm run -s init:metadata` (TOKEN_NAME, TOKEN_SYMBOL, TOKEN_URI)              |
+| Anyone | Check balances    | `check-pool-balances.ts` / `npm run -s check:pool`                            |
+| Anyone | List open claims  | `inspect-open-claims.ts`                                                      |
 
 ---
 
 ## Summary flow
 
-1. **Deploy** program and **bootstrap** pool (admin wallet becomes pool admin).
-2. **Users** buy (USDC → BunkerCash) and sell (lock BunkerCash → claim).
-3. **Admin** adds USDC to the payout vault (`add_liquidity` via e2e with `LIQ_USDC`).
-4. **Admin** runs `process_claims` (e2e or custom tool) to distribute USDC pro-rata to claimants.
-5. **Admin** can update price anytime (`update-price.ts`) and set token metadata once (`init:metadata`).
+1. **Deploy** program.
+2. **Verify** current program upgrade authority.
+3. **Transfer** program upgrade authority to `SQUADS_PROGRAM_UPGRADE_AUTHORITY`.
+4. **Verify** program upgrade authority again with `solana program show` and `npm run -s verify:governance`.
+5. **Bootstrap/fund** only after governance verification passes.
+6. **Users** buy (USDC → BunkerCash) and sell (lock BunkerCash → claim).
+7. **Admin** adds USDC to the payout vault (`add_liquidity` via e2e with `LIQ_USDC`).
+8. **Admin** runs `process_claims` (e2e or custom tool) to distribute USDC pro-rata to claimants.
+9. **Admin** can update price anytime (`update-price.ts`) and set token metadata once (`init:metadata`).

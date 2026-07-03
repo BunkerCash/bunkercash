@@ -2,10 +2,14 @@
   "license": "BUSL-1.1",
   "scripts": {
     "check:pool": "ts-node -P tsconfig.json scripts/check-pool-balances.ts",
+    "deploy:governed": "ts-node -P tsconfig.json scripts/deploy-governed.ts",
     "e2e": "ts-node -P tsconfig.json scripts/e2e-buy-sell.ts",
     "init:metadata": "ts-node -P tsconfig.json scripts/init-mint-metadata.ts",
+    "require:upgrade-authority": "ts-node -P tsconfig.json scripts/require-program-upgrade-authority.ts",
     "squads:v4:create": "ts-node -P tsconfig.json scripts/create-squads-v4-multisig.ts",
     "update:metadata": "ts-node -P tsconfig.json scripts/update-mint-metadata.ts",
+    "verify:governance": "ts-node -P tsconfig.json scripts/verify-squads-setup.ts",
+    "verify:upgrade-authority": "ts-node -P tsconfig.json scripts/verify-program-upgrade-authority.ts",
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check"
   },

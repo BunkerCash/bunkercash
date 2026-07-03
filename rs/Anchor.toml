@@ -23,5 +23,9 @@ cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
+deploy-governed = "npx ts-node -P tsconfig.json scripts/deploy-governed.ts"
 e2e = "bash -lc 'export USDC_MINT=4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU; npx ts-node -P tsconfig.json scripts/e2e-buy-sell.ts'"
+require-upgrade-authority = "npx ts-node -P tsconfig.json scripts/require-program-upgrade-authority.ts"
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+verify-governance = "npx ts-node -P tsconfig.json scripts/verify-squads-setup.ts"
+verify-upgrade-authority = "npx ts-node -P tsconfig.json scripts/verify-program-upgrade-authority.ts"

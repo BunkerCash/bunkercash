@@ -10,11 +10,19 @@ Prerequisites: Rust 1.70+, Solana CLI 1.18+, Anchor 0.31.1, Node.js 18+
 # Build
 anchor build
 
-# Deploy to devnet
+# Deploy to devnet with mandatory program upgrade-authority handoff.
+# SQUADS_PROGRAM_UPGRADE_AUTHORITY must be a confirmed Squads-controlled address.
 solana config set --url devnet
 solana airdrop 2
-anchor deploy
+export SQUADS_PROGRAM_UPGRADE_AUTHORITY=<confirmed-squads-controlled-authority>
+npm run -s deploy:governed
+npm run -s verify:upgrade-authority
 ```
+
+Do not bootstrap or fund mainnet until `npm run -s verify:governance` passes. The
+program upgrade authority is above `pool.master_wallet`; setting `pool.master_wallet`
+to a Squads vault does not by itself prevent a deployer wallet from upgrading the
+program.
 
 ## Testing from the command line
 
@@ -45,6 +53,8 @@ cd rs
 export ANCHOR_PROVIDER_URL=https://api.devnet.solana.com
 export ANCHOR_WALLET=~/.config/solana/id.json
 export USDC_MINT=4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+export SQUADS_PROGRAM_UPGRADE_AUTHORITY=<confirmed-squads-controlled-authority>
+npm run -s verify:governance
 npx ts-node -P tsconfig.json scripts/bootstrap-fixed-price.ts
 # Optional: run a test buy (e.g. 2.5 USDC worth)
 TEST_BUY_USDC=2.5 npx ts-node -P tsconfig.json scripts/bootstrap-fixed-price.ts
