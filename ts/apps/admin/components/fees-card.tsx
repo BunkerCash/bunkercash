@@ -16,6 +16,7 @@ import {
   PROGRAM_ID,
 } from "@/lib/program";
 import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
+import { useAuth } from "@/lib/auth";
 
 interface FeeConfigLike {
   adminWallet: string;
@@ -49,6 +50,7 @@ function getErrorMessage(error: unknown, fallback: string): string {
 export function FeesCard() {
   const { connection } = useConnection();
   const wallet = useWallet();
+  const { isAdmin } = useAuth();
 
   const [state, setState] = useState<FeesState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -112,12 +114,7 @@ export function FeesCard() {
     [claimFeeInput],
   );
 
-  const connectedWalletBase58 = wallet.publicKey?.toBase58() ?? null;
-  const adminWalletBase58 = state?.admin ?? null;
-  const isAuthorizedWallet =
-    !!connectedWalletBase58 &&
-    !!adminWalletBase58 &&
-    connectedWalletBase58 === adminWalletBase58;
+  const isAuthorizedWallet = isAdmin;
 
   const hasChanges =
     !!state &&
@@ -224,9 +221,9 @@ export function FeesCard() {
               </div>
 
               <div className="rounded-lg border border-neutral-800 bg-neutral-950/60 p-4">
-                <p className="text-xs uppercase tracking-wide text-neutral-500">Admin Wallet</p>
+                <p className="text-xs uppercase tracking-wide text-neutral-500">Pool Authority</p>
                 <p className="mt-2 text-sm font-medium text-white">{shortPk(state.admin)}</p>
-                <p className="mt-1 text-xs text-neutral-500">Only this wallet can update fees.</p>
+                <p className="mt-1 text-xs text-neutral-500">Admin access is verified by the server.</p>
               </div>
             </div>
 
@@ -284,12 +281,11 @@ export function FeesCard() {
 
             {!wallet.publicKey ? (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
-                Connect the admin wallet to update fees.
+                Connect an authorized admin wallet to update fees.
               </div>
             ) : !isAuthorizedWallet ? (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
-                Connected wallet {shortPk(connectedWalletBase58 ?? "")} does not match the on-chain admin{" "}
-                {shortPk(state.admin)}.
+                Connected wallet is not authorized for admin updates.
               </div>
             ) : null}
 

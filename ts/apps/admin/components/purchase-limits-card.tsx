@@ -22,6 +22,7 @@ import {
   PROGRAM_ID,
 } from "@/lib/program";
 import { formatUsdc, parseUsdcInput, shortPk } from "@/lib/master-operations";
+import { useAuth } from "@/lib/auth";
 
 interface Stringable {
   toString(): string;
@@ -99,6 +100,7 @@ function getErrorMessage(error: unknown, fallback: string): string {
 export function PurchaseLimitsCard() {
   const { connection } = useConnection();
   const wallet = useWallet();
+  const { isAdmin } = useAuth();
   const {
     balance: vaultBalance,
     loading: vaultLoading,
@@ -233,12 +235,7 @@ export function PurchaseLimitsCard() {
       return null;
     }
   }, [mintInput]);
-  const connectedWalletBase58 = wallet.publicKey?.toBase58() ?? null;
-  const adminWalletBase58 = state?.admin ?? null;
-  const isAuthorizedWallet =
-    !!connectedWalletBase58 &&
-    !!adminWalletBase58 &&
-    connectedWalletBase58 === adminWalletBase58;
+  const isAuthorizedWallet = isAdmin;
 
   const handleSave = async () => {
     if (!program || !wallet.publicKey || parsedLimit === null) return;
@@ -490,9 +487,9 @@ export function PurchaseLimitsCard() {
         </div>
       )}
 
-      {wallet.publicKey && adminWalletBase58 && !isAuthorizedWallet && (
+      {wallet.publicKey && !isAuthorizedWallet && (
         <div className="mb-6 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm text-amber-300">
-          Connected wallet {shortPk(wallet.publicKey.toBase58())} is not the current pool admin.
+          Connected wallet {shortPk(wallet.publicKey.toBase58())} is not authorized for admin updates.
         </div>
       )}
 
@@ -572,7 +569,7 @@ export function PurchaseLimitsCard() {
           <div className="mt-4 flex items-start gap-2 rounded-lg border border-neutral-800 bg-neutral-950/50 p-3">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-neutral-500" />
             <div className="text-xs text-neutral-400">
-              Current pool admin: <span className="font-mono text-neutral-200">{state.admin}</span>
+              Current pool authority: <span className="font-mono text-neutral-200">{state.admin}</span>
             </div>
           </div>
         )}

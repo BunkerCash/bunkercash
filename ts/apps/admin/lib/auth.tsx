@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import type { PoolDataResponse } from "@/lib/solana-server";
+import { buildAdminAuthHeaders } from "@/lib/admin-auth-client";
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -22,8 +22,21 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+interface AdminMeResponse {
+  wallet: string;
+  isAdmin: boolean;
+  role: "single-wallet" | "squads-member" | "override" | "none";
+  governanceMode: "single-wallet" | "squads-v4";
+  poolMasterWallet: string;
+  squadsMultisig: string | null;
+  squadsVault: string | null;
+  squadsVaultIndex: number | null;
+  squadsPermissions: string[];
+  error?: unknown;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { publicKey, connected, disconnect } = useWallet();
+  const { publicKey, connected, disconnect, signMessage } = useWallet();
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [adminAddress, setAdminAddress] = useState<string | null>(null);
@@ -42,47 +55,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
 
     (async () => {
-      const walletAddr = publicKey.toBase58();
-
       try {
-        let data: PoolDataResponse | null = null;
-        let lastError: Error | null = null;
-
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          try {
-            const res = await fetch("/api/pool-data", { cache: "no-store" });
-            if (!res.ok) throw new Error(`pool-data: ${res.status}`);
-            data = (await res.json()) as PoolDataResponse;
-            break;
-          } catch (error: unknown) {
-            lastError =
-              error instanceof Error ? error : new Error("Failed to fetch pool data");
-
-            if (attempt < 2) {
-              await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
-            }
-          }
+        if (!signMessage) {
+          throw new Error("Connected wallet does not support message signing");
         }
 
-        if (!data) {
-          throw lastError ?? new Error("Failed to fetch pool data");
+        const route = "/api/admin/me";
+        const authHeaders = await buildAdminAuthHeaders({
+          publicKey,
+          signMessage,
+          method: "GET",
+          route,
+        });
+        const res = await fetch(route, {
+          cache: "no-store",
+          headers: authHeaders,
+        });
+        const data = (await res.json().catch(() => null)) as AdminMeResponse | null;
+
+        if (!res.ok) {
+          throw new Error(
+            typeof data?.error === "string"
+              ? data.error
+              : `admin verification failed: ${res.status}`,
+          );
         }
 
-        const onChainAdmin = data.adminWallet;
-        if (!onChainAdmin) {
-          throw new Error("Pool admin address is missing from pool-data response");
+        if (
+          !data ||
+          typeof data.isAdmin !== "boolean" ||
+          typeof data.poolMasterWallet !== "string"
+        ) {
+          throw new Error("Admin verification response is malformed");
         }
 
         if (cancelled) return;
 
-        setAdminAddress(onChainAdmin);
+        setAdminAddress(data.poolMasterWallet);
         setError(null);
-        if (walletAddr === onChainAdmin) {
-          setIsAdmin(true);
-          return;
-        }
-
-        setIsAdmin(false);
+        setIsAdmin(data.isAdmin);
       } catch (error: unknown) {
         if (!cancelled) {
           setIsAdmin(false);
@@ -101,7 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [connected, publicKey]);
+  }, [connected, publicKey, signMessage]);
 
   const logout = useCallback(() => {
     disconnect();

@@ -568,7 +568,7 @@ export function MasterOperationsCard() {
         </div>
         <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/40 p-5">
           <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-neutral-500">
-            Pool Admin
+            Pool Authority
           </div>
           <p className="break-all font-mono text-sm text-white">
             {adminWallet?.toBase58() ?? "Pool not found"}
@@ -604,7 +604,7 @@ export function MasterOperationsCard() {
         <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3">
           <Wallet className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
           <p className="text-sm text-amber-400">
-            Connect the current pool admin wallet to submit master operations.
+            Connect an authorized admin wallet to submit master operations.
           </p>
         </div>
       )}
@@ -613,8 +613,8 @@ export function MasterOperationsCard() {
         <div className="flex items-start gap-3 rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3">
           <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
           <p className="text-sm text-red-400">
-            Connected wallet {shortPk(wallet.publicKey.toBase58())} is not the
-            current pool admin.
+            Connected wallet {shortPk(wallet.publicKey.toBase58())} is not
+            authorized for admin updates.
           </p>
         </div>
       )}

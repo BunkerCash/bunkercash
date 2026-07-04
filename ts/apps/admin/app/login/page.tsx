@@ -71,9 +71,8 @@ export default function LoginPage() {
 
           {connected && !isLoading && !error && !isAdmin && (
             <p className="text-sm text-red-400 text-center">
-              Connected wallet is not the pool admin. Please connect the admin
-              wallet.
-              {adminAddress ? ` Current admin: ${adminAddress}` : ""}
+              Connected wallet is not authorized for admin access.
+              {adminAddress ? ` Current pool authority: ${adminAddress}` : ""}
             </p>
           )}
         </div>
