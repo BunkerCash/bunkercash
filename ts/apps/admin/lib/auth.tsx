@@ -16,6 +16,12 @@ interface AuthContextType {
   isLoading: boolean;
   isAdmin: boolean;
   adminAddress: string | null;
+  role: AdminMeResponse["role"];
+  governanceMode: AdminMeResponse["governanceMode"] | null;
+  squadsMultisig: string | null;
+  squadsVault: string | null;
+  squadsVaultIndex: number | null;
+  squadsPermissions: string[];
   error: string | null;
   logout: () => void;
 }
@@ -40,12 +46,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [adminAddress, setAdminAddress] = useState<string | null>(null);
+  const [role, setRole] = useState<AdminMeResponse["role"]>("none");
+  const [governanceMode, setGovernanceMode] = useState<
+    AdminMeResponse["governanceMode"] | null
+  >(null);
+  const [squadsMultisig, setSquadsMultisig] = useState<string | null>(null);
+  const [squadsVault, setSquadsVault] = useState<string | null>(null);
+  const [squadsVaultIndex, setSquadsVaultIndex] = useState<number | null>(null);
+  const [squadsPermissions, setSquadsPermissions] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!connected || !publicKey) {
       setIsAdmin(false);
       setAdminAddress(null);
+      setRole("none");
+      setGovernanceMode(null);
+      setSquadsMultisig(null);
+      setSquadsVault(null);
+      setSquadsVaultIndex(null);
+      setSquadsPermissions([]);
       setError(null);
       setIsLoading(false);
       return;
@@ -84,7 +104,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (
           !data ||
           typeof data.isAdmin !== "boolean" ||
-          typeof data.poolMasterWallet !== "string"
+          typeof data.poolMasterWallet !== "string" ||
+          (data.governanceMode !== "single-wallet" &&
+            data.governanceMode !== "squads-v4")
         ) {
           throw new Error("Admin verification response is malformed");
         }
@@ -92,12 +114,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
 
         setAdminAddress(data.poolMasterWallet);
+        setRole(data.role);
+        setGovernanceMode(data.governanceMode);
+        setSquadsMultisig(data.squadsMultisig);
+        setSquadsVault(data.squadsVault);
+        setSquadsVaultIndex(data.squadsVaultIndex);
+        setSquadsPermissions(data.squadsPermissions);
         setError(null);
         setIsAdmin(data.isAdmin);
       } catch (error: unknown) {
         if (!cancelled) {
           setIsAdmin(false);
           setAdminAddress(null);
+          setRole("none");
+          setGovernanceMode(null);
+          setSquadsMultisig(null);
+          setSquadsVault(null);
+          setSquadsVaultIndex(null);
+          setSquadsPermissions([]);
           setError(
             error instanceof Error
               ? error.message
@@ -122,7 +156,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ isAuthenticated, isLoading, isAdmin, adminAddress, error, logout }}
+      value={{
+        isAuthenticated,
+        isLoading,
+        isAdmin,
+        adminAddress,
+        role,
+        governanceMode,
+        squadsMultisig,
+        squadsVault,
+        squadsVaultIndex,
+        squadsPermissions,
+        error,
+        logout,
+      }}
     >
       {children}
     </AuthContext.Provider>

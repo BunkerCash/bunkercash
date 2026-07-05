@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { BN } from "@coral-xyz/anchor";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { PublicKey, SendTransactionError, Transaction } from "@solana/web3.js";
+import { PublicKey, Transaction } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountIdempotentInstruction,
@@ -18,8 +18,8 @@ import {
   Wallet,
 } from "lucide-react";
 import { useMasterWithdrawals } from "@/hooks/useMasterWithdrawals";
-import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
 import { usePayoutVault } from "@/hooks/usePayoutVault";
+import { useAdminTransaction, type AdminTransactionResult } from "@/hooks/useAdminTransaction";
 import {
   getMasterPoolPda,
   getMasterPoolSignerPda,
@@ -74,10 +74,6 @@ interface MasterProgramMethods {
   };
 }
 
-interface ProviderLike {
-  sendAndConfirm: (tx: Transaction) => Promise<string>;
-}
-
 function formatTimestamp(raw: string): string {
   return new Date(Number(raw) * 1000).toLocaleDateString("en-US", {
     month: "short",
@@ -106,6 +102,7 @@ export function MasterOperationsCard() {
   const { connection } = useConnection();
   const wallet = useWallet();
   const { isAdmin } = useAuth();
+  const { authority, isSquadsMode, submit } = useAdminTransaction();
   const { publicKey, signTransaction, signAllTransactions } = wallet;
   const { pool, withdrawals, loading, error, refresh } = useMasterWithdrawals();
   const { balance: payoutVaultBalance, refresh: refreshVault } =
@@ -125,7 +122,9 @@ export function MasterOperationsCard() {
   const [txError, setTxError] = useState<string | null>(null);
   const [txSuccess, setTxSuccess] = useState<{
     label: string;
-    signature: string;
+    signature?: string;
+    href?: string;
+    hrefLabel?: string;
   } | null>(null);
 
   const poolPda = useMemo(() => getMasterPoolPda(MASTER_PROGRAM_ID), []);
@@ -199,8 +198,25 @@ export function MasterOperationsCard() {
     return cluster === "mainnet-beta" ? base : `${base}?cluster=${cluster}`;
   };
 
+  const formatAdminResult = (
+    label: string,
+    result: AdminTransactionResult,
+  ) =>
+    result.mode === "squads-v4"
+      ? {
+          label: `${label} proposal created`,
+          href: result.squadsUrl,
+          hrefLabel: "Open in Squads",
+        }
+      : {
+          label,
+          signature: result.signature,
+          href: explorerTxUrl(result.signature),
+          hrefLabel: shortPk(result.signature),
+        };
+
   const buildAtaInstructions = () => {
-    if (!wallet.publicKey || !usdcMint || !usdcTokenProgram) return null;
+    if (!authority || !usdcMint || !usdcTokenProgram) return null;
 
     const payoutUsdcVault = getAssociatedTokenAddressSync(
       usdcMint,
@@ -211,25 +227,25 @@ export function MasterOperationsCard() {
     );
     const adminUsdcAta = getAssociatedTokenAddressSync(
       usdcMint,
-      wallet.publicKey,
-      false,
+      authority,
+      true,
       usdcTokenProgram,
       ASSOCIATED_TOKEN_PROGRAM_ID,
     );
 
     const ensurePayoutVaultIx =
       createAssociatedTokenAccountIdempotentInstruction(
-        wallet.publicKey,
+        authority,
         payoutUsdcVault,
         poolSignerPda,
         usdcMint,
         usdcTokenProgram,
         ASSOCIATED_TOKEN_PROGRAM_ID,
-      );
+    );
     const ensureAdminAtaIx = createAssociatedTokenAccountIdempotentInstruction(
-      wallet.publicKey,
+      authority,
       adminUsdcAta,
-      wallet.publicKey,
+      authority,
       usdcMint,
       usdcTokenProgram,
       ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -270,7 +286,7 @@ export function MasterOperationsCard() {
   };
 
   const handleMasterWithdraw = async () => {
-    if (!program || !wallet.publicKey || !pool || !usdcMint || !usdcTokenProgram) return;
+    if (!program || !wallet.publicKey || !authority || !pool || !usdcMint || !usdcTokenProgram) return;
 
     const amount = parseUsdcInput(withdrawAmount);
     if (!amount) {
@@ -305,26 +321,17 @@ export function MasterOperationsCard() {
           masterUsdc: ataState.adminUsdcAta,
           supportedUsdcConfig: supportedUsdcConfigPda,
           usdcMint,
-          masterWallet: wallet.publicKey,
+          masterWallet: authority,
           usdcTokenProgram,
         })
         .instruction();
 
-      const tx = new Transaction();
-      tx.add(ataState.ensurePayoutVaultIx);
-      tx.add(ataState.ensureAdminAtaIx);
-      tx.add(ix);
-
-      const signature = await sendAndConfirmWalletTransaction({
-        connection,
-        wallet,
-        transaction: tx,
+      const result = await submit({
+        instructions: [ataState.ensurePayoutVaultIx, ataState.ensureAdminAtaIx, ix],
+        memo: "BunkerCash admin: master withdraw",
       });
 
-      setTxSuccess({
-        label: "Withdrawal recorded and sent to admin wallet",
-        signature,
-      });
+      setTxSuccess(formatAdminResult("Withdrawal recorded and sent to admin wallet", result));
       setWithdrawAmount("");
       setMetadataInput("");
       refresh();
@@ -343,7 +350,7 @@ export function MasterOperationsCard() {
   };
 
   const handleProfit = async () => {
-    if (!program || !wallet.publicKey || !profitTarget || !usdcMint || !usdcTokenProgram) return;
+    if (!program || !wallet.publicKey || !authority || !profitTarget || !usdcMint || !usdcTokenProgram) return;
 
     const amount = parseUsdcInput(profitAmount);
     if (!amount) {
@@ -369,26 +376,17 @@ export function MasterOperationsCard() {
           poolUsdc: ataState.payoutUsdcVault,
           supportedUsdcConfig: supportedUsdcConfigPda,
           usdcMint,
-          masterWallet: wallet.publicKey,
+          masterWallet: authority,
           usdcTokenProgram,
         })
         .instruction();
 
-      const tx = new Transaction();
-      tx.add(ataState.ensurePayoutVaultIx);
-      tx.add(ataState.ensureAdminAtaIx);
-      tx.add(ix);
-
-      const signature = await sendAndConfirmWalletTransaction({
-        connection,
-        wallet,
-        transaction: tx,
+      const result = await submit({
+        instructions: [ataState.ensurePayoutVaultIx, ataState.ensureAdminAtaIx, ix],
+        memo: "BunkerCash admin: master profit",
       });
 
-      setTxSuccess({
-        label: `Recorded profit against withdrawal #${profitTarget.id}`,
-        signature,
-      });
+      setTxSuccess(formatAdminResult(`Recorded profit against withdrawal #${profitTarget.id}`, result));
       setProfitAmount("");
       refresh();
       refreshVault();
@@ -400,7 +398,7 @@ export function MasterOperationsCard() {
   };
 
   const handleRepay = async () => {
-    if (!program || !wallet.publicKey || !repayTarget || !usdcMint || !usdcTokenProgram) return;
+    if (!program || !wallet.publicKey || !authority || !repayTarget || !usdcMint || !usdcTokenProgram) return;
 
     const amount = parseUsdcInput(repayAmount);
     if (!amount) {
@@ -434,26 +432,17 @@ export function MasterOperationsCard() {
           poolUsdc: ataState.payoutUsdcVault,
           supportedUsdcConfig: supportedUsdcConfigPda,
           usdcMint,
-          masterWallet: wallet.publicKey,
+          masterWallet: authority,
           usdcTokenProgram,
         })
         .instruction();
 
-      const tx = new Transaction();
-      tx.add(ataState.ensurePayoutVaultIx);
-      tx.add(ataState.ensureAdminAtaIx);
-      tx.add(ix);
-
-      const signature = await sendAndConfirmWalletTransaction({
-        connection,
-        wallet,
-        transaction: tx,
+      const result = await submit({
+        instructions: [ataState.ensurePayoutVaultIx, ataState.ensureAdminAtaIx, ix],
+        memo: "BunkerCash admin: master repay",
       });
 
-      setTxSuccess({
-        label: `Repaid $${formatUsdc(amount)} against withdrawal #${repayTarget.id}`,
-        signature,
-      });
+      setTxSuccess(formatAdminResult(`Repaid $${formatUsdc(amount)} against withdrawal #${repayTarget.id}`, result));
       setRepayAmount("");
       refresh();
       refreshVault();
@@ -465,7 +454,7 @@ export function MasterOperationsCard() {
   };
 
   const handleClose = async () => {
-    if (!program || !wallet.publicKey || !closeTarget || !usdcMint || !usdcTokenProgram) return;
+    if (!program || !wallet.publicKey || !authority || !closeTarget || !usdcMint || !usdcTokenProgram) return;
 
     const amount = parseUsdcInput(closeAmount, { allowZero: true });
     if (amount === null) {
@@ -494,20 +483,14 @@ export function MasterOperationsCard() {
           poolUsdc: ataState.payoutUsdcVault,
           supportedUsdcConfig: supportedUsdcConfigPda,
           usdcMint,
-          masterWallet: wallet.publicKey,
+          masterWallet: authority,
           usdcTokenProgram,
         })
         .instruction();
 
-      const tx = new Transaction();
-      tx.add(ataState.ensurePayoutVaultIx);
-      tx.add(ataState.ensureAdminAtaIx);
-      tx.add(ix);
-
-      const signature = await sendAndConfirmWalletTransaction({
-        connection,
-        wallet,
-        transaction: tx,
+      const result = await submit({
+        instructions: [ataState.ensurePayoutVaultIx, ataState.ensureAdminAtaIx, ix],
+        memo: "BunkerCash admin: master close withdrawal",
       });
 
       const remaining = BigInt(closeTarget.remaining);
@@ -519,10 +502,7 @@ export function MasterOperationsCard() {
         label = `Closed withdrawal #${closeTarget.id} with loss of $${formatUsdc(-pnlDelta)}`;
       }
 
-      setTxSuccess({
-        label,
-        signature,
-      });
+      setTxSuccess(formatAdminResult(label, result));
       setCloseAmount("");
       refresh();
       refreshVault();
@@ -641,15 +621,17 @@ export function MasterOperationsCard() {
         <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
           <div className="flex items-start gap-3">
             <p className="text-sm text-emerald-300">{txSuccess.label}</p>
-            <a
-              href={explorerTxUrl(txSuccess.signature)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 font-mono text-xs text-emerald-200/80 underline underline-offset-2 hover:text-emerald-200"
-            >
-              {shortPk(txSuccess.signature)}
-              <ExternalLink className="h-3 w-3" />
-            </a>
+            {txSuccess.href ? (
+              <a
+                href={txSuccess.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 font-mono text-xs text-emerald-200/80 underline underline-offset-2 hover:text-emerald-200"
+              >
+                {txSuccess.hrefLabel ?? txSuccess.href}
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            ) : null}
           </div>
         </div>
       )}
@@ -659,7 +641,7 @@ export function MasterOperationsCard() {
           <div className="mb-4">
             <h2 className="text-sm font-medium text-white">Master Withdraw</h2>
             <p className="mt-1 text-xs text-neutral-500">
-              Moves USDC from the payout vault to the connected admin wallet and
+              Moves USDC from the payout vault to the admin authority wallet and
               records a withdrawal without changing reference value or the reference rate.
             </p>
           </div>
@@ -705,7 +687,11 @@ export function MasterOperationsCard() {
             {submitting === "withdraw" && (
               <Loader2 className="h-4 w-4 animate-spin" />
             )}
-            {submitting === "withdraw" ? "Submitting..." : "Create Withdrawal"}
+            {submitting === "withdraw"
+              ? "Submitting..."
+              : isSquadsMode
+                ? "Create Proposal"
+                : "Create Withdrawal"}
           </button>
         </div>
 
@@ -770,7 +756,11 @@ export function MasterOperationsCard() {
             {submitting === "repay" && (
               <Loader2 className="h-4 w-4 animate-spin" />
             )}
-            {submitting === "repay" ? "Submitting..." : "Repay Withdrawal"}
+            {submitting === "repay"
+              ? "Submitting..."
+              : isSquadsMode
+                ? "Create Proposal"
+                : "Repay Withdrawal"}
           </button>
         </div>
 
@@ -837,7 +827,11 @@ export function MasterOperationsCard() {
             {submitting === "profit" && (
               <Loader2 className="h-4 w-4 animate-spin" />
             )}
-            {submitting === "profit" ? "Submitting..." : "Record Profit"}
+            {submitting === "profit"
+              ? "Submitting..."
+              : isSquadsMode
+                ? "Create Proposal"
+                : "Record Profit"}
           </button>
         </div>
 
@@ -924,7 +918,11 @@ export function MasterOperationsCard() {
             {submitting === "close" && (
               <Loader2 className="h-4 w-4 animate-spin" />
             )}
-            {submitting === "close" ? "Submitting..." : "Close Withdrawal"}
+            {submitting === "close"
+              ? "Submitting..."
+              : isSquadsMode
+                ? "Create Proposal"
+                : "Close Withdrawal"}
           </button>
         </div>
       </div>

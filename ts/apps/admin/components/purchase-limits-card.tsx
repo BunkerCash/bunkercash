@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BN } from "@coral-xyz/anchor";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { PublicKey, SendTransactionError, SystemProgram, Transaction } from "@solana/web3.js";
+import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountInstruction,
@@ -11,7 +11,6 @@ import {
 } from "@solana/spl-token";
 import { AlertCircle, DollarSign, Info, Loader2, RefreshCw, Settings } from "lucide-react";
 import { usePayoutVault } from "@/hooks/usePayoutVault";
-import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
 import {
   getProgram,
   getReadonlyProgram,
@@ -23,6 +22,7 @@ import {
 } from "@/lib/program";
 import { formatUsdc, parseUsdcInput, shortPk } from "@/lib/master-operations";
 import { useAuth } from "@/lib/auth";
+import { useAdminTransaction } from "@/hooks/useAdminTransaction";
 
 interface Stringable {
   toString(): string;
@@ -82,10 +82,6 @@ interface SetSupportedUsdcMintMethods {
   };
 }
 
-interface ProviderLike {
-  sendAndConfirm: (tx: Transaction) => Promise<string>;
-}
-
 function parseLimitInput(value: string): bigint | null {
   const trimmed = value.trim();
   if (trimmed === "") return null;
@@ -101,6 +97,7 @@ export function PurchaseLimitsCard() {
   const { connection } = useConnection();
   const wallet = useWallet();
   const { isAdmin } = useAuth();
+  const { authority, isSquadsMode, submit } = useAdminTransaction();
   const {
     balance: vaultBalance,
     loading: vaultLoading,
@@ -238,7 +235,7 @@ export function PurchaseLimitsCard() {
   const isAuthorizedWallet = isAdmin;
 
   const handleSave = async () => {
-    if (!program || !wallet.publicKey || parsedLimit === null) return;
+    if (!program || !wallet.publicKey || !authority || parsedLimit === null) return;
 
     setSubmitting(true);
     setError(null);
@@ -250,19 +247,21 @@ export function PurchaseLimitsCard() {
         .accounts({
           pool: poolPda,
           purchaseLimitConfig: purchaseLimitConfigPda,
-          admin: wallet.publicKey,
+          admin: authority,
           systemProgram: SystemProgram.programId,
         })
         .instruction();
 
-      const tx = new Transaction().add(ix);
-      const signature = await sendAndConfirmWalletTransaction({
-        connection,
-        wallet,
-        transaction: tx,
+      const result = await submit({
+        instructions: [ix],
+        memo: "BunkerCash admin: set purchase limit",
       });
 
-      setTxSuccess(signature);
+      setTxSuccess(
+        result.mode === "squads-v4"
+          ? `Purchase limit proposal created. Squads: ${result.squadsUrl}`
+          : `Purchase limit updated. Tx: ${shortPk(result.signature)}`,
+      );
       await fetchState();
       await refreshVault();
     } catch (e: unknown) {
@@ -273,7 +272,7 @@ export function PurchaseLimitsCard() {
   };
 
   const handleMintSave = async () => {
-    if (!program || !wallet.publicKey || !parsedMint || !state?.supportedUsdcMint) return;
+    if (!program || !wallet.publicKey || !authority || !parsedMint || !state?.supportedUsdcMint) return;
 
     setSubmitting(true);
     setError(null);
@@ -315,19 +314,19 @@ export function PurchaseLimitsCard() {
           currentPoolUsdc,
           usdcMint: parsedMint,
           nextPoolUsdc,
-          admin: wallet.publicKey,
+          admin: authority,
           currentUsdcTokenProgram,
           usdcTokenProgram,
           systemProgram: SystemProgram.programId,
         })
         .instruction();
 
-      const tx = new Transaction();
+      const instructions: Transaction["instructions"] = [];
       const nextPoolUsdcInfo = await connection.getAccountInfo(nextPoolUsdc, "confirmed");
       if (!nextPoolUsdcInfo) {
-        tx.add(
+        instructions.push(
           createAssociatedTokenAccountInstruction(
-            wallet.publicKey,
+            authority,
             nextPoolUsdc,
             poolPda,
             parsedMint,
@@ -336,14 +335,17 @@ export function PurchaseLimitsCard() {
           )
         );
       }
-      tx.add(ix);
-      const signature = await sendAndConfirmWalletTransaction({
-        connection,
-        wallet,
-        transaction: tx,
+      instructions.push(ix);
+      const result = await submit({
+        instructions,
+        memo: "BunkerCash admin: set supported USDC mint",
       });
 
-      setTxSuccess(signature);
+      setTxSuccess(
+        result.mode === "squads-v4"
+          ? `Supported mint proposal created. Squads: ${result.squadsUrl}`
+          : `Supported mint updated. Tx: ${shortPk(result.signature)}`,
+      );
       await fetchState();
       await refreshVault();
     } catch (e: unknown) {
@@ -483,7 +485,7 @@ export function PurchaseLimitsCard() {
 
       {txSuccess && (
         <div className="mb-6 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-300">
-          Configuration updated successfully. Tx: {shortPk(txSuccess)}
+          {txSuccess}
         </div>
       )}
 
@@ -536,7 +538,7 @@ export function PurchaseLimitsCard() {
           className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-[#00FFB2] text-sm font-medium text-black transition-colors hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600"
         >
           {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-          {submitting ? "Saving..." : "Save Purchase Limit"}
+          {submitting ? "Saving..." : isSquadsMode ? "Create Proposal" : "Save Purchase Limit"}
         </button>
 
         {state && (
@@ -560,7 +562,7 @@ export function PurchaseLimitsCard() {
               className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-neutral-200 text-sm font-medium text-black transition-colors hover:bg-white disabled:bg-neutral-800 disabled:text-neutral-600"
             >
               {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-              {submitting ? "Saving..." : "Save Supported Mint"}
+              {submitting ? "Saving..." : isSquadsMode ? "Create Proposal" : "Save Supported Mint"}
             </button>
           </div>
         )}

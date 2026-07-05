@@ -6,8 +6,8 @@ import { PublicKey, SYSVAR_INSTRUCTIONS_PUBKEY, SystemProgram, Transaction } fro
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { AlertCircle, CheckCircle2, Coins, Loader2, RefreshCw } from "lucide-react";
 import { getBunkercashMintPda, getPoolPda, getProgram, PROGRAM_ID } from "@/lib/program";
-import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
 import type { PoolDataResponse } from "@/lib/solana-server";
+import { useAdminTransaction } from "@/hooks/useAdminTransaction";
 
 const TOKEN_METADATA_PROGRAM_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
 const DEFAULT_TOKEN_NAME = "BunkerCash";
@@ -60,6 +60,7 @@ interface MintSetupMethods {
 export function MintSetupCard() {
   const { connection } = useConnection();
   const wallet = useWallet();
+  const { authority, isSquadsMode, submit } = useAdminTransaction();
 
   const program = useMemo(
     () => (wallet.publicKey ? getProgram(connection, wallet) : null),
@@ -112,14 +113,14 @@ export function MintSetupCard() {
     } finally {
       setLoading(false);
     }
-  }, [connection, metadataPda, mintPda, poolPda, program]);
+  }, [connection, metadataPda, mintPda]);
 
   useEffect(() => {
     void fetchState();
   }, [fetchState]);
 
   const handleInitializeMint = async () => {
-    if (!program || !wallet.publicKey) return;
+    if (!program || !wallet.publicKey || !authority) return;
 
     setSubmittingAction("mint");
     setError(null);
@@ -132,19 +133,22 @@ export function MintSetupCard() {
         .accounts({
           pool: poolPda,
           bunkercashMint: mintPda,
-          admin: wallet.publicKey,
+          admin: authority,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .instruction();
 
-      const signature = await sendAndConfirmWalletTransaction({
-        connection,
-        wallet,
-        transaction: new Transaction().add(ix),
+      const result = await submit({
+        instructions: [ix],
+        memo: "BunkerCash admin: create mint",
       });
 
-      setSuccess(`Mint initialized. Tx: ${signature}`);
+      setSuccess(
+        result.mode === "squads-v4"
+          ? `Mint initialization proposal created. Squads: ${result.squadsUrl}`
+          : `Mint initialized. Tx: ${result.signature}`,
+      );
       setIsMintInitialized(true);
       await fetchState();
     } catch (e) {
@@ -156,7 +160,7 @@ export function MintSetupCard() {
   };
 
   const handleSaveMetadata = async () => {
-    if (!program || !wallet.publicKey) return;
+    if (!program || !wallet.publicKey || !authority) return;
 
     const name = tokenName.trim();
     const symbol = tokenSymbol.trim();
@@ -177,14 +181,14 @@ export function MintSetupCard() {
         ? methodsApi.updateMintMetadata(name, symbol, uri).accounts({
             pool: poolPda,
             bunkercashMint: mintPda,
-            admin: wallet.publicKey,
+            admin: authority,
             metadata: metadataPda,
             tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
           })
         : methodsApi.initMintMetadata(name, symbol, uri).accounts({
             pool: poolPda,
             bunkercashMint: mintPda,
-            admin: wallet.publicKey,
+            admin: authority,
             metadata: metadataPda,
             tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
             tokenProgram: TOKEN_2022_PROGRAM_ID,
@@ -193,13 +197,16 @@ export function MintSetupCard() {
           });
 
       const ix = await builder.instruction();
-      const signature = await sendAndConfirmWalletTransaction({
-        connection,
-        wallet,
-        transaction: new Transaction().add(ix),
+      const result = await submit({
+        instructions: [ix],
+        memo: isMetadataInitialized
+          ? "BunkerCash admin: update mint metadata"
+          : "BunkerCash admin: initialize mint metadata",
       });
       setSuccess(
-        `${isMetadataInitialized ? "Metadata updated" : "Metadata initialized"}. Tx: ${signature}`,
+        result.mode === "squads-v4"
+          ? `${isMetadataInitialized ? "Metadata update" : "Metadata initialization"} proposal created. Squads: ${result.squadsUrl}`
+          : `${isMetadataInitialized ? "Metadata updated" : "Metadata initialized"}. Tx: ${result.signature}`,
       );
       setIsMetadataInitialized(true);
       await fetchState();
@@ -222,7 +229,7 @@ export function MintSetupCard() {
           <h1 className="text-xl font-semibold text-white">BunkerCash Mint</h1>
           <p className="mt-1 text-sm text-neutral-500">
             The acquire flow requires the on-chain `bunkercash_mint` PDA to exist. This is a one-time
-            admin action signed by your Phantom wallet.
+            privileged admin action.
           </p>
         </div>
 
@@ -255,7 +262,7 @@ export function MintSetupCard() {
       <div className="mt-4 rounded-xl border border-neutral-800 bg-neutral-900/50 p-4">
         <div className="mb-2 text-xs uppercase tracking-[0.2em] text-neutral-500">On-Chain Admin</div>
         <div className="break-all font-mono text-sm text-neutral-200">
-          {masterWallet ?? "Connect admin wallet to load"}
+          {masterWallet ?? "Connect authorized wallet to load"}
         </div>
       </div>
 
@@ -274,7 +281,7 @@ export function MintSetupCard() {
         ) : (
           <div className="flex items-center gap-2 text-sm text-amber-400">
             <AlertCircle className="h-4 w-4" />
-            Mint PDA is missing. Initialize it once from this admin wallet.
+            Mint PDA is missing. Initialize it once from an authorized admin session.
           </div>
         )}
       </div>
@@ -319,10 +326,10 @@ export function MintSetupCard() {
           className="inline-flex items-center gap-2 rounded-xl bg-[#00FFB2] px-4 py-2.5 text-sm font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {submittingAction === "mint" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Coins className="h-4 w-4" />}
-          Initialize BunkerCash Mint
+          {isSquadsMode ? "Create Proposal" : "Initialize BunkerCash Mint"}
         </button>
 
-        {!wallet.publicKey && <span className="text-sm text-neutral-500">Connect your admin Phantom wallet first.</span>}
+        {!wallet.publicKey && <span className="text-sm text-neutral-500">Connect an authorized admin wallet first.</span>}
       </div>
 
       <div className="mt-6 rounded-xl border border-neutral-800 bg-neutral-900/50 p-4">
@@ -381,7 +388,11 @@ export function MintSetupCard() {
             ) : (
               <CheckCircle2 className="h-4 w-4" />
             )}
-            {isMetadataInitialized ? "Update Metadata" : "Set Metadata"}
+            {isSquadsMode
+              ? "Create Proposal"
+              : isMetadataInitialized
+                ? "Update Metadata"
+                : "Set Metadata"}
           </button>
 
           {!isMintInitialized && (

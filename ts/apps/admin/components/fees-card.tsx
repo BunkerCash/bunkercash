@@ -15,8 +15,8 @@ import {
   getProgram,
   PROGRAM_ID,
 } from "@/lib/program";
-import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
 import { useAuth } from "@/lib/auth";
+import { useAdminTransaction } from "@/hooks/useAdminTransaction";
 
 interface FeeConfigLike {
   adminWallet: string;
@@ -51,6 +51,7 @@ export function FeesCard() {
   const { connection } = useConnection();
   const wallet = useWallet();
   const { isAdmin } = useAuth();
+  const { authority, isSquadsMode, submit } = useAdminTransaction();
 
   const [state, setState] = useState<FeesState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -127,6 +128,7 @@ export function FeesCard() {
     if (
       !program ||
       !wallet.publicKey ||
+      !authority ||
       parsedPurchaseFeeBps === null ||
       parsedClaimFeeBps === null
     ) {
@@ -143,21 +145,21 @@ export function FeesCard() {
         .accounts({
           pool: poolPda,
           feeConfig: feeConfigPda,
-          admin: wallet.publicKey,
+          admin: authority,
           systemProgram: SystemProgram.programId,
         })
         .instruction();
 
-      const tx = new Transaction();
-      tx.add(ix);
-
-      const signature = await sendAndConfirmWalletTransaction({
-        connection,
-        wallet,
-        transaction: tx,
+      const result = await submit({
+        instructions: [ix],
+        memo: "BunkerCash admin: set fee config",
       });
 
-      setTxSuccess(signature);
+      setTxSuccess(
+        result.mode === "squads-v4"
+          ? `Fee configuration proposal created. Squads: ${result.squadsUrl}`
+          : `Fee configuration updated. Tx: ${shortPk(result.signature)}`,
+      );
       setPurchaseFeeInput("");
       setClaimFeeInput("");
       await fetchState();
@@ -297,7 +299,7 @@ export function FeesCard() {
 
             {txSuccess && (
               <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
-                Fee configuration updated. Transaction: {shortPk(txSuccess)}
+                {txSuccess}
               </div>
             )}
 
@@ -317,7 +319,7 @@ export function FeesCard() {
                 type="button"
               >
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldAlert className="h-4 w-4" />}
-                {submitting ? "Saving..." : "Save Fees"}
+                {submitting ? "Saving..." : isSquadsMode ? "Create Proposal" : "Save Fees"}
               </button>
             </div>
           </div>
