@@ -7,6 +7,7 @@ import {
   type AdminAuthRequestChallenge,
 } from "./admin-auth-message";
 import { consumeAdminAuthNonce } from "./admin-auth-nonce";
+import { buildAdminAuthContext } from "./admin-auth-nonce";
 import { getPoolPda, getReadonlyProgram } from "./program";
 import { getConfiguredRpcCluster } from "./solana-env";
 
@@ -66,8 +67,26 @@ function getRpcEndpoints(): string[] {
 function withAdminOverride(wallets: Iterable<string>): Set<string> {
   const resolved = new Set(wallets);
   const override = process.env.ADMIN_OVERRIDE_WALLET?.trim();
-  if (override) {
-    resolved.add(override);
+  if (!override) {
+    return resolved;
+  }
+
+  const expiresAtRaw = process.env.ADMIN_OVERRIDE_EXPIRES_AT?.trim();
+  const expiresAtMs = expiresAtRaw ? Date.parse(expiresAtRaw) : NaN;
+  if (!expiresAtRaw || !Number.isFinite(expiresAtMs)) {
+    console.warn("[admin-auth] ADMIN_OVERRIDE_WALLET ignored: ADMIN_OVERRIDE_EXPIRES_AT is missing or invalid");
+    return resolved;
+  }
+  if (Date.now() >= expiresAtMs) {
+    console.warn("[admin-auth] ADMIN_OVERRIDE_WALLET ignored: override is expired");
+    return resolved;
+  }
+
+  try {
+    resolved.add(new PublicKey(override).toBase58());
+  } catch {
+    console.warn("[admin-auth] ADMIN_OVERRIDE_WALLET ignored: invalid wallet");
+    return resolved;
   }
   return resolved;
 }
@@ -224,6 +243,11 @@ export async function resolveAdminIdentity(wallet: string): Promise<AdminIdentit
   const state = await getAdminAuthorityState();
   const overrideWallets = withAdminOverride([]);
   if (overrideWallets.has(wallet)) {
+    console.warn("[admin-auth] ADMIN_OVERRIDE_WALLET used", {
+      wallet,
+      expiresAt: process.env.ADMIN_OVERRIDE_EXPIRES_AT,
+      governanceMode: state.governanceMode,
+    });
     return {
       wallet,
       isAdmin: true,
@@ -304,6 +328,8 @@ function hashBodyText(bodyText: string): string {
 }
 
 function validateSignedChallenge(args: {
+  wallet: string;
+  domain: string;
   issuedAt: string | null;
   nonce: string | null;
   method: string;
@@ -312,7 +338,7 @@ function validateSignedChallenge(args: {
 }):
   | { ok: true; challenge: AdminAuthRequestChallenge }
   | { ok: false; error: string } {
-  const { issuedAt, nonce, method, route, bodyHash } = args;
+  const { wallet, domain, issuedAt, nonce, method, route, bodyHash } = args;
 
   if (!issuedAt || !nonce) {
     return { ok: false as const, error: "Missing admin authorization headers" };
@@ -337,6 +363,7 @@ function validateSignedChallenge(args: {
   return {
     ok: true as const,
     challenge: {
+      ...buildAdminAuthContext({ wallet, domain }),
       method,
       route,
       bodyHash,
@@ -351,17 +378,20 @@ export async function authorizeGeoblockingUpdate(args: {
   signature: string | null;
   issuedAt: string | null;
   nonce: string | null;
+  domain: string;
   method: string;
   route: string;
   bodyText: string;
 }) {
-  const { wallet, signature, issuedAt, nonce, method, route, bodyText } = args;
+  const { wallet, signature, issuedAt, nonce, domain, method, route, bodyText } = args;
 
   if (!wallet || !signature) {
     return { ok: false as const, error: "Missing admin authorization headers" };
   }
 
   const challenge = validateSignedChallenge({
+    wallet,
+    domain,
     issuedAt,
     nonce,
     method,
@@ -405,17 +435,20 @@ export async function authorizeAdminAccess(args: {
   signature: string | null;
   issuedAt: string | null;
   nonce: string | null;
+  domain: string;
   method: string;
   route: string;
   bodyHash: string;
 }) {
-  const { wallet, signature, issuedAt, nonce, method, route, bodyHash } = args;
+  const { wallet, signature, issuedAt, nonce, domain, method, route, bodyHash } = args;
 
   if (!wallet || !signature) {
     return { ok: false as const, error: "Missing admin authorization headers" };
   }
 
   const challenge = validateSignedChallenge({
+    wallet,
+    domain,
     issuedAt,
     nonce,
     method,

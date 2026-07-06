@@ -3,7 +3,10 @@ import { PublicKey } from "@solana/web3.js";
 
 export type ClusterType = 'mainnet-beta' | 'devnet' | 'testnet' | 'localnet' | 'unknown';
 
-export const USDC_MINTS: Record<string, string> = {};
+export const USDC_MINTS: Record<string, string> = {
+  "mainnet-beta": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  devnet: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+};
 
 export function getClusterFromEndpoint(endpoint: string): ClusterType {
   if (endpoint.includes('devnet')) return 'devnet';

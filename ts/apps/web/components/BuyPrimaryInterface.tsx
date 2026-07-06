@@ -25,6 +25,7 @@ import { useToast } from "@/components/ui/ToastContext";
 import { useSupportedUsdcMint } from "@/hooks/useSupportedUsdcMint";
 import { invalidateTransactionCache } from "@/hooks/useMyTransactions";
 import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
+import { buildTransactionReview, requirePreSignReview } from "@/lib/transaction-review";
 import { useOptionalWallet } from "@/hooks/useOptionalWallet";
 import { PhantomConnectButton } from "@/components/wallet/PhantomConnectButton";
 import { InfoTooltip } from "@/components/ui/InfoTooltip";
@@ -85,6 +86,7 @@ type BuyPoolState = {
   purchaseLimitUsdc: bigint;
   totalDepositedUsdc: bigint;
   purchaseFeeBps: number;
+  fetchedAt: number;
 };
 
 // Module-level cache of the last successfully fetched pool state. Survives
@@ -215,6 +217,7 @@ export function BuyPrimaryInterface() {
         purchaseLimitUsdc,
         totalDepositedUsdc,
         purchaseFeeBps,
+        fetchedAt: Date.now(),
       };
       buyPoolStateCache = { endpoint, state: nextState };
       setPoolState(nextState);
@@ -277,6 +280,10 @@ export function BuyPrimaryInterface() {
   const pricePerToken = poolState
     ? derivePrice(poolState.nav, poolState.totalBunkercashSupply)
     : null;
+  const pricingAgeSeconds = poolState
+    ? Math.max(0, Math.floor((Date.now() - poolState.fetchedAt) / 1000))
+    : null;
+  const pricingIsStale = pricingAgeSeconds !== null && pricingAgeSeconds > 60;
   const supportsUsdcDeposits =
     !!usdcTokenProgram &&
     (usdcTokenProgram.equals(TOKEN_PROGRAM_ID) ||
@@ -492,6 +499,24 @@ export function BuyPrimaryInterface() {
         createPoolUsdcVaultIx,
         depositUsdcIx,
       );
+      requirePreSignReview(
+        buildTransactionReview({
+          instructions: tx.instructions,
+          summary: "Buy BunkerCash with USDC",
+          fields: [
+            { label: "program ID", value: PROGRAM_ID.toBase58() },
+            { label: "pool PDA", value: poolPda.toBase58() },
+            { label: "source account", value: userUsdc.toBase58() },
+            { label: "destination vault", value: poolUsdcVault.toBase58() },
+            { label: "USDC mint", value: configuredUsdcMint.toBase58() },
+            { label: "amount", value: `${toUi(usdcAmountRaw, USDC_DECIMALS)} USDC` },
+            {
+              label: "purchase fee",
+              value: `${purchaseFeeRaw != null ? toUi(purchaseFeeRaw, USDC_DECIMALS) : "0"} USDC`,
+            },
+          ],
+        }),
+      );
       const sig = await sendAndConfirmWalletTransaction({
         connection,
         wallet,
@@ -599,11 +624,21 @@ export function BuyPrimaryInterface() {
                   refreshing
                 </span>
               )}
+              {pricingIsStale && (
+                <span className="rounded-full border border-yellow-500/30 px-2 py-0.5 text-[10px] normal-case tracking-normal text-yellow-400">
+                  stale
+                </span>
+              )}
             </div>
             <div className="text-xl font-bold text-[#00FFB2] sm:text-2xl">
               ${pricePerToken != null ? pricePerToken.toFixed(2) : "—"} per
               token
             </div>
+            {pricingAgeSeconds !== null && (
+              <p className="mt-1 text-xs text-neutral-500">
+                Last NAV read: {pricingAgeSeconds}s ago
+              </p>
+            )}
           </div>
           <div>
             <div className="mb-2 text-xs uppercase tracking-wider text-neutral-500">

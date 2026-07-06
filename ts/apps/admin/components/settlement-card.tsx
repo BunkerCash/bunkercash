@@ -490,6 +490,15 @@ export function SettlementCard() {
       await submit({
         instructions: [ix],
         memo: "BunkerCash admin: set minimum settlement",
+        review: {
+          fields: [
+            {
+              label: "minimum settlement old -> new",
+              value: `$${formatUsdc(minSettlementUsdc ?? BigInt(0))} -> $${formatUsdc(rawValue)}`,
+            },
+            { label: "pool PDA", value: poolPda.toBase58() },
+          ],
+        },
       });
       setMinSettlementUsdc(rawValue);
     } catch (e: unknown) {
@@ -501,7 +510,7 @@ export function SettlementCard() {
     } finally {
       setSavingMinSettlement(false);
     }
-  }, [authority, minSettlementConfigPda, minSettlementInput, poolPda, program, publicKey, submit]);
+  }, [authority, minSettlementConfigPda, minSettlementInput, minSettlementUsdc, poolPda, program, publicKey, submit]);
 
   const handleOpenSettlement = useCallback(async () => {
     if (
@@ -561,6 +570,16 @@ export function SettlementCard() {
       await submit({
         instructions: [ix],
         memo: "BunkerCash admin: open settlement",
+        review: {
+          fields: [
+            { label: "pool PDA", value: poolPda.toBase58() },
+            { label: "source vault", value: payoutVault.toBase58() },
+            { label: "USDC mint", value: usdcMint.toBase58() },
+            { label: "settlement PDA", value: settlementStatePda.toBase58() },
+            { label: "pending claims", value: totalRequested.toString() },
+            { label: "vault balance", value: `$${formatUsdc(vaultRaw)}` },
+          ],
+        },
       });
       setEpochState("open");
       setEpochStateFresh(false);
@@ -591,8 +610,10 @@ export function SettlementCard() {
     settlementStatePda,
     submit,
     supportedUsdcConfigPda,
+    totalRequested,
     usdcMint,
     usdcTokenProgram,
+    vaultRaw,
   ]);
 
   const handleCloseSettlement = useCallback(async () => {
@@ -629,6 +650,12 @@ export function SettlementCard() {
       await submit({
         instructions: [ix],
         memo: "BunkerCash admin: close settlement",
+        review: {
+          fields: [
+            { label: "pool PDA", value: poolPda.toBase58() },
+            { label: "settlement PDA", value: settlementStatePda.toBase58() },
+          ],
+        },
       });
       setEpochState("closed");
       setEpochStateFresh(true);
@@ -915,6 +942,25 @@ export function SettlementCard() {
           const result = await submit({
             instructions,
             memo: `BunkerCash admin: settle ${batch.length} claim${batch.length === 1 ? "" : "s"}`,
+            review: {
+              fields: [
+                { label: "pool PDA", value: poolPda.toBase58() },
+                { label: "source vault", value: payoutVault.toBase58() },
+                { label: "USDC mint", value: usdcMint.toBase58() },
+                { label: "settlement PDA", value: settlementStatePda.toBase58() },
+                { label: "batch claims", value: String(batch.length) },
+              ],
+              remainingAccounts: batch.map((item, index) => ({
+                label: `claim ${index + 1} -> destination`,
+                value: `${item.claim.pubkey} -> ${getAssociatedTokenAddressSync(
+                  usdcMint,
+                  new PublicKey(item.claim.user),
+                  false,
+                  usdcTokenProgram,
+                  ASSOCIATED_TOKEN_PROGRAM_ID,
+                ).toBase58()}`,
+              })),
+            },
           });
 
           return result.mode === "squads-v4" ? result.squadsUrl : result.signature;

@@ -32,6 +32,7 @@ export async function sha256Hex(value: string): Promise<string> {
 }
 
 async function requestAdminAuthChallenge(input: {
+  wallet: string;
   method: string;
   route: string;
   bodyHash: string;
@@ -43,6 +44,7 @@ async function requestAdminAuthChallenge(input: {
       "content-type": "application/json",
     },
     body: JSON.stringify({
+      wallet: input.wallet,
       method: normalizeAdminAuthMethod(input.method),
       route: input.route,
       bodyHash: input.bodyHash,
@@ -64,6 +66,14 @@ async function requestAdminAuthChallenge(input: {
   if (
     !data ||
     typeof data.method !== "string" ||
+    typeof data.wallet !== "string" ||
+    typeof data.domain !== "string" ||
+    typeof data.env !== "string" ||
+    typeof data.cluster !== "string" ||
+    typeof data.programId !== "string" ||
+    typeof data.pool !== "string" ||
+    typeof data.squadsMultisig !== "string" ||
+    typeof data.squadsVault !== "string" ||
     typeof data.route !== "string" ||
     typeof data.bodyHash !== "string" ||
     typeof data.issuedAt !== "string" ||
@@ -79,6 +89,7 @@ export async function buildAdminAuthHeaders(
   input: AdminAuthHeadersInput,
 ): Promise<Record<string, string>> {
   const challenge = await requestAdminAuthChallenge({
+    wallet: input.publicKey.toBase58(),
     method: input.method,
     route: input.route,
     bodyHash: input.bodyHash ?? EMPTY_BODY_SHA256,

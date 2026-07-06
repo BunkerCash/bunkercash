@@ -59,7 +59,10 @@ export function getSquadsDashboardUrl(
   return base;
 }
 
-export const USDC_MINTS: Record<string, string> = {};
+export const USDC_MINTS: Record<string, string> = {
+  "mainnet-beta": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  devnet: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+};
 
 export function getClusterFromEndpoint(endpoint: string): ClusterType {
   const envCluster = getConfiguredSolanaCluster();

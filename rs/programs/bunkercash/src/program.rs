@@ -61,13 +61,17 @@ const DEFAULT_MIN_CLAIM_USDC: u64 = 1_000_000;
 //
 // Pool before settlement_epoch_seq was added:
 //   8 + 32 (master_wallet) + 5 * 8 (u64 fields) + 1 (bump)
-const LEGACY_POOL_SPACE: usize = 8 + 32 + 5 * 8 + 1;
+const LEGACY_POOL_V1_SPACE: usize = 8 + 32 + 5 * 8 + 1;
+// Pool after settlement_epoch_seq was added, before next_claim_seq:
+const LEGACY_POOL_V2_SPACE: usize = LEGACY_POOL_V1_SPACE + 8;
 // Claim as originally deployed (no epoch fields at all):
 //   8 + 32 (user) + 8 + 8 + 1 + 8 + 8 + 8 + 1 + 1
 const LEGACY_CLAIM_V1_SPACE: usize = 8 + 32 + 8 + 8 + 1 + 8 + 8 + 8 + 1 + 1;
 // Claim with the interim `last_settled_epoch: i64` timestamp marker that
 // predates the monotonic epoch sequence pair.
 const LEGACY_CLAIM_V2_SPACE: usize = LEGACY_CLAIM_V1_SPACE + 8;
+// Claim after monotonic settlement epoch fields were added, before claim_seq.
+const LEGACY_CLAIM_V3_SPACE: usize = LEGACY_CLAIM_V2_SPACE + 8;
 
 fn arithmetic_error() -> Error {
     ErrorCode::ArithmeticError.into()
@@ -116,6 +120,12 @@ fn is_bootstrap_authority(initializer: &Pubkey) -> bool {
 fn validate_initializer(initializer: &Pubkey) -> Result<()> {
     require!(is_bootstrap_authority(initializer), ErrorCode::Unauthorized);
     Ok(())
+}
+
+fn apply_master_wallet_update(pool: &mut Pool, new_master_wallet: Pubkey) -> Pubkey {
+    let old_master_wallet = pool.master_wallet;
+    pool.master_wallet = new_master_wallet;
+    old_master_wallet
 }
 
 fn calculate_claim_usdc_value(
@@ -370,6 +380,17 @@ fn validate_unique_settlement_claim_accounts(claim_keys: &[Pubkey]) -> Result<()
     Ok(())
 }
 
+fn claim_is_in_settlement_snapshot(claim: &Claim, settlement: &SettlementState) -> bool {
+    claim.claim_seq < settlement.snapshot_claim_seq
+}
+
+fn claim_is_settleable_in_epoch(claim: &Claim, settlement: &SettlementState) -> bool {
+    !claim.cancelled
+        && claim.paid_amount < claim.usdc_amount
+        && claim_is_in_settlement_snapshot(claim, settlement)
+        && claim.last_settled_epoch_seq != settlement.epoch_seq
+}
+
 // Grows a program-owned account to `new_space`, topping up lamports from
 // `payer` first so the account stays rent-exempt at the new size. New bytes
 // are zero-initialized.
@@ -469,6 +490,7 @@ pub mod bunkercash {
         pool.total_bunkercash_supply = 0;
         pool.total_pending_claims = 0;
         pool.claim_counter = 0;
+        pool.next_claim_seq = 0;
         pool.withdrawal_counter = 0;
         pool.settlement_epoch_seq = 0;
         pool.bump = ctx.bumps.pool;
@@ -602,6 +624,37 @@ pub mod bunkercash {
         });
 
         msg!("Deposited {} USDC, minted {} BunkerCash. New NAV: {}", usdc_amount, bunkercash_to_mint, new_nav);
+        Ok(())
+    }
+
+    pub fn update_master_wallet(
+        ctx: Context<UpdateMasterWallet>,
+        new_master_wallet: Pubkey,
+    ) -> Result<()> {
+        let pool = &mut ctx.accounts.pool;
+        let old_master_wallet = pool.master_wallet;
+
+        require!(
+            ctx.accounts.current_master_wallet.key() == old_master_wallet,
+            ErrorCode::Unauthorized
+        );
+
+        apply_master_wallet_update(pool, new_master_wallet);
+
+        emit!(MasterWalletUpdatedEvent {
+            pool: pool.key(),
+            current_master_wallet: old_master_wallet,
+            new_master_wallet,
+            authority: ctx.accounts.current_master_wallet.key(),
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+
+        msg!(
+            "BunkerCash master wallet updated from {} to {}",
+            old_master_wallet,
+            new_master_wallet
+        );
+
         Ok(())
     }
 
@@ -915,6 +968,11 @@ pub mod bunkercash {
             .total_pending_claims
             .checked_add(usdc_value)
             .ok_or_else(arithmetic_error)?;
+        let claim_seq = pool.next_claim_seq;
+        pool.next_claim_seq = pool
+            .next_claim_seq
+            .checked_add(1)
+            .ok_or_else(arithmetic_error)?;
         pool.claim_counter = pool.claim_counter.checked_add(1).ok_or_else(arithmetic_error)?;
 
         let claim_id = pool.claim_counter.checked_sub(1).ok_or_else(arithmetic_error)?;
@@ -930,6 +988,7 @@ pub mod bunkercash {
         claim.cancelled = false;
         claim.last_settled_epoch_seq = 0;
         claim.last_paid_epoch_seq = 0;
+        claim.claim_seq = claim_seq;
         claim.bump = ctx.bumps.claim;
 
         emit!(ClaimFiledEvent {
@@ -981,15 +1040,15 @@ pub mod bunkercash {
         )?;
 
         // Only claims that existed before the settlement epoch opened are
-        // eligible.  Without this gate a master wallet could file a large
+        // eligible. Without this gate a master wallet could file a large
         // post-epoch claim, settle only it, and satisfy the completeness
-        // check while paying nothing to original claimants.
+        // check while paying nothing to original claimants. The boundary is
+        // the monotonic claim sequence snapshotted at open_settlement; wall
+        // clock timestamps are too coarse and can collide inside one unix
+        // second.
         // `last_settled_epoch_seq != epoch_seq` additionally rejects claims
         // already paid in an earlier batch of this same epoch (multi-batch
-        // re-submission anti-replay). Using a monotonic sequence instead of
-        // a raw timestamp avoids same-second collisions between consecutive
-        // epochs.
-        let epoch_timestamp = ctx.accounts.settlement_state.timestamp;
+        // re-submission anti-replay).
         let epoch_seq = ctx.accounts.settlement_state.epoch_seq;
 
         let mut actual_total_remaining = 0u64;
@@ -997,11 +1056,7 @@ pub mod bunkercash {
             if idx % 2 == 0 {
                 let claim_data = claim_account_info.try_borrow_data()?;
                 let claim = Claim::try_deserialize(&mut &claim_data[..])?;
-                if !claim.cancelled
-                    && claim.paid_amount < claim.usdc_amount
-                    && claim.timestamp < epoch_timestamp
-                    && claim.last_settled_epoch_seq != epoch_seq
-                {
+                if claim_is_settleable_in_epoch(&claim, &ctx.accounts.settlement_state) {
                     actual_total_remaining = actual_total_remaining
                         .checked_add(claim.usdc_amount.saturating_sub(claim.paid_amount))
                         .ok_or_else(arithmetic_error)?;
@@ -1079,11 +1134,7 @@ pub mod bunkercash {
                 let mut claim_data = claim_account_info.try_borrow_mut_data()?;
                 let claim = Claim::try_deserialize(&mut &claim_data[..])?;
 
-                if !claim.cancelled
-                    && claim.paid_amount < claim.usdc_amount
-                    && claim.timestamp < epoch_timestamp
-                    && claim.last_settled_epoch_seq != epoch_seq
-                {
+                if claim_is_settleable_in_epoch(&claim, settlement) {
                     let claim_usdc_amount = claim.usdc_amount;
                     let claim_paid_amount = claim.paid_amount;
                     let claim_remaining_amount = claim_usdc_amount.saturating_sub(claim.paid_amount);
@@ -1336,7 +1387,7 @@ pub mod bunkercash {
             // other claim is still unsettled. (Only dust claims that
             // received a zero payout can reach this path; paid claims are
             // blocked from cancelling by the last_paid_epoch_seq guard.)
-            if claim.timestamp < settlement.timestamp
+            if claim_is_in_settlement_snapshot(claim, &settlement)
                 && claim.last_settled_epoch_seq != settlement.epoch_seq
             {
                 settlement.total_cancelled_usdc = settlement
@@ -1421,6 +1472,7 @@ pub mod bunkercash {
         settlement.total_cancelled_usdc = 0;
         settlement.total_processed_usdc = 0;
         settlement.epoch_seq = pool.settlement_epoch_seq;
+        settlement.snapshot_claim_seq = pool.next_claim_seq;
         settlement.timestamp = timestamp;
         settlement.bump = ctx.bumps.settlement_state;
 
@@ -1510,12 +1562,25 @@ pub mod bunkercash {
                 msg!("Pool already uses the current layout; nothing to migrate");
                 return Ok(());
             }
-            require!(
-                data.len() == LEGACY_POOL_SPACE,
-                ErrorCode::UnknownAccountLayout
-            );
-            LegacyPool::deserialize(&mut &data[8..])
-                .map_err(|_| error!(ErrorCode::InvalidMigrationAccount))?
+            match data.len() {
+                LEGACY_POOL_V1_SPACE => {
+                    let v1 = LegacyPool::deserialize(&mut &data[8..])
+                        .map_err(|_| error!(ErrorCode::InvalidMigrationAccount))?;
+                    LegacyPoolV2 {
+                        master_wallet: v1.master_wallet,
+                        nav: v1.nav,
+                        total_bunkercash_supply: v1.total_bunkercash_supply,
+                        total_pending_claims: v1.total_pending_claims,
+                        claim_counter: v1.claim_counter,
+                        withdrawal_counter: v1.withdrawal_counter,
+                        settlement_epoch_seq: 0,
+                        bump: v1.bump,
+                    }
+                }
+                LEGACY_POOL_V2_SPACE => LegacyPoolV2::deserialize(&mut &data[8..])
+                    .map_err(|_| error!(ErrorCode::InvalidMigrationAccount))?,
+                _ => return err!(ErrorCode::UnknownAccountLayout),
+            }
         };
 
         require!(
@@ -1536,8 +1601,9 @@ pub mod bunkercash {
             total_bunkercash_supply: legacy.total_bunkercash_supply,
             total_pending_claims: legacy.total_pending_claims,
             claim_counter: legacy.claim_counter,
+            next_claim_seq: legacy.claim_counter,
             withdrawal_counter: legacy.withdrawal_counter,
-            settlement_epoch_seq: 0,
+            settlement_epoch_seq: legacy.settlement_epoch_seq,
             bump: legacy.bump,
         };
         {
@@ -1609,6 +1675,21 @@ pub mod bunkercash {
                         bump: v2.bump,
                     }
                 }
+                LEGACY_CLAIM_V3_SPACE => {
+                    let v3 = LegacyClaimV3::deserialize(&mut &data[8..])
+                        .map_err(|_| error!(ErrorCode::InvalidMigrationAccount))?;
+                    LegacyClaimV1 {
+                        user: v3.user,
+                        usdc_amount: v3.usdc_amount,
+                        timestamp: v3.timestamp,
+                        processed: v3.processed,
+                        paid_amount: v3.paid_amount,
+                        bunkercash_escrow: v3.bunkercash_escrow,
+                        bunkercash_remaining: v3.bunkercash_remaining,
+                        cancelled: v3.cancelled,
+                        bump: v3.bump,
+                    }
+                }
                 _ => return err!(ErrorCode::UnknownAccountLayout),
             };
             (legacy, data.len() as u64)
@@ -1632,6 +1713,7 @@ pub mod bunkercash {
             cancelled: legacy.cancelled,
             last_settled_epoch_seq: 0,
             last_paid_epoch_seq: 0,
+            claim_seq: 0,
             bump: legacy.bump,
         };
         {
@@ -2314,6 +2396,21 @@ pub struct SetSupportedUsdcMint<'info> {
 }
 
 #[derive(Accounts)]
+pub struct UpdateMasterWallet<'info> {
+    #[account(
+        mut,
+        seeds = [POOL_SEED],
+        bump = pool.bump
+    )]
+    pub pool: Account<'info, Pool>,
+
+    #[account(
+        address = pool.master_wallet @ ErrorCode::InvalidMasterWallet
+    )]
+    pub current_master_wallet: Signer<'info>,
+}
+
+#[derive(Accounts)]
 pub struct FileClaim<'info> {
     #[account(
         mut,
@@ -2860,6 +2957,7 @@ pub struct Pool {
     pub total_bunkercash_supply: u64,
     pub total_pending_claims: u64,
     pub claim_counter: u64,
+    pub next_claim_seq: u64,
     pub withdrawal_counter: u64,
     pub settlement_epoch_seq: u64,
     pub bump: u8,
@@ -2888,6 +2986,9 @@ pub struct Claim {
     // non-zero payout. Used by cancel_claim to block cancellation only
     // when actual USDC was transferred this epoch.
     pub last_paid_epoch_seq: u64,
+    // Monotonic claim sequence assigned at file_claim. Settlement snapshots
+    // use this as their eligibility boundary instead of wall-clock time.
+    pub claim_seq: u64,
     pub bump: u8,
 }
 
@@ -2903,6 +3004,18 @@ struct LegacyPool {
     total_pending_claims: u64,
     claim_counter: u64,
     withdrawal_counter: u64,
+    bump: u8,
+}
+
+#[derive(AnchorDeserialize)]
+struct LegacyPoolV2 {
+    master_wallet: Pubkey,
+    nav: u64,
+    total_bunkercash_supply: u64,
+    total_pending_claims: u64,
+    claim_counter: u64,
+    withdrawal_counter: u64,
+    settlement_epoch_seq: u64,
     bump: u8,
 }
 
@@ -2933,6 +3046,23 @@ struct LegacyClaimV2 {
     // monotonic epoch sequence pair and dropped during migration.
     #[allow(dead_code)]
     last_settled_epoch: i64,
+    bump: u8,
+}
+
+#[derive(AnchorDeserialize)]
+struct LegacyClaimV3 {
+    user: Pubkey,
+    usdc_amount: u64,
+    timestamp: i64,
+    processed: bool,
+    paid_amount: u64,
+    bunkercash_escrow: u64,
+    bunkercash_remaining: u64,
+    cancelled: bool,
+    #[allow(dead_code)]
+    last_settled_epoch_seq: u64,
+    #[allow(dead_code)]
+    last_paid_epoch_seq: u64,
     bump: u8,
 }
 
@@ -3003,6 +3133,7 @@ pub struct SettlementState {
     // happen while no settlement epoch is open.
     pub total_processed_usdc: u64,
     pub epoch_seq: u64,
+    pub snapshot_claim_seq: u64,
     pub timestamp: i64,
     pub bump: u8,
 }
@@ -3021,6 +3152,15 @@ pub struct PoolInitializedEvent {
     pub pool: Pubkey,
     pub master_wallet: Pubkey,
     pub usdc_mint: Pubkey,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct MasterWalletUpdatedEvent {
+    pub pool: Pubkey,
+    pub current_master_wallet: Pubkey,
+    pub new_master_wallet: Pubkey,
+    pub authority: Pubkey,
     pub timestamp: i64,
 }
 
@@ -3310,18 +3450,53 @@ pub enum ErrorCode {
 mod tests {
     use super::{
         apply_master_cancellation, apply_master_close_withdrawal, apply_master_profit,
-        apply_master_repayment, calculate_claim_usdc_value, calculate_fee_amount,
+        apply_master_repayment, apply_master_wallet_update, calculate_claim_usdc_value,
+        calculate_fee_amount,
+        claim_is_in_settlement_snapshot, claim_is_settleable_in_epoch,
         compute_settlement_payout_ratio, record_master_withdrawal, validate_fee_bps,
         validate_initializer, validate_open_withdrawal, validate_purchase_limit,
         validate_settlement_completeness, validate_settlement_pending_claims,
         validate_supported_usdc_mint, validate_supported_usdc_mint_change,
         validate_unique_settlement_claim_accounts, Claim, ErrorCode, MinClaimConfig,
-        MinSettlementConfig, Pool, PurchaseLimitConfig, SupportedUsdcConfig, Withdrawal,
-        DEFAULT_MIN_CLAIM_USDC, LEGACY_CLAIM_V1_SPACE, LEGACY_CLAIM_V2_SPACE, LEGACY_POOL_SPACE,
-        SQUADS_MEMBER_1,
+        MinSettlementConfig, Pool, PurchaseLimitConfig, SettlementState, SupportedUsdcConfig,
+        Withdrawal, DEFAULT_MIN_CLAIM_USDC, LEGACY_CLAIM_V1_SPACE, LEGACY_CLAIM_V2_SPACE,
+        LEGACY_CLAIM_V3_SPACE, LEGACY_POOL_V1_SPACE, LEGACY_POOL_V2_SPACE, SQUADS_MEMBER_1,
     };
     use anchor_lang::prelude::Pubkey;
     use anchor_lang::Space;
+
+    fn test_claim(claim_seq: u64, timestamp: i64, usdc_amount: u64) -> Claim {
+        Claim {
+            user: Pubkey::new_unique(),
+            usdc_amount,
+            timestamp,
+            processed: false,
+            paid_amount: 0,
+            bunkercash_escrow: usdc_amount,
+            bunkercash_remaining: usdc_amount,
+            cancelled: false,
+            last_settled_epoch_seq: 0,
+            last_paid_epoch_seq: 0,
+            claim_seq,
+            bump: 255,
+        }
+    }
+
+    fn test_settlement(snapshot_claim_seq: u64, timestamp: i64) -> SettlementState {
+        SettlementState {
+            pool: Pubkey::new_unique(),
+            vault_snapshot: 1_000_000,
+            pending_snapshot: 1_000_000,
+            payout_ratio_ppm: 1_000_000,
+            total_settled_usdc: 0,
+            total_cancelled_usdc: 0,
+            total_processed_usdc: 0,
+            epoch_seq: 1,
+            snapshot_claim_seq,
+            timestamp,
+            bump: 255,
+        }
+    }
 
     #[test]
     fn claim_value_rejects_zero_burn_amount() {
@@ -3360,6 +3535,7 @@ mod tests {
             total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
+            next_claim_seq: 0,
             withdrawal_counter: 3,
             settlement_epoch_seq: 0,
             bump: 255,
@@ -3395,6 +3571,7 @@ mod tests {
             total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
+            next_claim_seq: 0,
             withdrawal_counter: 1,
             settlement_epoch_seq: 0,
             bump: 255,
@@ -3422,6 +3599,7 @@ mod tests {
             total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
+            next_claim_seq: 0,
             withdrawal_counter: 1,
             settlement_epoch_seq: 0,
             bump: 255,
@@ -3450,6 +3628,7 @@ mod tests {
             total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
+            next_claim_seq: 0,
             withdrawal_counter: 1,
             settlement_epoch_seq: 0,
             bump: 255,
@@ -3477,6 +3656,7 @@ mod tests {
             total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
+            next_claim_seq: 0,
             withdrawal_counter: 1,
             settlement_epoch_seq: 0,
             bump: 255,
@@ -3504,6 +3684,7 @@ mod tests {
             total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
+            next_claim_seq: 0,
             withdrawal_counter: 1,
             settlement_epoch_seq: 0,
             bump: 255,
@@ -3532,6 +3713,7 @@ mod tests {
             total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
+            next_claim_seq: 0,
             withdrawal_counter: 1,
             settlement_epoch_seq: 0,
             bump: 255,
@@ -3576,6 +3758,7 @@ mod tests {
             total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
+            next_claim_seq: 0,
             withdrawal_counter: 1,
             settlement_epoch_seq: 0,
             bump: 255,
@@ -3603,6 +3786,7 @@ mod tests {
             total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
+            next_claim_seq: 0,
             withdrawal_counter: 1,
             settlement_epoch_seq: 0,
             bump: 255,
@@ -3630,6 +3814,7 @@ mod tests {
             total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
+            next_claim_seq: 0,
             withdrawal_counter: 1,
             settlement_epoch_seq: 0,
             bump: 255,
@@ -3657,6 +3842,7 @@ mod tests {
             total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
+            next_claim_seq: 0,
             withdrawal_counter: 1,
             settlement_epoch_seq: 0,
             bump: 255,
@@ -3691,6 +3877,7 @@ mod tests {
             total_bunkercash_supply: 7_500_000,
             total_pending_claims: 0,
             claim_counter: 0,
+            next_claim_seq: 0,
             withdrawal_counter: 1,
             settlement_epoch_seq: 0,
             bump: 255,
@@ -3766,6 +3953,28 @@ mod tests {
     }
 
     #[test]
+    fn master_wallet_update_rotates_to_new_authority() {
+        let old_master_wallet = Pubkey::new_unique();
+        let new_master_wallet = Pubkey::new_unique();
+        let mut pool = Pool {
+            master_wallet: old_master_wallet,
+            nav: 0,
+            total_bunkercash_supply: 0,
+            total_pending_claims: 0,
+            claim_counter: 0,
+            next_claim_seq: 0,
+            withdrawal_counter: 0,
+            settlement_epoch_seq: 0,
+            bump: 255,
+        };
+
+        let previous = apply_master_wallet_update(&mut pool, new_master_wallet);
+
+        assert_eq!(previous, old_master_wallet);
+        assert_eq!(pool.master_wallet, new_master_wallet);
+    }
+
+    #[test]
     fn supported_usdc_mint_change_allows_noop_update() {
         let pool = Pool {
             master_wallet: Pubkey::new_unique(),
@@ -3773,6 +3982,7 @@ mod tests {
             total_bunkercash_supply: 5_000_000,
             total_pending_claims: 1_000_000,
             claim_counter: 0,
+            next_claim_seq: 0,
             withdrawal_counter: 0,
             settlement_epoch_seq: 0,
             bump: 255,
@@ -3790,6 +4000,7 @@ mod tests {
             total_bunkercash_supply: 0,
             total_pending_claims: 0,
             claim_counter: 0,
+            next_claim_seq: 0,
             withdrawal_counter: 0,
             settlement_epoch_seq: 0,
             bump: 255,
@@ -3813,6 +4024,7 @@ mod tests {
             total_bunkercash_supply: 5_000_000,
             total_pending_claims: 0,
             claim_counter: 0,
+            next_claim_seq: 0,
             withdrawal_counter: 0,
             settlement_epoch_seq: 0,
             bump: 255,
@@ -3836,6 +4048,7 @@ mod tests {
             total_bunkercash_supply: 0,
             total_pending_claims: 5_000,
             claim_counter: 0,
+            next_claim_seq: 0,
             withdrawal_counter: 0,
             settlement_epoch_seq: 0,
             bump: 255,
@@ -4023,15 +4236,61 @@ mod tests {
     }
 
     #[test]
+    fn same_second_pre_open_claim_is_eligible_by_sequence() {
+        let settlement = test_settlement(11, 1_700_000_000);
+        let claim = test_claim(10, 1_700_000_000, 250_000);
+
+        assert!(claim_is_in_settlement_snapshot(&claim, &settlement));
+        assert!(claim_is_settleable_in_epoch(&claim, &settlement));
+    }
+
+    #[test]
+    fn same_second_post_open_claim_is_not_eligible_by_sequence() {
+        let settlement = test_settlement(11, 1_700_000_000);
+        let claim = test_claim(11, 1_700_000_000, 250_000);
+
+        assert!(!claim_is_in_settlement_snapshot(&claim, &settlement));
+        assert!(!claim_is_settleable_in_epoch(&claim, &settlement));
+    }
+
+    #[test]
+    fn same_second_cancel_path_counts_only_snapshot_claims() {
+        let settlement = test_settlement(11, 1_700_000_000);
+        let pre_open_claim = test_claim(10, 1_700_000_000, 300_000);
+        let post_open_claim = test_claim(11, 1_700_000_000, 700_000);
+
+        let mut cancelled = 0u64;
+        if claim_is_in_settlement_snapshot(&pre_open_claim, &settlement)
+            && pre_open_claim.last_settled_epoch_seq != settlement.epoch_seq
+        {
+            cancelled = cancelled
+                .checked_add(pre_open_claim.usdc_amount - pre_open_claim.paid_amount)
+                .unwrap();
+        }
+        if claim_is_in_settlement_snapshot(&post_open_claim, &settlement)
+            && post_open_claim.last_settled_epoch_seq != settlement.epoch_seq
+        {
+            cancelled = cancelled
+                .checked_add(post_open_claim.usdc_amount - post_open_claim.paid_amount)
+                .unwrap();
+        }
+
+        assert_eq!(cancelled, 300_000);
+        assert!(validate_settlement_completeness(700_000, 1_000_000, cancelled).is_ok());
+    }
+
+    #[test]
     fn legacy_layout_sizes_match_migration_constants() {
         // The migrate_* instructions key off exact account sizes; if the
         // current structs change again these assertions force the legacy
         // constants (and migration logic) to be revisited.
-        assert_eq!(LEGACY_POOL_SPACE, 81);
-        assert_eq!(8 + Pool::INIT_SPACE, LEGACY_POOL_SPACE + 8);
+        assert_eq!(LEGACY_POOL_V1_SPACE, 81);
+        assert_eq!(LEGACY_POOL_V2_SPACE, LEGACY_POOL_V1_SPACE + 8);
+        assert_eq!(8 + Pool::INIT_SPACE, LEGACY_POOL_V2_SPACE + 8);
         assert_eq!(LEGACY_CLAIM_V1_SPACE, 83);
         assert_eq!(LEGACY_CLAIM_V2_SPACE, 91);
-        assert_eq!(8 + Claim::INIT_SPACE, LEGACY_CLAIM_V2_SPACE + 8);
+        assert_eq!(LEGACY_CLAIM_V3_SPACE, LEGACY_CLAIM_V2_SPACE + 8);
+        assert_eq!(8 + Claim::INIT_SPACE, LEGACY_CLAIM_V3_SPACE + 8);
     }
 
     // Regression note — multi-batch re-submission attack

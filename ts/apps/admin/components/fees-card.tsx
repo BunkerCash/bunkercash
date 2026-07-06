@@ -129,6 +129,7 @@ export function FeesCard() {
       !program ||
       !wallet.publicKey ||
       !authority ||
+      !state ||
       parsedPurchaseFeeBps === null ||
       parsedClaimFeeBps === null
     ) {
@@ -153,6 +154,19 @@ export function FeesCard() {
       const result = await submit({
         instructions: [ix],
         memo: "BunkerCash admin: set fee config",
+        review: {
+          fields: [
+            {
+              label: "purchase fee old -> new",
+              value: `${formatPercentFromBps(state.purchaseFeeBps)}% -> ${formatPercentFromBps(parsedPurchaseFeeBps)}%`,
+            },
+            {
+              label: "claim fee old -> new",
+              value: `${formatPercentFromBps(state.claimFeeBps)}% -> ${formatPercentFromBps(parsedClaimFeeBps)}%`,
+            },
+            { label: "pool PDA", value: poolPda.toBase58() },
+          ],
+        },
       });
 
       setTxSuccess(

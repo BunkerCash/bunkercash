@@ -1,13 +1,21 @@
 import * as anchor from "@coral-xyz/anchor";
 import { AnchorProvider, Program, type Idl } from "@coral-xyz/anchor";
-import { PublicKey, SystemProgram, SYSVAR_INSTRUCTIONS_PUBKEY } from "@solana/web3.js";
+import {
+  PublicKey,
+  SystemProgram,
+  SYSVAR_INSTRUCTIONS_PUBKEY,
+} from "@solana/web3.js";
 
 let idlJson: { address: string } & Idl;
 try {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  idlJson = require("../target/idl/bunkercash.json") as { address: string } & Idl;
+  idlJson = require("../target/idl/bunkercash.json") as {
+    address: string;
+  } & Idl;
 } catch (e) {
-  console.error("Failed to load target/idl/bunkercash.json. Run 'anchor build' first.");
+  console.error(
+    "Failed to load target/idl/bunkercash.json. Run 'anchor build' first."
+  );
   throw e;
 }
 
@@ -70,7 +78,9 @@ async function main() {
       admin: provider.wallet.publicKey,
       metadata: metadataPda,
       tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
-      tokenProgram: new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"),
+      tokenProgram: new PublicKey(
+        "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+      ),
       systemProgram: SystemProgram.programId,
       sysvarInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
     })

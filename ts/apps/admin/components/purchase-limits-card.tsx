@@ -255,6 +255,19 @@ export function PurchaseLimitsCard() {
       const result = await submit({
         instructions: [ix],
         memo: "BunkerCash admin: set purchase limit",
+        review: {
+          fields: [
+            {
+              label: "purchase limit old -> new",
+              value: `$${formatUsdc(state?.purchaseLimitUsdcRaw ?? BigInt(0))} -> $${formatUsdc(parsedLimit)}`,
+            },
+            {
+              label: "total deposited counter",
+              value: `$${formatUsdc(state?.totalDepositedUsdcRaw ?? BigInt(0))}`,
+            },
+            { label: "pool PDA", value: poolPda.toBase58() },
+          ],
+        },
       });
 
       setTxSuccess(
@@ -339,6 +352,17 @@ export function PurchaseLimitsCard() {
       const result = await submit({
         instructions,
         memo: "BunkerCash admin: set supported USDC mint",
+        review: {
+          fields: [
+            {
+              label: "supported USDC mint old -> new",
+              value: `${currentSupportedUsdcMint.toBase58()} -> ${parsedMint.toBase58()}`,
+            },
+            { label: "current source vault", value: currentPoolUsdc.toBase58() },
+            { label: "next pool vault", value: nextPoolUsdc.toBase58() },
+            { label: "pool PDA", value: poolPda.toBase58() },
+          ],
+        },
       });
 
       setTxSuccess(

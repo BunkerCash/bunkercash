@@ -4,6 +4,7 @@
   "license": "BUSL-1.1",
   "scripts": {
     "build": "turbo run build",
+    "check:lockfiles": "node ../scripts/check-lockfiles.mjs",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",

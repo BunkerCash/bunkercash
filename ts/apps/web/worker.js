@@ -16,7 +16,7 @@ export {
 
 const SCHEDULED_REQUEST_URL = "https://scheduled.internal/__metrics_daily";
 
-export default {
+const worker = {
   fetch: openNextWorker.fetch.bind(openNextWorker),
 
   async scheduled(_controller, env, ctx) {
@@ -28,3 +28,5 @@ export default {
     });
   },
 };
+
+export default worker;

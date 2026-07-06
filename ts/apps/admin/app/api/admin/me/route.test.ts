@@ -5,6 +5,7 @@ vi.mock("@/lib/geoblocking-auth", () => ({
 }));
 
 vi.mock("@/lib/admin-auth-nonce", () => ({
+  getAdminAuthDomain: (request: Request) => new URL(request.url).host,
   getAdminAuthRoute: (request: Request) => new URL(request.url).pathname,
   getEmptyBodyHash: () =>
     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -66,6 +67,7 @@ describe("/api/admin/me", () => {
       signature: "dGVzdA==",
       issuedAt: "2026-07-04T10:00:00.000Z",
       nonce: "0123456789abcdef0123456789abcdef",
+      domain: "admin.test",
       method: "GET",
       route: "/api/admin/me",
       bodyHash:

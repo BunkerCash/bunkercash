@@ -39,6 +39,18 @@ describe("privileged admin action execution", () => {
     }
   });
 
+  it("requires pre-sign review data for privileged component submissions", () => {
+    for (const relativePath of privilegedComponentPaths) {
+      const source = readAdminFile(relativePath);
+
+      expect(source, relativePath).toContain("review:");
+    }
+
+    const hookSource = readAdminFile("hooks/useAdminTransaction.ts");
+    expect(hookSource).toContain("requirePreSignReview");
+    expect(hookSource).toContain("buildTransactionReview");
+  });
+
   it("does not use Anchor rpc shortcuts for privileged actions", () => {
     for (const relativePath of privilegedComponentPaths) {
       const source = readAdminFile(relativePath);
@@ -62,9 +74,17 @@ describe("privileged admin action execution", () => {
 
     expect(source).toContain("vaultTransactionCreate");
     expect(source).toContain("proposalCreate");
-    expect(source).toContain("proposalApprove");
-    expect(source).toContain("vaultTransactionExecute");
     expect(source).toContain('auth.governanceMode === "squads-v4"');
     expect(source).toContain("sendAndConfirmWalletTransaction");
+  });
+
+  it("does not auto-approve or auto-execute high-risk Squads proposals", () => {
+    const source = readAdminFile("hooks/useAdminTransaction.ts");
+
+    expect(source).not.toContain("proposalApprove");
+    expect(source).not.toContain("vaultTransactionExecute");
+    expect(source).toContain("autoApproved: false");
+    expect(source).toContain("decodedInstructions");
+    expect(source).toContain("validate-instructions");
   });
 });

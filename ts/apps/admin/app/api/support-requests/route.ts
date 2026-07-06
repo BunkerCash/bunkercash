@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { listSupportRequestsPage } from "@/lib/support-requests";
 import { authorizeAdminAccess } from "@/lib/geoblocking-auth";
-import { getAdminAuthRoute, getEmptyBodyHash } from "@/lib/admin-auth-nonce";
+import { getAdminAuthDomain, getAdminAuthRoute, getEmptyBodyHash } from "@/lib/admin-auth-nonce";
 
 export const runtime = "nodejs";
 
@@ -17,6 +17,7 @@ export async function GET(request: Request) {
       signature: request.headers.get("x-admin-signature"),
       issuedAt: request.headers.get("x-admin-issued-at"),
       nonce: request.headers.get("x-admin-nonce"),
+      domain: getAdminAuthDomain(request),
       method: request.method,
       route: getAdminAuthRoute(request),
       bodyHash: getEmptyBodyHash(),

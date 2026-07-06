@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.19"
+
+      - name: Enforce lockfile policy
+        run: node scripts/check-lockfiles.mjs
+
+      - name: Install TypeScript workspace
+        working-directory: ts
+        run: bun install --frozen-lockfile
+
+      - name: Install Rust scripts workspace
+        working-directory: rs
+        run: npm ci
+
+      - name: Test admin app
+        working-directory: ts/apps/admin
+        run: bun run test
+
+      - name: Lint admin app
+        working-directory: ts/apps/admin
+        run: bun run lint
+
+      - name: Build admin app
+        working-directory: ts/apps/admin
+        run: bun run build
+
+      - name: Test web app
+        working-directory: ts/apps/web
+        run: bun run test
+
+      - name: Lint web app
+        working-directory: ts/apps/web
+        run: bun run lint
+
+      - name: Build web app
+        working-directory: ts/apps/web
+        run: bun run build
+
+      - name: Test Anchor program
+        working-directory: rs
+        run: cargo test -p bunkercash

@@ -142,6 +142,14 @@ export function MintSetupCard() {
       const result = await submit({
         instructions: [ix],
         memo: "BunkerCash admin: create mint",
+        review: {
+          fields: [
+            { label: "pool PDA", value: poolPda.toBase58() },
+            { label: "mint PDA", value: mintPda.toBase58() },
+            { label: "current mint state", value: isMintInitialized ? "initialized" : "uninitialized" },
+            { label: "mint state old -> new", value: "uninitialized -> initialized" },
+          ],
+        },
       });
 
       setSuccess(
@@ -202,6 +210,20 @@ export function MintSetupCard() {
         memo: isMetadataInitialized
           ? "BunkerCash admin: update mint metadata"
           : "BunkerCash admin: initialize mint metadata",
+        review: {
+          fields: [
+            { label: "pool PDA", value: poolPda.toBase58() },
+            { label: "mint PDA", value: mintPda.toBase58() },
+            { label: "metadata PDA", value: metadataPda.toBase58() },
+            {
+              label: "metadata initialized old -> new",
+              value: `${isMetadataInitialized ? "yes" : "no"} -> yes`,
+            },
+            { label: "token name", value: name },
+            { label: "token symbol", value: symbol },
+            { label: "metadata URI", value: uri },
+          ],
+        },
       });
       setSuccess(
         result.mode === "squads-v4"

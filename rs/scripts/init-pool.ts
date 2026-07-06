@@ -6,7 +6,9 @@ import {
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
 
-const idlJson = require("../target/idl/bunkercash.json") as { address: string } & Idl;
+const idlJson = require("../target/idl/bunkercash.json") as {
+  address: string;
+} & Idl;
 
 const PROGRAM_ID = new PublicKey(idlJson.address);
 const PURCHASE_LIMIT_SEED = Buffer.from("purchase_limit");
@@ -24,7 +26,9 @@ const SKIP_EXISTENCE_CHECK = process.env.SKIP_EXISTENCE_CHECK === "true";
 function requireUsdcMint(): PublicKey {
   const mint = process.env.USDC_MINT;
   if (!mint) {
-    throw new Error("USDC_MINT must be set explicitly before running init-pool.ts.");
+    throw new Error(
+      "USDC_MINT must be set explicitly before running init-pool.ts."
+    );
   }
   return new PublicKey(mint);
 }
@@ -38,13 +42,19 @@ async function main() {
   const bootstrapAuthority = provider.wallet.publicKey;
   let usdcTokenProgram = USDC_TOKEN_PROGRAM;
   if (!usdcTokenProgram) {
-    const mintInfo = await provider.connection.getAccountInfo(usdcMint, "confirmed");
+    const mintInfo = await provider.connection.getAccountInfo(
+      usdcMint,
+      "confirmed"
+    );
     usdcTokenProgram = mintInfo?.owner ?? null;
   }
   if (!usdcTokenProgram) {
     throw new Error(`Unable to load mint owner for ${usdcMint.toBase58()}`);
   }
-  const [poolPda] = PublicKey.findProgramAddressSync([Buffer.from("pool")], PROGRAM_ID);
+  const [poolPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("pool")],
+    PROGRAM_ID
+  );
   const [supportedUsdcConfigPda] = PublicKey.findProgramAddressSync(
     [SUPPORTED_USDC_CONFIG_SEED],
     PROGRAM_ID
@@ -58,11 +68,14 @@ async function main() {
     poolPda,
     true,
     usdcTokenProgram,
-    ASSOCIATED_TOKEN_PROGRAM_ID,
+    ASSOCIATED_TOKEN_PROGRAM_ID
   );
 
   if (!SKIP_EXISTENCE_CHECK) {
-    const existing = await provider.connection.getAccountInfo(poolPda, "confirmed");
+    const existing = await provider.connection.getAccountInfo(
+      poolPda,
+      "confirmed"
+    );
     if (existing) {
       console.log("Pool already exists:", poolPda.toBase58());
       return;

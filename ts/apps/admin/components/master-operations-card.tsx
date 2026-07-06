@@ -329,6 +329,16 @@ export function MasterOperationsCard() {
       const result = await submit({
         instructions: [ataState.ensurePayoutVaultIx, ataState.ensureAdminAtaIx, ix],
         memo: "BunkerCash admin: master withdraw",
+        review: {
+          fields: [
+            { label: "pool PDA", value: poolPda.toBase58() },
+            { label: "source vault", value: ataState.payoutUsdcVault.toBase58() },
+            { label: "destination account", value: ataState.adminUsdcAta.toBase58() },
+            { label: "USDC mint", value: usdcMint.toBase58() },
+            { label: "amount", value: `$${formatUsdc(amount)}` },
+            { label: "withdrawal PDA", value: nextWithdrawalPda.toBase58() },
+          ],
+        },
       });
 
       setTxSuccess(formatAdminResult("Withdrawal recorded and sent to admin wallet", result));
@@ -384,6 +394,16 @@ export function MasterOperationsCard() {
       const result = await submit({
         instructions: [ataState.ensurePayoutVaultIx, ataState.ensureAdminAtaIx, ix],
         memo: "BunkerCash admin: master profit",
+        review: {
+          fields: [
+            { label: "pool PDA", value: poolPda.toBase58() },
+            { label: "source account", value: ataState.adminUsdcAta.toBase58() },
+            { label: "destination vault", value: ataState.payoutUsdcVault.toBase58() },
+            { label: "USDC mint", value: usdcMint.toBase58() },
+            { label: "amount", value: `$${formatUsdc(amount)}` },
+            { label: "withdrawal", value: `#${profitTarget.id}` },
+          ],
+        },
       });
 
       setTxSuccess(formatAdminResult(`Recorded profit against withdrawal #${profitTarget.id}`, result));
@@ -440,6 +460,20 @@ export function MasterOperationsCard() {
       const result = await submit({
         instructions: [ataState.ensurePayoutVaultIx, ataState.ensureAdminAtaIx, ix],
         memo: "BunkerCash admin: master repay",
+        review: {
+          fields: [
+            { label: "pool PDA", value: poolPda.toBase58() },
+            { label: "source account", value: ataState.adminUsdcAta.toBase58() },
+            { label: "destination vault", value: ataState.payoutUsdcVault.toBase58() },
+            { label: "USDC mint", value: usdcMint.toBase58() },
+            { label: "amount", value: `$${formatUsdc(amount)}` },
+            {
+              label: "remaining old -> new",
+              value: `$${formatUsdc(remaining)} -> $${formatUsdc(remaining - amount)}`,
+            },
+            { label: "withdrawal", value: `#${repayTarget.id}` },
+          ],
+        },
       });
 
       setTxSuccess(formatAdminResult(`Repaid $${formatUsdc(amount)} against withdrawal #${repayTarget.id}`, result));
@@ -491,6 +525,20 @@ export function MasterOperationsCard() {
       const result = await submit({
         instructions: [ataState.ensurePayoutVaultIx, ataState.ensureAdminAtaIx, ix],
         memo: "BunkerCash admin: master close withdrawal",
+        review: {
+          fields: [
+            { label: "pool PDA", value: poolPda.toBase58() },
+            { label: "source account", value: ataState.adminUsdcAta.toBase58() },
+            { label: "destination vault", value: ataState.payoutUsdcVault.toBase58() },
+            { label: "USDC mint", value: usdcMint.toBase58() },
+            { label: "return amount", value: `$${formatUsdc(amount)}` },
+            {
+              label: "remaining old -> new",
+              value: `$${formatUsdc(BigInt(closeTarget.remaining))} -> $0.00`,
+            },
+            { label: "withdrawal", value: `#${closeTarget.id}` },
+          ],
+        },
       });
 
       const remaining = BigInt(closeTarget.remaining);

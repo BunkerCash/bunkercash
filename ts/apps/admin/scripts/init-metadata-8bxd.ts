@@ -2,10 +2,19 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { AnchorProvider, Program, type Idl } from "@coral-xyz/anchor";
-import { Connection, Keypair, PublicKey, SystemProgram, SYSVAR_INSTRUCTIONS_PUBKEY } from "@solana/web3.js";
+import type { Wallet } from "@coral-xyz/anchor/dist/cjs/provider";
+import { Connection, Keypair, PublicKey, SystemProgram, SYSVAR_INSTRUCTIONS_PUBKEY, Transaction, VersionedTransaction } from "@solana/web3.js";
 
 const TOKEN_METADATA_PROGRAM_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
 const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+
+type SignableTransaction = Transaction | VersionedTransaction;
+type ProgramMethod = {
+  accounts(accounts: Record<string, PublicKey>): {
+    rpc(): Promise<string>;
+  };
+};
+type ProgramMethods = Record<string, (...args: unknown[]) => ProgramMethod>;
 
 function expandHome(path: string): string {
   return path.startsWith("~/") ? resolve(homedir(), path.slice(2)) : path;
@@ -15,6 +24,24 @@ function loadKeypair(path: string): Keypair {
   const file = readFileSync(expandHome(path), "utf8");
   const secret = Uint8Array.from(JSON.parse(file) as number[]);
   return Keypair.fromSecretKey(secret);
+}
+
+function signWithKeypair<T extends SignableTransaction>(tx: T, signer: Keypair): T {
+  if (tx instanceof Transaction) {
+    tx.partialSign(signer);
+  } else {
+    tx.sign([signer]);
+  }
+  return tx;
+}
+
+function createAnchorWallet(signer: Keypair): Wallet {
+  return {
+    publicKey: signer.publicKey,
+    signTransaction: async <T extends SignableTransaction>(tx: T) => signWithKeypair(tx, signer),
+    signAllTransactions: async <T extends SignableTransaction>(txs: T[]) =>
+      txs.map((tx) => signWithKeypair(tx, signer)),
+  };
 }
 
 async function main() {
@@ -28,14 +55,11 @@ async function main() {
   const programId = new PublicKey(idlJson.address);
 
   const connection = new Connection(rpcUrl, "confirmed");
-  const wallet = {
-    publicKey: signer.publicKey,
-    signTransaction: async (tx: any) => { tx.partialSign?.(signer) ?? tx.sign?.(signer); return tx; },
-    signAllTransactions: async (txs: any[]) => txs.map((tx) => { tx.partialSign?.(signer) ?? tx.sign?.(signer); return tx; }),
-  };
+  const wallet = createAnchorWallet(signer);
 
-  const provider = new AnchorProvider(connection, wallet as any, { commitment: "confirmed" });
+  const provider = new AnchorProvider(connection, wallet, { commitment: "confirmed" });
   const program = new Program(idlJson as Idl, provider);
+  const methods = program.methods as unknown as ProgramMethods;
 
   const [poolPda] = PublicKey.findProgramAddressSync([Buffer.from("bunkercash_pool")], programId);
   const [mintPda] = PublicKey.findProgramAddressSync([Buffer.from("bunkercash_mint")], programId);
@@ -50,7 +74,7 @@ async function main() {
   console.log("Metadata:", metadataPda.toBase58());
   console.log("Signer:", signer.publicKey.toBase58());
 
-  const sig = await (program.methods as any)
+  const sig = await methods
     .initMintMetadata("BunkerCash", "BNKR", "https://example.com/metadata.json")
     .accounts({
       pool: poolPda,

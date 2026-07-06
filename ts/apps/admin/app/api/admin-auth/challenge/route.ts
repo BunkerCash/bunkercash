@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { issueAdminAuthChallenge } from "@/lib/admin-auth-nonce";
+import {
+  enforceAdminChallengeRateLimit,
+  getAdminAuthDomain,
+  isAdminAuthRateLimitError,
+  issueAdminAuthChallenge,
+} from "@/lib/admin-auth-nonce";
 
 export const runtime = "nodejs";
 
@@ -9,9 +14,11 @@ export async function POST(request: Request) {
       method?: unknown;
       route?: unknown;
       bodyHash?: unknown;
+      wallet?: unknown;
     };
 
     if (
+      typeof body.wallet !== "string" ||
       typeof body.method !== "string" ||
       typeof body.route !== "string" ||
       typeof body.bodyHash !== "string"
@@ -22,7 +29,14 @@ export async function POST(request: Request) {
       );
     }
 
+    await enforceAdminChallengeRateLimit({
+      request,
+      wallet: body.wallet,
+    });
+
     const challenge = await issueAdminAuthChallenge({
+      wallet: body.wallet,
+      domain: getAdminAuthDomain(request),
       method: body.method,
       route: body.route,
       bodyHash: body.bodyHash,
@@ -34,6 +48,18 @@ export async function POST(request: Request) {
       },
     });
   } catch (error: unknown) {
+    if (isAdminAuthRateLimitError(error)) {
+      return NextResponse.json(
+        { error: error.message },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": error.retryAfterSeconds.toString(),
+          },
+        },
+      );
+    }
+
     const message =
       error instanceof Error ? error.message : "Failed to issue challenge";
     const isValidationError = message.includes("Invalid admin authorization");

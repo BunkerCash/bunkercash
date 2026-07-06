@@ -88,6 +88,7 @@ describe("admin authority resolution", () => {
     delete process.env.SQUADS_VAULT_INDEX;
     delete process.env.ADMIN_SQUADS_REQUIRED_PERMISSION;
     delete process.env.ADMIN_OVERRIDE_WALLET;
+    delete process.env.ADMIN_OVERRIDE_EXPIRES_AT;
     delete process.env.ADMIN_AUTHORITY_TTL_MS;
     setPoolMasterWallet(singleWalletAdmin);
     setSquadsMembers([]);
@@ -198,5 +199,45 @@ describe("admin authority resolution", () => {
       role: "squads-member",
       squadsPermissions: ["execute"],
     });
+  });
+
+  it("adds an unexpired override only after authoritative state resolves", async () => {
+    process.env.ADMIN_OVERRIDE_WALLET = nonMemberWallet.toBase58();
+    process.env.ADMIN_OVERRIDE_EXPIRES_AT = "2026-07-04T10:10:00.000Z";
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-04T10:00:00.000Z"));
+    setPoolMasterWallet(singleWalletAdmin);
+    const { resolveAdminIdentity } = await importAuth();
+
+    await expect(resolveAdminIdentity(nonMemberWallet.toBase58())).resolves.toMatchObject({
+      isAdmin: true,
+      role: "override",
+      governanceMode: "single-wallet",
+      poolMasterWallet: singleWalletAdmin.toBase58(),
+    });
+    expect(mocks.fetchPool).toHaveBeenCalledOnce();
+  });
+
+  it("ignores expired overrides", async () => {
+    process.env.ADMIN_OVERRIDE_WALLET = nonMemberWallet.toBase58();
+    process.env.ADMIN_OVERRIDE_EXPIRES_AT = "2026-07-04T09:59:00.000Z";
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-04T10:00:00.000Z"));
+    setPoolMasterWallet(singleWalletAdmin);
+    const { resolveAdminIdentity } = await importAuth();
+
+    await expect(resolveAdminIdentity(nonMemberWallet.toBase58())).resolves.toMatchObject({
+      isAdmin: false,
+      role: "none",
+    });
+  });
+
+  it("does not allow override-only access when authoritative lookup fails with cold cache", async () => {
+    process.env.ADMIN_OVERRIDE_WALLET = nonMemberWallet.toBase58();
+    process.env.ADMIN_OVERRIDE_EXPIRES_AT = "2026-07-04T10:10:00.000Z";
+    mocks.fetchPool.mockRejectedValue(new Error("rpc down"));
+    const { resolveAdminIdentity } = await importAuth();
+
+    await expect(resolveAdminIdentity(nonMemberWallet.toBase58())).rejects.toThrow("rpc down");
   });
 });

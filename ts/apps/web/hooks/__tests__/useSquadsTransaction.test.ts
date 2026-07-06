@@ -23,7 +23,7 @@ const TRANSACTION_PDA = new PublicKey(
 )
 const BLOCKHASH = "EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N"
 const SIG1 = "sig-vault-tx-create-111"
-const SIG2 = "sig-proposal-approve-222"
+const SIG2 = "sig-proposal-create-222"
 
 // ── Mock @solana/wallet-adapter-react ──────────────────────────────────────
 const mockSignAllTransactions = vi.fn()
@@ -45,6 +45,10 @@ vi.mock("@solana/wallet-adapter-react", () => ({
     },
   }),
   useWallet: (...args: unknown[]) => mockUseWallet(...args),
+}))
+
+vi.mock("@/hooks/useOptionalWallet", () => ({
+  useOptionalWallet: () => mockUseWallet(),
 }))
 
 // ── Mock @sqds/multisig ───────────────────────────────────────────────────
@@ -144,7 +148,7 @@ describe("useSquadsTransaction", () => {
   })
 
   // ── Happy path ──────────────────────────────────────────────────────────
-  it("should split vault-create and proposal-approve into two transactions", async () => {
+  it("should split vault-create and proposal-create into two transactions without approval", async () => {
     setupHappyPathMocks()
 
     const { result } = renderHook(() => useSquadsTransaction())
@@ -169,10 +173,11 @@ describe("useSquadsTransaction", () => {
     expect(submitResult!).not.toBeNull()
     expect(submitResult!.txIndex).toBe(BigInt(6)) // 5 + 1
     expect(submitResult!.signature).toBe(SIG1)
-    expect(submitResult!.autoApproved).toBe(true)
+    expect(submitResult!.autoApproved).toBe(false)
     expect(submitResult!.proposalPda).toBe(PROPOSAL_PDA.toBase58())
     expect(submitResult!.transactionPda).toBe(TRANSACTION_PDA.toBase58())
     expect(submitResult!.squadsUrl).toContain("devnet.squads.so")
+    expect(mockProposalApprove).not.toHaveBeenCalled()
   })
 
   // ── Transaction index increments correctly ──────────────────────────────
@@ -192,9 +197,7 @@ describe("useSquadsTransaction", () => {
     expect(mockProposalCreate).toHaveBeenCalledWith(
       expect.objectContaining({ transactionIndex: BigInt(43) }),
     )
-    expect(mockProposalApprove).toHaveBeenCalledWith(
-      expect.objectContaining({ transactionIndex: BigInt(43) }),
-    )
+    expect(mockProposalApprove).not.toHaveBeenCalled()
   })
 
   // ── Sends TX1 before TX2 (sequential order) ────────────────────────────
@@ -225,7 +228,7 @@ describe("useSquadsTransaction", () => {
   })
 
   // ── Memo is forwarded correctly ─────────────────────────────────────────
-  it("should pass memo to vaultTransactionCreate and proposalApprove", async () => {
+  it("should pass memo to vaultTransactionCreate only", async () => {
     setupHappyPathMocks()
 
     const { result } = renderHook(() => useSquadsTransaction())
@@ -237,13 +240,11 @@ describe("useSquadsTransaction", () => {
     expect(mockVaultTransactionCreate).toHaveBeenCalledWith(
       expect.objectContaining({ memo: "Process claim #7" }),
     )
-    expect(mockProposalApprove).toHaveBeenCalledWith(
-      expect.objectContaining({ memo: "approve: Process claim #7" }),
-    )
+    expect(mockProposalApprove).not.toHaveBeenCalled()
   })
 
-  // ── No memo → no approve memo ──────────────────────────────────────────
-  it("should not pass approve memo when no memo is provided", async () => {
+  // ── No memo → no approval instruction ──────────────────────────────────
+  it("should not create an approval instruction when no memo is provided", async () => {
     setupHappyPathMocks()
 
     const { result } = renderHook(() => useSquadsTransaction())
@@ -252,9 +253,7 @@ describe("useSquadsTransaction", () => {
       await result.current.submit([dummyInstruction])
     })
 
-    expect(mockProposalApprove).toHaveBeenCalledWith(
-      expect.objectContaining({ memo: undefined }),
-    )
+    expect(mockProposalApprove).not.toHaveBeenCalled()
   })
 
   // ── Non-member wallet is rejected ───────────────────────────────────────
@@ -403,7 +402,7 @@ describe("useSquadsTransaction", () => {
   })
 
   // ── Creator is the connected wallet ─────────────────────────────────────
-  it("should use the connected wallet as creator and member", async () => {
+  it("should use the connected wallet as creator without approving", async () => {
     setupHappyPathMocks()
 
     const { result } = renderHook(() => useSquadsTransaction())
@@ -418,9 +417,7 @@ describe("useSquadsTransaction", () => {
     expect(mockProposalCreate).toHaveBeenCalledWith(
       expect.objectContaining({ creator: WALLET_PUBKEY }),
     )
-    expect(mockProposalApprove).toHaveBeenCalledWith(
-      expect.objectContaining({ member: WALLET_PUBKEY }),
-    )
+    expect(mockProposalApprove).not.toHaveBeenCalled()
   })
 
   // ── Proposal isDraft is false ───────────────────────────────────────────

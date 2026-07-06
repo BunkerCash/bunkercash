@@ -3,6 +3,8 @@ import { AdminAuthNonceDurableObject } from "./lib/admin-auth-nonce-durable-obje
 
 export { AdminAuthNonceDurableObject };
 
-export default {
+const worker = {
   fetch: openNextWorker.fetch.bind(openNextWorker),
 };
+
+export default worker;

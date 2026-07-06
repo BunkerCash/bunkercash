@@ -13,6 +13,12 @@ import * as multisig from "@sqds/multisig";
 import { getClusterFromEndpoint } from "@/lib/constants";
 import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
 import { useAuth } from "@/lib/auth";
+import { buildAdminAuthHeaders, sha256Hex } from "@/lib/admin-auth-client";
+import {
+  buildTransactionReview,
+  requirePreSignReview,
+  type TransactionReviewInput,
+} from "@/lib/transaction-review";
 
 export type AdminTransactionResult =
   | {
@@ -22,17 +28,30 @@ export type AdminTransactionResult =
   | {
       mode: "squads-v4";
       signature: string;
-      executedSignature?: string;
       txIndex: bigint;
       proposalPda: string;
       transactionPda: string;
       squadsUrl: string;
       autoApproved: boolean;
+      decodedInstructions: unknown[];
     };
 
 interface SubmitAdminInstructionsInput {
   instructions: TransactionInstruction[];
   memo: string;
+  review?: TransactionReviewInput;
+}
+
+function serializeInstruction(instruction: TransactionInstruction) {
+  return {
+    programId: instruction.programId.toBase58(),
+    keys: instruction.keys.map((key) => ({
+      pubkey: key.pubkey.toBase58(),
+      isSigner: key.isSigner,
+      isWritable: key.isWritable,
+    })),
+    data: Buffer.from(instruction.data).toString("base64"),
+  };
 }
 
 function getSquadsDashboardUrl(cluster: string, multisigPda: PublicKey): string {
@@ -65,6 +84,7 @@ export function useAdminTransaction() {
     async ({
       instructions,
       memo,
+      review,
     }: SubmitAdminInstructionsInput): Promise<AdminTransactionResult> => {
       assertSingleInstructionList(instructions);
 
@@ -78,6 +98,9 @@ export function useAdminTransaction() {
         }
         if (!wallet.signAllTransactions) {
           throw new Error("Wallet does not support signing Squads proposal transactions");
+        }
+        if (!wallet.signMessage) {
+          throw new Error("Wallet does not support signing admin validation requests");
         }
 
         const multisigPda = new PublicKey(auth.squadsMultisig);
@@ -93,6 +116,51 @@ export function useAdminTransaction() {
         if (!isMember) {
           throw new Error("Connected wallet is not a current Squads member");
         }
+
+        const validationBody = JSON.stringify({
+          memo,
+          instructions: instructions.map(serializeInstruction),
+        });
+        const validationHeaders = await buildAdminAuthHeaders({
+          publicKey: wallet.publicKey,
+          signMessage: wallet.signMessage,
+          method: "POST",
+          route: "/api/admin/validate-instructions",
+          bodyHash: await sha256Hex(validationBody),
+        });
+        const validationResponse = await fetch("/api/admin/validate-instructions", {
+          method: "POST",
+          cache: "no-store",
+          headers: {
+            "content-type": "application/json",
+            ...validationHeaders,
+          },
+          body: validationBody,
+        });
+        if (!validationResponse.ok) {
+          const body = (await validationResponse.json().catch(() => null)) as
+            | { error?: unknown }
+            | null;
+          throw new Error(
+            typeof body?.error === "string"
+              ? body.error
+              : "Admin instruction validation failed",
+          );
+        }
+        const validationResult = (await validationResponse.json().catch(() => null)) as
+          | { decodedInstructions?: unknown[] }
+          | null;
+        const decodedInstructions = Array.isArray(validationResult?.decodedInstructions)
+          ? validationResult.decodedInstructions
+          : [];
+
+        requirePreSignReview(
+          buildTransactionReview({
+            instructions,
+            summary: memo,
+            ...review,
+          }),
+        );
 
         const currentIndex = BigInt(ms.transactionIndex.toString());
         const nextIndex = currentIndex + BigInt(1);
@@ -119,12 +187,6 @@ export function useAdminTransaction() {
           transactionIndex: nextIndex,
           isDraft: false,
         });
-        const approveProposalIx = multisig.instructions.proposalApprove({
-          multisigPda,
-          transactionIndex: nextIndex,
-          member: wallet.publicKey,
-          memo: `approve: ${memo}`,
-        });
 
         const tx1Message = new TransactionMessage({
           payerKey: wallet.publicKey,
@@ -134,7 +196,7 @@ export function useAdminTransaction() {
         const tx2Message = new TransactionMessage({
           payerKey: wallet.publicKey,
           recentBlockhash: blockhash,
-          instructions: [createProposalIx, approveProposalIx],
+          instructions: [createProposalIx],
         }).compileToV0Message();
 
         const signed = await wallet.signAllTransactions([
@@ -169,7 +231,7 @@ export function useAdminTransaction() {
           const retryMessage = new TransactionMessage({
             payerKey: wallet.publicKey,
             recentBlockhash: fresh.blockhash,
-            instructions: [createProposalIx, approveProposalIx],
+            instructions: [createProposalIx],
           }).compileToV0Message();
           const [retrySigned] = await wallet.signAllTransactions([
             new VersionedTransaction(retryMessage),
@@ -182,37 +244,6 @@ export function useAdminTransaction() {
               signature: retrySignature,
               blockhash: fresh.blockhash,
               lastValidBlockHeight: fresh.lastValidBlockHeight,
-            },
-            "confirmed",
-          );
-        }
-
-        let executedSignature: string | undefined;
-        if (ms.threshold <= 1) {
-          const executeBlockhash = await connection.getLatestBlockhash("confirmed");
-          const { instruction, lookupTableAccounts } =
-            await multisig.instructions.vaultTransactionExecute({
-              connection,
-              multisigPda,
-              transactionIndex: nextIndex,
-              member: wallet.publicKey,
-            });
-          const executeMessage = new TransactionMessage({
-            payerKey: wallet.publicKey,
-            recentBlockhash: executeBlockhash.blockhash,
-            instructions: [instruction],
-          }).compileToV0Message(lookupTableAccounts);
-          const [executeSigned] = await wallet.signAllTransactions([
-            new VersionedTransaction(executeMessage),
-          ]);
-          executedSignature = await connection.sendTransaction(executeSigned, {
-            preflightCommitment: "confirmed",
-          });
-          await connection.confirmTransaction(
-            {
-              signature: executedSignature,
-              blockhash: executeBlockhash.blockhash,
-              lastValidBlockHeight: executeBlockhash.lastValidBlockHeight,
             },
             "confirmed",
           );
@@ -231,15 +262,22 @@ export function useAdminTransaction() {
         return {
           mode: "squads-v4",
           signature,
-          executedSignature,
           txIndex: nextIndex,
           proposalPda: proposalPda.toBase58(),
           transactionPda: transactionPda.toBase58(),
           squadsUrl: getSquadsDashboardUrl(cluster, multisigPda),
-          autoApproved: true,
+          autoApproved: false,
+          decodedInstructions,
         };
       }
 
+      requirePreSignReview(
+        buildTransactionReview({
+          instructions,
+          summary: memo,
+          ...review,
+        }),
+      );
       const tx = new Transaction();
       for (const instruction of instructions) tx.add(instruction);
       const signature = await sendAndConfirmWalletTransaction({

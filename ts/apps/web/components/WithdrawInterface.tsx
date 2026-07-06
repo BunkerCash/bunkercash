@@ -35,6 +35,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
+import { buildTransactionReview, requirePreSignReview } from "@/lib/transaction-review";
 import { useOptionalWallet } from "@/hooks/useOptionalWallet";
 import { PhantomConnectButton } from "@/components/wallet/PhantomConnectButton";
 
@@ -398,6 +399,22 @@ export function WithdrawInterface() {
         .instruction();
 
       const tx = new Transaction().add(createUserAtaIx, registerIx);
+      requirePreSignReview(
+        buildTransactionReview({
+          instructions: tx.instructions,
+          summary: "Create a BunkerCash sell request",
+          fields: [
+            { label: "program ID", value: PROGRAM_ID.toBase58() },
+            { label: "pool PDA", value: poolPda.toBase58() },
+            { label: "source account", value: userBunkercashAta.toBase58() },
+            { label: "escrow account", value: poolBunkercashEscrow.toBase58() },
+            { label: "fee destination", value: masterBunkercash.toBase58() },
+            { label: "mint", value: mintPda.toBase58() },
+            { label: "amount", value: `${toUi(amountRaw, 6)} BNKR` },
+            { label: "claim PDA", value: claimPda.toBase58() },
+          ],
+        }),
+      );
       const sig = await sendAndConfirmWalletTransaction({
         connection,
         wallet,
@@ -533,6 +550,21 @@ export function WithdrawInterface() {
         .instruction();
 
       tx.add(cancelIx);
+      requirePreSignReview(
+        buildTransactionReview({
+          instructions: tx.instructions,
+          summary: "Cancel a BunkerCash sell request",
+          fields: [
+            { label: "program ID", value: PROGRAM_ID.toBase58() },
+            { label: "pool PDA", value: poolPda.toBase58() },
+            { label: "claim PDA", value: claimPk.toBase58() },
+            { label: "source escrow", value: poolBunkercashEscrow.toBase58() },
+            { label: "destination account", value: userBunkercashAta.toBase58() },
+            { label: "mint", value: mintPda.toBase58() },
+            { label: "remaining escrow", value: `${toUi(BigInt(claim.bunkercashRemaining), 6)} BNKR` },
+          ],
+        }),
+      );
       const sig = await sendAndConfirmWalletTransaction({
         connection,
         wallet,

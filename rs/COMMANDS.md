@@ -1,6 +1,11 @@
 # BunkerCash – Commands (Start to End)
 
-All commands assume you are in the `rs` directory and use the **pool admin** wallet for admin-only steps. For **mainnet**, switch `ANCHOR_PROVIDER_URL` and `solana config` to a mainnet RPC and set `USDC_MINT` to mainnet USDC.
+All commands assume you are in the `rs` directory. For production-like
+privileged actions, `pool.master_wallet` must be the Squads Vault PDA and the
+admin UI/scripts must create Squads Vault Transactions rather than signing
+directly with a human member wallet. For **mainnet**, switch
+`ANCHOR_PROVIDER_URL` and `solana config` to a mainnet RPC and set `USDC_MINT`
+to canonical mainnet USDC.
 
 ---
 
@@ -67,7 +72,7 @@ npm run -s verify:governance
 
 This verifies both governance layers:
 
-- `pool.admin` is the expected Squads vault PDA.
+- `pool.master_wallet` is the expected Squads vault PDA.
 - program upgrade authority is the expected Squads-controlled authority, or the
   program is explicitly immutable.
 
@@ -77,7 +82,10 @@ Mainnet funding is blocked in scripts that move USDC until this check passes.
 
 ## 4. Bootstrap pool (admin, first time only)
 
-Creates the pool and BunkerCash mint if they don’t exist. The wallet in `ANCHOR_WALLET` becomes **pool admin** (stored in `PoolState.admin`).
+Creates the pool and BunkerCash mint if they don’t exist. Production-like
+initialization must set `master_wallet` to the Squads Vault PDA. If a recovery
+rotation is needed later, use `update_master_wallet` through a Squads Vault
+Transaction signed by the current `pool.master_wallet`.
 
 ```bash
 cd rs

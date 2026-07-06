@@ -64,7 +64,9 @@ async function main() {
   const tokenAmountStr = process.env.SELL_TOKEN_AMOUNT ?? "0";
   const tokenAmount = new BN(tokenAmountStr);
   if (tokenAmount.lte(new BN(0))) {
-    throw new Error("Set SELL_TOKEN_AMOUNT to a positive integer (base units, 9 decimals).");
+    throw new Error(
+      "Set SELL_TOKEN_AMOUNT to a positive integer (base units, 9 decimals)."
+    );
   }
 
   // Token-2022 ATAs
@@ -93,8 +95,12 @@ async function main() {
     program.programId
   );
 
-  const beforeUser = await provider.connection.getTokenAccountBalance(userBunkercashAta, "confirmed").catch(() => null);
-  const beforeEscrow = await provider.connection.getTokenAccountBalance(escrowVaultAta, "confirmed").catch(() => null);
+  const beforeUser = await provider.connection
+    .getTokenAccountBalance(userBunkercashAta, "confirmed")
+    .catch(() => null);
+  const beforeEscrow = await provider.connection
+    .getTokenAccountBalance(escrowVaultAta, "confirmed")
+    .catch(() => null);
 
   console.log("Pool:", poolPda.toBase58());
   console.log("Pool signer:", poolSignerPda.toBase58());
@@ -122,8 +128,12 @@ async function main() {
 
   console.log("register_sell tx:", sig);
 
-  const afterUser = await provider.connection.getTokenAccountBalance(userBunkercashAta, "confirmed").catch(() => null);
-  const afterEscrow = await provider.connection.getTokenAccountBalance(escrowVaultAta, "confirmed").catch(() => null);
+  const afterUser = await provider.connection
+    .getTokenAccountBalance(userBunkercashAta, "confirmed")
+    .catch(() => null);
+  const afterEscrow = await provider.connection
+    .getTokenAccountBalance(escrowVaultAta, "confirmed")
+    .catch(() => null);
 
   const bu = beforeUser ? new BN(beforeUser.value.amount) : new BN(0);
   const be = beforeEscrow ? new BN(beforeEscrow.value.amount) : new BN(0);
@@ -131,13 +141,19 @@ async function main() {
   const ae = afterEscrow ? new BN(afterEscrow.value.amount) : new BN(0);
 
   console.log("User balance before/after:", bu.toString(), "→", au.toString());
-  console.log("Escrow balance before/after:", be.toString(), "→", ae.toString());
+  console.log(
+    "Escrow balance before/after:",
+    be.toString(),
+    "→",
+    ae.toString()
+  );
 
   const claim = await (program.account as any).claimState.fetch(claimPda);
   console.log("ClaimState:", {
     id: claim.id?.toString?.() ?? String(claim.id),
     user: claim.user?.toBase58?.() ?? String(claim.user),
-    tokenAmountLocked: claim.tokenAmountLocked?.toString?.() ?? String(claim.tokenAmountLocked),
+    tokenAmountLocked:
+      claim.tokenAmountLocked?.toString?.() ?? String(claim.tokenAmountLocked),
     usdcPaid: claim.usdcPaid?.toString?.() ?? String(claim.usdcPaid),
     isClosed: claim.isClosed,
     createdAt: claim.createdAt?.toString?.() ?? String(claim.createdAt),
