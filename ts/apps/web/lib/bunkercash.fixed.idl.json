@@ -2473,6 +2473,48 @@
       "args": []
     },
     {
+      "name": "update_master_wallet",
+      "discriminator": [
+        243,
+        44,
+        250,
+        16,
+        79,
+        226,
+        43,
+        176
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "current_master_wallet",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "new_master_wallet",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
       "name": "settle_claims",
       "discriminator": [
         58,
@@ -3427,6 +3469,10 @@
             "type": "u64"
           },
           {
+            "name": "claim_seq",
+            "type": "u64"
+          },
+          {
             "name": "bump",
             "type": "u8"
           }
@@ -4020,6 +4066,10 @@
             "type": "u64"
           },
           {
+            "name": "next_claim_seq",
+            "type": "u64"
+          },
+          {
             "name": "withdrawal_counter",
             "type": "u64"
           },
@@ -4224,6 +4274,10 @@
           },
           {
             "name": "epoch_seq",
+            "type": "u64"
+          },
+          {
+            "name": "snapshot_claim_seq",
             "type": "u64"
           },
           {

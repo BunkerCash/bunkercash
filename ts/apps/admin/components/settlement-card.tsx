@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { useAllOpenClaims, type OpenClaim } from "@/hooks/useAllOpenClaims";
 import { usePayoutVault } from "@/hooks/usePayoutVault";
+import { useAdminTransaction } from "@/hooks/useAdminTransaction";
 import {
   getBunkercashMintPda,
   getMinSettlementConfigPda,
@@ -178,6 +179,7 @@ export function SettlementCard() {
   const { connection } = useConnection();
   const wallet = useWallet();
   const { publicKey, signTransaction, signAllTransactions } = wallet;
+  const { authority, isSquadsMode, submit } = useAdminTransaction();
   const {
     claims,
     closedClaims,
@@ -464,7 +466,7 @@ export function SettlementCard() {
     vaultRaw < minSettlementUsdc;
 
   const handleSaveMinSettlement = useCallback(async () => {
-    if (!program || !publicKey) return;
+    if (!program || !publicKey || !authority) return;
     setSavingMinSettlement(true);
     setTxError(null);
     try {
@@ -472,19 +474,32 @@ export function SettlementCard() {
       const methods = program.methods as unknown as {
         setMinSettlementUsdc: (amount: BN) => {
           accounts: (accounts: Record<string, PublicKey>) => {
-            rpc: () => Promise<string>;
+            instruction: () => Promise<TransactionInstruction>;
           };
         };
       };
-      await methods
+      const ix = await methods
         .setMinSettlementUsdc(new BN(rawValue.toString()))
         .accounts({
           pool: poolPda,
           minSettlementConfig: minSettlementConfigPda,
-          admin: publicKey,
+          admin: authority ?? publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .rpc();
+        .instruction();
+      await submit({
+        instructions: [ix],
+        memo: "BunkerCash admin: set minimum settlement",
+        review: {
+          fields: [
+            {
+              label: "minimum settlement old -> new",
+              value: `$${formatUsdc(minSettlementUsdc ?? BigInt(0))} -> $${formatUsdc(rawValue)}`,
+            },
+            { label: "pool PDA", value: poolPda.toBase58() },
+          ],
+        },
+      });
       setMinSettlementUsdc(rawValue);
     } catch (e: unknown) {
       setTxError(
@@ -495,12 +510,13 @@ export function SettlementCard() {
     } finally {
       setSavingMinSettlement(false);
     }
-  }, [minSettlementConfigPda, minSettlementInput, poolPda, program, publicKey]);
+  }, [authority, minSettlementConfigPda, minSettlementInput, minSettlementUsdc, poolPda, program, publicKey, submit]);
 
   const handleOpenSettlement = useCallback(async () => {
     if (
       !program ||
       !publicKey ||
+      !authority ||
       !usdcMint ||
       !usdcTokenProgram ||
       !payoutVault
@@ -533,11 +549,11 @@ export function SettlementCard() {
       const methods = program.methods as unknown as {
         openSettlement: () => {
           accounts: (accounts: Record<string, PublicKey>) => {
-            rpc: () => Promise<string>;
+            instruction: () => Promise<TransactionInstruction>;
           };
         };
       };
-      await methods
+      const ix = await methods
         .openSettlement()
         .accounts({
           pool: poolPda,
@@ -546,11 +562,25 @@ export function SettlementCard() {
           usdcMint,
           settlementState: settlementStatePda,
           minSettlementConfig: minSettlementConfigPda,
-          masterWallet: publicKey,
+          masterWallet: authority ?? publicKey,
           usdcTokenProgram,
           systemProgram: SystemProgram.programId,
         })
-        .rpc();
+        .instruction();
+      await submit({
+        instructions: [ix],
+        memo: "BunkerCash admin: open settlement",
+        review: {
+          fields: [
+            { label: "pool PDA", value: poolPda.toBase58() },
+            { label: "source vault", value: payoutVault.toBase58() },
+            { label: "USDC mint", value: usdcMint.toBase58() },
+            { label: "settlement PDA", value: settlementStatePda.toBase58() },
+            { label: "pending claims", value: totalRequested.toString() },
+            { label: "vault balance", value: `$${formatUsdc(vaultRaw)}` },
+          ],
+        },
+      });
       setEpochState("open");
       setEpochStateFresh(false);
       await fetchSettlementEpoch(undefined, {
@@ -575,15 +605,19 @@ export function SettlementCard() {
     poolPda,
     program,
     publicKey,
+    authority,
     refreshVault,
     settlementStatePda,
+    submit,
     supportedUsdcConfigPda,
+    totalRequested,
     usdcMint,
     usdcTokenProgram,
+    vaultRaw,
   ]);
 
   const handleCloseSettlement = useCallback(async () => {
-    if (!program || !publicKey) return;
+    if (!program || !publicKey || !authority) return;
     if (!epochStateFresh) {
       setEpochActionError(
         "Refresh settlement epoch state before closing the epoch.",
@@ -601,18 +635,28 @@ export function SettlementCard() {
       const methods = program.methods as unknown as {
         closeSettlement: () => {
           accounts: (accounts: Record<string, PublicKey>) => {
-            rpc: () => Promise<string>;
+            instruction: () => Promise<TransactionInstruction>;
           };
         };
       };
-      await methods
+      const ix = await methods
         .closeSettlement()
         .accounts({
           pool: poolPda,
           settlementState: settlementStatePda,
-          masterWallet: publicKey,
+          masterWallet: authority ?? publicKey,
         })
-        .rpc();
+        .instruction();
+      await submit({
+        instructions: [ix],
+        memo: "BunkerCash admin: close settlement",
+        review: {
+          fields: [
+            { label: "pool PDA", value: poolPda.toBase58() },
+            { label: "settlement PDA", value: settlementStatePda.toBase58() },
+          ],
+        },
+      });
       setEpochState("closed");
       setEpochStateFresh(true);
       setEpochStateError(null);
@@ -637,9 +681,11 @@ export function SettlementCard() {
     poolPda,
     program,
     publicKey,
+    authority,
     refreshClaims,
     refreshVault,
     settlementStatePda,
+    submit,
   ]);
 
   // migrate_claim is permissionless on-chain (the connected wallet only pays
@@ -812,6 +858,7 @@ export function SettlementCard() {
     if (
       !program ||
       !publicKey ||
+      !authority ||
       !usdcMint ||
       !usdcTokenProgram ||
       !payoutVault ||
@@ -839,7 +886,7 @@ export function SettlementCard() {
 
       for (let attempt = 1; attempt <= 3; attempt += 1) {
         try {
-          const tx = new Transaction();
+          const instructions: TransactionInstruction[] = [];
           const remainingAccounts: AccountMetaLike[] = [];
 
           for (const item of batch) {
@@ -853,9 +900,9 @@ export function SettlementCard() {
               ASSOCIATED_TOKEN_PROGRAM_ID,
             );
 
-            tx.add(
+            instructions.push(
               createAssociatedTokenAccountIdempotentInstruction(
-                publicKey,
+                authority ?? publicKey,
                 userUsdcAta,
                 claimUser,
                 usdcMint,
@@ -884,37 +931,39 @@ export function SettlementCard() {
               supportedUsdcConfig: supportedUsdcConfigPda,
               usdcMint,
               settlementState: settlementStatePda,
-              masterWallet: publicKey,
+              masterWallet: authority ?? publicKey,
               usdcTokenProgram,
               tokenProgram: TOKEN_2022_PROGRAM_ID,
             })
             .remainingAccounts(remainingAccounts)
             .instruction();
 
-          tx.add(settleIx);
-
-          // Fetch a fresh blockhash for each attempt to avoid stale blockhash reuse
-          const { blockhash, lastValidBlockHeight } =
-            await connection.getLatestBlockhash("confirmed");
-          tx.recentBlockhash = blockhash;
-          tx.feePayer = publicKey;
-
-          if (!signTransaction)
-            throw new Error("Wallet does not support signTransaction");
-          const signed = await signTransaction(tx);
-          const rawTx = signed.serialize();
-
-          const sig = await connection.sendRawTransaction(rawTx, {
-            skipPreflight: false,
-            preflightCommitment: "confirmed",
+          instructions.push(settleIx);
+          const result = await submit({
+            instructions,
+            memo: `BunkerCash admin: settle ${batch.length} claim${batch.length === 1 ? "" : "s"}`,
+            review: {
+              fields: [
+                { label: "pool PDA", value: poolPda.toBase58() },
+                { label: "source vault", value: payoutVault.toBase58() },
+                { label: "USDC mint", value: usdcMint.toBase58() },
+                { label: "settlement PDA", value: settlementStatePda.toBase58() },
+                { label: "batch claims", value: String(batch.length) },
+              ],
+              remainingAccounts: batch.map((item, index) => ({
+                label: `claim ${index + 1} -> destination`,
+                value: `${item.claim.pubkey} -> ${getAssociatedTokenAddressSync(
+                  usdcMint,
+                  new PublicKey(item.claim.user),
+                  false,
+                  usdcTokenProgram,
+                  ASSOCIATED_TOKEN_PROGRAM_ID,
+                ).toBase58()}`,
+              })),
+            },
           });
 
-          await connection.confirmTransaction(
-            { signature: sig, blockhash, lastValidBlockHeight },
-            "confirmed",
-          );
-
-          return sig;
+          return result.mode === "squads-v4" ? result.squadsUrl : result.signature;
         } catch (e: unknown) {
           if (isAlreadyProcessedError(e)) {
             console.info(
@@ -991,11 +1040,12 @@ export function SettlementCard() {
     poolBunkercashEscrow,
     program,
     publicKey,
-    signTransaction,
+    authority,
     refreshClaims,
     refreshVault,
     settlementPlan,
     settlementStatePda,
+    submit,
     usdcMint,
     usdcTokenProgram,
     poolPda,
@@ -1005,6 +1055,7 @@ export function SettlementCard() {
   const loading = claimsLoading || vaultLoading;
   const canSettle =
     !!wallet.publicKey &&
+    !!authority &&
     !!program &&
     !!usdcMint &&
     epochOpen &&
@@ -1182,13 +1233,13 @@ export function SettlementCard() {
           </div>
           <button
             onClick={() => void handleSaveMinSettlement()}
-            disabled={!wallet.publicKey || !program || savingMinSettlement}
+            disabled={!wallet.publicKey || !authority || !program || savingMinSettlement}
             className="inline-flex items-center gap-2 rounded-lg bg-neutral-800 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {savingMinSettlement ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : null}
-            Save
+            {savingMinSettlement ? "Saving..." : isSquadsMode ? "Create Proposal" : "Save"}
           </button>
         </div>
         {minSettlementUsdc !== null && minSettlementUsdc > BigInt(0) && (
@@ -1216,6 +1267,7 @@ export function SettlementCard() {
                 onClick={() => void handleOpenSettlement()}
                 disabled={
                   !wallet.publicKey ||
+                  !authority ||
                   !program ||
                   epochLoading ||
                   migrating ||
@@ -1231,13 +1283,14 @@ export function SettlementCard() {
                 {epochLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : null}
-                Open Epoch
+                {epochLoading ? "Submitting..." : isSquadsMode ? "Create Proposal" : "Open Epoch"}
               </button>
             ) : (
               <button
                 onClick={() => void handleCloseSettlement()}
                 disabled={
                   !wallet.publicKey ||
+                  !authority ||
                   !program ||
                   epochLoading ||
                   settling ||
@@ -1255,7 +1308,7 @@ export function SettlementCard() {
                 {epochLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : null}
-                Close Epoch
+                {epochLoading ? "Submitting..." : isSquadsMode ? "Create Proposal" : "Close Epoch"}
               </button>
             )}
           </div>
@@ -1431,7 +1484,7 @@ export function SettlementCard() {
                 Settling...
               </>
             ) : (
-              "Settle Open Requests"
+              isSquadsMode ? "Create Proposals" : "Settle Open Requests"
             )}
           </button>
         </div>

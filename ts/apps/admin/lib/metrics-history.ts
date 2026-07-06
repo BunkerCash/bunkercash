@@ -13,7 +13,7 @@ import type {
   DateRangeQuery,
 } from "@bunkercash/metrics-data";
 import { authorizeAdminAccess } from "./geoblocking-auth";
-import { getAdminAuthRoute, getEmptyBodyHash } from "./admin-auth-nonce";
+import { getAdminAuthDomain, getAdminAuthRoute, getEmptyBodyHash } from "./admin-auth-nonce";
 
 async function getAuthenticatedClient(request: Request) {
   const wallet = request.headers.get("x-admin-wallet");
@@ -26,6 +26,7 @@ async function getAuthenticatedClient(request: Request) {
     signature,
     issuedAt,
     nonce,
+    domain: getAdminAuthDomain(request),
     method: request.method,
     route: getAdminAuthRoute(request),
     bodyHash: getEmptyBodyHash(),

@@ -7,6 +7,7 @@ export function getConfiguredSolanaCluster(): SolanaWalletCluster {
   const cluster =
     process.env.NEXT_PUBLIC_SOLANA_CLUSTER ??
     process.env.NEXT_PUBLIC_CLUSTER;
+  const deployEnv = process.env.NEXT_PUBLIC_DEPLOY_ENV;
 
   if (
     cluster === "mainnet-beta" ||
@@ -17,11 +18,18 @@ export function getConfiguredSolanaCluster(): SolanaWalletCluster {
     return cluster;
   }
 
+  if (deployEnv === "production") {
+    throw new Error("Production Solana cluster must be explicitly set to mainnet-beta");
+  }
+
   return "devnet";
 }
 
 export function getConfiguredRpcCluster(): SolanaCluster {
   const cluster = getConfiguredSolanaCluster();
+  if (process.env.NEXT_PUBLIC_DEPLOY_ENV === "production" && cluster !== "mainnet-beta") {
+    throw new Error("Production Solana cluster must be mainnet-beta");
+  }
   return cluster === "localnet" ? "devnet" : cluster;
 }
 

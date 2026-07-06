@@ -17,7 +17,9 @@ import * as anchor from "@coral-xyz/anchor";
 import type { Idl } from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 
-const idlJson = require("../target/idl/bunkercash.json") as { address: string } & Idl;
+const idlJson = require("../target/idl/bunkercash.json") as {
+  address: string;
+} & Idl;
 
 const PROGRAM_ID = new PublicKey(idlJson.address);
 const POOL_SEED = Buffer.from("pool");
@@ -48,7 +50,10 @@ async function main() {
   console.log(`Wallet:   ${wallet.toBase58()}`);
   if (DRY_RUN) console.log("DRY_RUN=true — no transactions will be sent");
 
-  const settlementInfo = await connection.getAccountInfo(settlementPda, "confirmed");
+  const settlementInfo = await connection.getAccountInfo(
+    settlementPda,
+    "confirmed"
+  );
   if (settlementInfo && settlementInfo.data.length > 0) {
     throw new Error(
       "A settlement epoch is open; close it before migrating accounts. " +
@@ -64,7 +69,9 @@ async function main() {
   if (poolInfo.data.length === CURRENT_POOL_SIZE) {
     console.log("Pool already uses the current layout.");
   } else if (poolInfo.data.length === LEGACY_POOL_SIZE) {
-    console.log(`Pool uses legacy layout (${poolInfo.data.length} bytes); migrating...`);
+    console.log(
+      `Pool uses legacy layout (${poolInfo.data.length} bytes); migrating...`
+    );
     if (!DRY_RUN) {
       const sig = await program.methods
         .migratePool()
@@ -91,7 +98,9 @@ async function main() {
       commitment: "confirmed",
       filters: [{ dataSize }],
     });
-    console.log(`Found ${legacyClaims.length} claim account(s) with legacy size ${dataSize}.`);
+    console.log(
+      `Found ${legacyClaims.length} claim account(s) with legacy size ${dataSize}.`
+    );
 
     for (const { pubkey } of legacyClaims) {
       if (DRY_RUN) {

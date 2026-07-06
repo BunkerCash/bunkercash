@@ -2,7 +2,9 @@ import * as anchor from "@coral-xyz/anchor";
 import type { Idl } from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 
-const idlJson = require("../target/idl/bunkercash.json") as { address: string } & Idl;
+const idlJson = require("../target/idl/bunkercash.json") as {
+  address: string;
+} & Idl;
 
 const PROGRAM_ID = new PublicKey(idlJson.address);
 
@@ -11,13 +13,19 @@ async function main() {
   anchor.setProvider(provider);
 
   const program = new anchor.Program(idlJson as unknown as Idl, provider);
-  const [poolPda] = PublicKey.findProgramAddressSync([Buffer.from("pool")], PROGRAM_ID);
+  const [poolPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("pool")],
+    PROGRAM_ID
+  );
   const [mintPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("bunkercash_mint")],
-    PROGRAM_ID,
+    PROGRAM_ID
   );
 
-  const existing = await provider.connection.getAccountInfo(mintPda, "confirmed");
+  const existing = await provider.connection.getAccountInfo(
+    mintPda,
+    "confirmed"
+  );
   if (existing) {
     console.log("BunkerCash mint already exists:", mintPda.toBase58());
     return;
@@ -29,7 +37,9 @@ async function main() {
       pool: poolPda,
       bunkercashMint: mintPda,
       admin: provider.wallet.publicKey,
-      tokenProgram: new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"),
+      tokenProgram: new PublicKey(
+        "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+      ),
       systemProgram: SystemProgram.programId,
     })
     .rpc();

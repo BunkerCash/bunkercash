@@ -29,7 +29,10 @@ function mustPubkey(envKey: string): PublicKey {
 async function main() {
   const provider = AnchorProvider.env();
   const connection: Connection = provider.connection;
-  const creator = provider.wallet as unknown as { publicKey: PublicKey; payer: Keypair };
+  const creator = provider.wallet as unknown as {
+    publicKey: PublicKey;
+    payer: Keypair;
+  };
 
   const threshold = Number(process.env.THRESHOLD ?? "2");
   if (!Number.isFinite(threshold) || threshold <= 0) {
@@ -37,18 +40,31 @@ async function main() {
   }
 
   const createKey = Keypair.generate();
-  const [multisigPda] = multisig.getMultisigPda({ createKey: createKey.publicKey });
+  const [multisigPda] = multisig.getMultisigPda({
+    createKey: createKey.publicKey,
+  });
   const programConfigPda = multisig.getProgramConfigPda({})[0];
-  const programConfig = await multisig.accounts.ProgramConfig.fromAccountAddress(connection, programConfigPda);
+  const programConfig =
+    await multisig.accounts.ProgramConfig.fromAccountAddress(
+      connection,
+      programConfigPda
+    );
 
   const members: MemberInput[] = [
     { key: creator.publicKey, permissions: multisig.types.Permissions.all() },
-    { key: mustPubkey("MEMBER_2_PUBKEY"), permissions: multisig.types.Permissions.all() },
+    {
+      key: mustPubkey("MEMBER_2_PUBKEY"),
+      permissions: multisig.types.Permissions.all(),
+    },
   ];
 
   for (const k of ["MEMBER_3_PUBKEY", "MEMBER_4_PUBKEY"] as const) {
     const v = process.env[k];
-    if (v) members.push({ key: new PublicKey(v), permissions: multisig.types.Permissions.all() });
+    if (v)
+      members.push({
+        key: new PublicKey(v),
+        permissions: multisig.types.Permissions.all(),
+      });
   }
 
   const sig = await multisig.rpc.multisigCreateV2({
@@ -81,4 +97,3 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
-

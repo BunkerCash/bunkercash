@@ -6,60 +6,141 @@
   "compatibility_date": "2024-09-23",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "observability": {
-    "enabled": true,
+    "enabled": true
   },
   "assets": {
     "directory": ".open-next/assets",
-    "binding": "ASSETS",
+    "binding": "ASSETS"
   },
-  "services": [
-    {
-      "binding": "WORKER_SELF_REFERENCE",
-      "service": "bunkercash-web",
-    },
-  ],
-  "triggers": {
-    "crons": ["10 0 * * *"],
-  },
-  "routes": [
-    { "pattern": "bunkercash.com", "custom_domain": true },
-    { "pattern": "www.bunkercash.com", "custom_domain": true },
-  ],
-  "vars": {
-    "NEXT_PUBLIC_SOLANA_RPC_URL": "https://api.devnet.solana.com",
-    "NEXT_PUBLIC_SOLANA_CLUSTER": "devnet",
-    "NEXT_PUBLIC_CLUSTER": "devnet",
-    "NEXT_PUBLIC_USDC_MINT": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
-    "TRUST_CLOUDFLARE_HEADERS": "true",
-    "NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY": "HEzTX4LNQ7cjrXTt1vKXyEZGtc94TKRUc9kWNFexJSGz",
-  },
-  "kv_namespaces": [
-    {
-      "binding": "GEOBLOCKING_KV",
-      "id": "9abcd5888b5c436fba6f445f8ba68e98",
-      "preview_id": "a6f9582a6f8444bea09b37128e00bb17",
-    },
-  ],
   "durable_objects": {
     "bindings": [
       {
         "name": "SUPPORT_RATE_LIMIT",
-        "class_name": "SupportRateLimitDurableObject",
-      },
-    ],
+        "class_name": "SupportRateLimitDurableObject"
+      }
+    ]
   },
   "migrations": [
     {
       "tag": "v1_support_rate_limit",
-      "new_sqlite_classes": ["SupportRateLimitDurableObject"],
-    },
+      "new_sqlite_classes": ["SupportRateLimitDurableObject"]
+    }
   ],
-  "d1_databases": [
-    {
-      "binding": "METRICS_DB",
-      "database_id": "97cc29d2-b9e4-4430-83ce-bb1272e1d629",
-      "database_name": "bunkercash-metrics",
-      "migrations_dir": "../../packages/metrics-data/migrations",
+  "env": {
+    "dev": {
+      "name": "bunkercash-web-dev",
+      "services": [
+        {
+          "binding": "WORKER_SELF_REFERENCE",
+          "service": "bunkercash-web-dev"
+        }
+      ],
+      "triggers": {
+        "crons": ["10 0 * * *"]
+      },
+      "vars": {
+        "NEXT_PUBLIC_DEPLOY_ENV": "dev",
+        "NEXT_PUBLIC_SOLANA_RPC_URL": "https://api.devnet.solana.com",
+        "NEXT_PUBLIC_SOLANA_CLUSTER": "devnet",
+        "NEXT_PUBLIC_CLUSTER": "devnet",
+        "NEXT_PUBLIC_USDC_MINT": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+        "NEXT_PUBLIC_BUNKERCASH_PROGRAM_ID": "Fp8b6p287TL5oPMwLVdwGys5phHNLcmTKNvVoGdCJS6g",
+        "TRUST_CLOUDFLARE_HEADERS": "true",
+        "NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY": "HEzTX4LNQ7cjrXTt1vKXyEZGtc94TKRUc9kWNFexJSGz"
+      },
+      "kv_namespaces": [
+        {
+          "binding": "GEOBLOCKING_KV",
+          "id": "9abcd5888b5c436fba6f445f8ba68e98",
+          "preview_id": "a6f9582a6f8444bea09b37128e00bb17"
+        }
+      ],
+      "d1_databases": [
+        {
+          "binding": "METRICS_DB",
+          "database_id": "97cc29d2-b9e4-4430-83ce-bb1272e1d629",
+          "database_name": "bunkercash-metrics-dev",
+          "migrations_dir": "../../packages/metrics-data/migrations"
+        }
+      ]
     },
-  ],
+    "staging": {
+      "name": "bunkercash-web-staging",
+      "services": [
+        {
+          "binding": "WORKER_SELF_REFERENCE",
+          "service": "bunkercash-web-staging"
+        }
+      ],
+      "triggers": {
+        "crons": ["10 0 * * *"]
+      },
+      "vars": {
+        "NEXT_PUBLIC_DEPLOY_ENV": "staging",
+        "NEXT_PUBLIC_SOLANA_RPC_URL": "https://api.devnet.solana.com",
+        "NEXT_PUBLIC_SOLANA_CLUSTER": "devnet",
+        "NEXT_PUBLIC_CLUSTER": "devnet",
+        "NEXT_PUBLIC_USDC_MINT": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+        "NEXT_PUBLIC_BUNKERCASH_PROGRAM_ID": "Fp8b6p287TL5oPMwLVdwGys5phHNLcmTKNvVoGdCJS6g",
+        "TRUST_CLOUDFLARE_HEADERS": "true",
+        "NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY": "HEzTX4LNQ7cjrXTt1vKXyEZGtc94TKRUc9kWNFexJSGz"
+      },
+      "kv_namespaces": [
+        {
+          "binding": "GEOBLOCKING_KV",
+          "id": "9abcd5888b5c436fba6f445f8ba68e98",
+          "preview_id": "a6f9582a6f8444bea09b37128e00bb17"
+        }
+      ],
+      "d1_databases": [
+        {
+          "binding": "METRICS_DB",
+          "database_id": "97cc29d2-b9e4-4430-83ce-bb1272e1d629",
+          "database_name": "bunkercash-metrics-staging",
+          "migrations_dir": "../../packages/metrics-data/migrations"
+        }
+      ]
+    },
+    "production": {
+      "name": "bunkercash-web",
+      "services": [
+        {
+          "binding": "WORKER_SELF_REFERENCE",
+          "service": "bunkercash-web"
+        }
+      ],
+      "triggers": {
+        "crons": ["10 0 * * *"]
+      },
+      "routes": [
+        { "pattern": "bunkercash.com", "custom_domain": true },
+        { "pattern": "www.bunkercash.com", "custom_domain": true }
+      ],
+      "vars": {
+        "NEXT_PUBLIC_DEPLOY_ENV": "production",
+        "NEXT_PUBLIC_SOLANA_RPC_URL": "REPLACE_WITH_MAINNET_RPC_URL",
+        "NEXT_PUBLIC_SOLANA_CLUSTER": "mainnet-beta",
+        "NEXT_PUBLIC_CLUSTER": "mainnet-beta",
+        "NEXT_PUBLIC_USDC_MINT": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "NEXT_PUBLIC_BUNKERCASH_PROGRAM_ID": "REPLACE_WITH_MAINNET_PROGRAM_ID",
+        "TRUST_CLOUDFLARE_HEADERS": "true",
+        "NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY": "REPLACE_WITH_MAINNET_SQUADS_MULTISIG"
+      },
+      "kv_namespaces": [
+        {
+          "binding": "GEOBLOCKING_KV",
+          "id": "REPLACE_WITH_PRODUCTION_GEOBLOCKING_KV_ID",
+          "preview_id": "REPLACE_WITH_PRODUCTION_GEOBLOCKING_KV_PREVIEW_ID"
+        }
+      ],
+      "d1_databases": [
+        {
+          "binding": "METRICS_DB",
+          "database_id": "REPLACE_WITH_PRODUCTION_METRICS_DB_ID",
+          "database_name": "bunkercash-metrics-production",
+          "migrations_dir": "../../packages/metrics-data/migrations"
+        }
+      ]
+    }
+  }
 }

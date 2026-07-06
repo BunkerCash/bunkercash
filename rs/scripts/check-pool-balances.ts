@@ -39,7 +39,9 @@ const MINT_SEED = "bunkercash_mint";
 function requireUsdcMint(): PublicKey {
   const mint = process.env.USDC_MINT;
   if (!mint) {
-    throw new Error("USDC_MINT must be set explicitly before running check-pool-balances.ts.");
+    throw new Error(
+      "USDC_MINT must be set explicitly before running check-pool-balances.ts."
+    );
   }
   return new PublicKey(mint);
 }
@@ -49,10 +51,19 @@ async function balanceOrMissing(
   tokenAccount: PublicKey,
   label: string
 ): Promise<string> {
-  const info = await provider.connection.getAccountInfo(tokenAccount, "confirmed");
-  if (!info) return `${label}: (missing / not initialized) ${tokenAccount.toBase58()}`;
-  const bal = await provider.connection.getTokenAccountBalance(tokenAccount, "confirmed");
-  return `${label}: ${bal.value.uiAmountString ?? bal.value.amount} (${bal.value.amount} raw)  acct=${tokenAccount.toBase58()}`;
+  const info = await provider.connection.getAccountInfo(
+    tokenAccount,
+    "confirmed"
+  );
+  if (!info)
+    return `${label}: (missing / not initialized) ${tokenAccount.toBase58()}`;
+  const bal = await provider.connection.getTokenAccountBalance(
+    tokenAccount,
+    "confirmed"
+  );
+  return `${label}: ${bal.value.uiAmountString ?? bal.value.amount} (${
+    bal.value.amount
+  } raw)  acct=${tokenAccount.toBase58()}`;
 }
 
 async function main() {
@@ -118,20 +129,45 @@ async function main() {
     console.log("PoolState:", {
       admin: (pool.masterWallet as PublicKey).toBase58(),
       nav: pool.nav?.toString?.() ?? String(pool.nav),
-      totalBrentSupply: pool.totalBrentSupply?.toString?.() ?? String(pool.totalBrentSupply),
-      totalPendingClaims: pool.totalPendingClaims?.toString?.() ?? String(pool.totalPendingClaims),
-      claimCounter: pool.claimCounter?.toString?.() ?? String(pool.claimCounter),
-      withdrawalCounter: pool.withdrawalCounter?.toString?.() ?? String(pool.withdrawalCounter),
+      totalBrentSupply:
+        pool.totalBrentSupply?.toString?.() ?? String(pool.totalBrentSupply),
+      totalPendingClaims:
+        pool.totalPendingClaims?.toString?.() ??
+        String(pool.totalPendingClaims),
+      claimCounter:
+        pool.claimCounter?.toString?.() ?? String(pool.claimCounter),
+      withdrawalCounter:
+        pool.withdrawalCounter?.toString?.() ?? String(pool.withdrawalCounter),
       bump: pool.bump,
     });
   } catch (e) {
     console.log("PoolState: (missing / not initialized)", (e as Error).message);
   }
 
-  console.log(await balanceOrMissing(provider, userUsdcAta, "User USDC (legacy)"));
-  console.log(await balanceOrMissing(provider, payoutUsdcVaultAta, "Payout USDC vault (legacy, Pool Signer ATA)"));
-  console.log(await balanceOrMissing(provider, userBunkercashAta, "User BNKR (Token-2022)"));
-  console.log(await balanceOrMissing(provider, escrowBunkercashVaultAta, "Escrow BNKR vault (Token-2022)"));
+  console.log(
+    await balanceOrMissing(provider, userUsdcAta, "User USDC (legacy)")
+  );
+  console.log(
+    await balanceOrMissing(
+      provider,
+      payoutUsdcVaultAta,
+      "Payout USDC vault (legacy, Pool Signer ATA)"
+    )
+  );
+  console.log(
+    await balanceOrMissing(
+      provider,
+      userBunkercashAta,
+      "User BNKR (Token-2022)"
+    )
+  );
+  console.log(
+    await balanceOrMissing(
+      provider,
+      escrowBunkercashVaultAta,
+      "Escrow BNKR vault (Token-2022)"
+    )
+  );
 }
 
 main().catch((e) => {

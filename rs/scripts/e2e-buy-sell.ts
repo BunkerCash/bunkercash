@@ -27,6 +27,7 @@ import {
   createAssociatedTokenAccountIdempotentInstruction,
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
+import { assertMainnetFundingAllowed } from "./governance";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const idlJson = require("../../ts/apps/web/lib/bunkercash.fixed.idl.json") as {
@@ -44,7 +45,8 @@ const BNKR_DECIMALS = 9;
 function uiToBaseUnits(uiAmount: string, decimals: number): BN {
   const s = uiAmount.trim();
   if (!s) throw new Error("empty amount");
-  if (!/^\d+(\.\d+)?$/.test(s)) throw new Error(`invalid amount: "${uiAmount}"`);
+  if (!/^\d+(\.\d+)?$/.test(s))
+    throw new Error(`invalid amount: "${uiAmount}"`);
   const [head, tailRaw = ""] = s.split(".");
   const tail = tailRaw.padEnd(decimals, "0").slice(0, decimals);
   const raw = `${head}${tail}`.replace(/^0+/, "") || "0";
@@ -63,10 +65,7 @@ function errText(e: unknown): string {
   if (e && typeof e === "object") {
     const anyE = e as any;
     return (
-      anyE.transactionMessage ??
-      anyE.message ??
-      anyE.toString?.() ??
-      String(e)
+      anyE.transactionMessage ?? anyE.message ?? anyE.toString?.() ?? String(e)
     );
   }
   return String(e);
@@ -86,7 +85,9 @@ async function rpcWithBlockhashRetry<T>(
       const msg = errText(e);
       const isBlockhash = /blockhash not found/i.test(msg);
       if (!isBlockhash || attempt === retries) throw e;
-      console.warn(`${label}: Blockhash not found, retrying (${attempt}/${retries})...`);
+      console.warn(
+        `${label}: Blockhash not found, retrying (${attempt}/${retries})...`
+      );
       // small backoff helps devnet RPC consistency
       await sleep(600 * attempt);
     }
@@ -111,7 +112,10 @@ async function ensureAta(params: {
     ASSOCIATED_TOKEN_PROGRAM_ID
   );
 
-  const info = await params.provider.connection.getAccountInfo(ata, "confirmed");
+  const info = await params.provider.connection.getAccountInfo(
+    ata,
+    "confirmed"
+  );
   if (info) return ata;
 
   const ix = createAssociatedTokenAccountIdempotentInstruction(
@@ -123,16 +127,30 @@ async function ensureAta(params: {
     ASSOCIATED_TOKEN_PROGRAM_ID
   );
   const tx = new anchor.web3.Transaction().add(ix);
-  await anchor.web3.sendAndConfirmTransaction(params.provider.connection, tx, [params.payer], {
-    commitment: "confirmed",
-  });
+  await anchor.web3.sendAndConfirmTransaction(
+    params.provider.connection,
+    tx,
+    [params.payer],
+    {
+      commitment: "confirmed",
+    }
+  );
   return ata;
 }
 
-async function tokenBalRaw(provider: AnchorProvider, tokenAccount: PublicKey): Promise<BN | null> {
-  const info = await provider.connection.getAccountInfo(tokenAccount, "confirmed");
+async function tokenBalRaw(
+  provider: AnchorProvider,
+  tokenAccount: PublicKey
+): Promise<BN | null> {
+  const info = await provider.connection.getAccountInfo(
+    tokenAccount,
+    "confirmed"
+  );
   if (!info) return null;
-  const bal = await provider.connection.getTokenAccountBalance(tokenAccount, "confirmed");
+  const bal = await provider.connection.getTokenAccountBalance(
+    tokenAccount,
+    "confirmed"
+  );
   return new BN(bal.value.amount);
 }
 
@@ -180,8 +198,10 @@ async function printSnapshot(params: {
     const pool = await (program.account as any).poolState.fetch(poolPda);
     console.log("PoolState:", {
       admin: (pool.admin as PublicKey).toBase58(),
-      priceUsdcPerToken: pool.priceUsdcPerToken?.toString?.() ?? String(pool.priceUsdcPerToken),
-      claimCounter: pool.claimCounter?.toString?.() ?? String(pool.claimCounter),
+      priceUsdcPerToken:
+        pool.priceUsdcPerToken?.toString?.() ?? String(pool.priceUsdcPerToken),
+      claimCounter:
+        pool.claimCounter?.toString?.() ?? String(pool.claimCounter),
       bump: pool.bump,
     });
   } catch (e) {
@@ -195,22 +215,30 @@ async function printSnapshot(params: {
 
   console.log(
     "User USDC (legacy):",
-    uUsdc ? `${formatUnits(uUsdc, USDC_DECIMALS)} (${uUsdc.toString()} raw)` : "(missing)",
+    uUsdc
+      ? `${formatUnits(uUsdc, USDC_DECIMALS)} (${uUsdc.toString()} raw)`
+      : "(missing)",
     "acct=" + userUsdcAta.toBase58()
   );
   console.log(
     "Payout USDC vault (legacy, Pool Signer ATA):",
-    pUsdc ? `${formatUnits(pUsdc, USDC_DECIMALS)} (${pUsdc.toString()} raw)` : "(missing)",
+    pUsdc
+      ? `${formatUnits(pUsdc, USDC_DECIMALS)} (${pUsdc.toString()} raw)`
+      : "(missing)",
     "acct=" + payoutUsdcVaultAta.toBase58()
   );
   console.log(
     "User BNKR (Token-2022):",
-    uBnkr ? `${formatUnits(uBnkr, BNKR_DECIMALS)} (${uBnkr.toString()} raw)` : "(missing)",
+    uBnkr
+      ? `${formatUnits(uBnkr, BNKR_DECIMALS)} (${uBnkr.toString()} raw)`
+      : "(missing)",
     "acct=" + userBnkrAta.toBase58()
   );
   console.log(
     "Escrow BNKR vault (Token-2022):",
-    eBnkr ? `${formatUnits(eBnkr, BNKR_DECIMALS)} (${eBnkr.toString()} raw)` : "(missing)",
+    eBnkr
+      ? `${formatUnits(eBnkr, BNKR_DECIMALS)} (${eBnkr.toString()} raw)`
+      : "(missing)",
     "acct=" + escrowBnkrVaultAta.toBase58()
   );
 }
@@ -219,8 +247,13 @@ async function main() {
   const provider = AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const payer = (provider.wallet as any).payer as anchor.web3.Keypair | undefined;
-  if (!payer) throw new Error("Provider wallet payer not available (need a local keypair wallet).");
+  const payer = (provider.wallet as any).payer as
+    | anchor.web3.Keypair
+    | undefined;
+  if (!payer)
+    throw new Error(
+      "Provider wallet payer not available (need a local keypair wallet)."
+    );
   const wallet = provider.wallet.publicKey;
 
   const program = new Program(idlJson as unknown as Idl, provider);
@@ -231,7 +264,10 @@ async function main() {
     console.log("-", ix.name);
   }
 
-  const [poolPda] = PublicKey.findProgramAddressSync([Buffer.from(POOL_SEED)], program.programId);
+  const [poolPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from(POOL_SEED)],
+    program.programId
+  );
   const [bunkercashMintPda] = PublicKey.findProgramAddressSync(
     [Buffer.from(MINT_SEED)],
     program.programId
@@ -243,12 +279,27 @@ async function main() {
 
   const usdcMintEnv = process.env.USDC_MINT;
   if (!usdcMintEnv) {
-    throw new Error("USDC_MINT must be set explicitly before running e2e-buy-sell.ts.");
+    throw new Error(
+      "USDC_MINT must be set explicitly before running e2e-buy-sell.ts."
+    );
   }
   const usdcMint = new PublicKey(usdcMintEnv);
+  const buyUi = process.env.BUY_USDC ?? "1";
+  const buyAmount = uiToBaseUnits(buyUi, USDC_DECIMALS);
+
+  if (buyAmount.gt(new BN(0)) || process.env.LIQ_USDC) {
+    await assertMainnetFundingAllowed({
+      provider,
+      programId: program.programId,
+      action: "funding",
+    });
+  }
 
   // Initialize pool + mint if missing.
-  const poolInfo = await provider.connection.getAccountInfo(poolPda, "confirmed");
+  const poolInfo = await provider.connection.getAccountInfo(
+    poolPda,
+    "confirmed"
+  );
   if (!poolInfo) {
     const priceUsdcPerToken = new BN(1_000_000); // 1 USDC (6 decimals) per 1 token
     const initSig = await (program.methods as any)
@@ -312,56 +363,56 @@ async function main() {
   });
 
   // BUY
-  const buyUi = process.env.BUY_USDC ?? "1";
-  const buyAmount = uiToBaseUnits(buyUi, USDC_DECIMALS);
   if (buyAmount.lte(new BN(0))) {
     console.log(`\nSkipping buy_primary (BUY_USDC=${buyUi})`);
   } else {
-  const userUsdcBefore = await tokenBalRaw(provider, userUsdcAta);
-  if (!userUsdcBefore || userUsdcBefore.lt(buyAmount)) {
-    console.error(
-      `\nInsufficient USDC for buy. Have ${userUsdcBefore ? formatUnits(userUsdcBefore, USDC_DECIMALS) : "0"} USDC, need ${buyUi} USDC.`
-    );
-    console.error("Fund this wallet on the same cluster/mint, then re-run.");
-    console.error("Wallet:", wallet.toBase58());
-    console.error("USDC mint:", usdcMint.toBase58());
-    process.exitCode = 1;
-    return;
-  }
+    const userUsdcBefore = await tokenBalRaw(provider, userUsdcAta);
+    if (!userUsdcBefore || userUsdcBefore.lt(buyAmount)) {
+      console.error(
+        `\nInsufficient USDC for buy. Have ${
+          userUsdcBefore ? formatUnits(userUsdcBefore, USDC_DECIMALS) : "0"
+        } USDC, need ${buyUi} USDC.`
+      );
+      console.error("Fund this wallet on the same cluster/mint, then re-run.");
+      console.error("Wallet:", wallet.toBase58());
+      console.error("USDC mint:", usdcMint.toBase58());
+      process.exitCode = 1;
+      return;
+    }
 
-  const buySig = await rpcWithBlockhashRetry("buy_primary", async () => {
-    return await (program.methods as any)
-      .buyPrimary(buyAmount)
-      .accounts({
-        pool: poolPda,
-        poolSigner: poolSignerPda,
-        bunkercashMint: bunkercashMintPda,
-        user: wallet,
-        usdcMint,
-        userUsdc: userUsdcAta,
-        payoutUsdcVault: payoutUsdcVaultAta,
-        userBunkercash: userBnkrAta,
-        usdcTokenProgram: TOKEN_PROGRAM_ID,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
-        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc({ commitment: "confirmed" });
-  });
-  console.log("\nbuy_primary tx:", buySig);
+    const buySig = await rpcWithBlockhashRetry("buy_primary", async () => {
+      return await (program.methods as any)
+        .buyPrimary(buyAmount)
+        .accounts({
+          pool: poolPda,
+          poolSigner: poolSignerPda,
+          bunkercashMint: bunkercashMintPda,
+          user: wallet,
+          usdcMint,
+          userUsdc: userUsdcAta,
+          payoutUsdcVault: payoutUsdcVaultAta,
+          userBunkercash: userBnkrAta,
+          usdcTokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc({ commitment: "confirmed" });
+    });
+    console.log("\nbuy_primary tx:", buySig);
 
-  await printSnapshot({
-    provider,
-    program,
-    poolPda,
-    bunkercashMintPda,
-    poolSignerPda,
-    usdcMint,
-    userUsdcAta,
-    payoutUsdcVaultAta,
-    userBnkrAta,
-    escrowBnkrVaultAta,
-  });
+    await printSnapshot({
+      provider,
+      program,
+      poolPda,
+      bunkercashMintPda,
+      poolSignerPda,
+      usdcMint,
+      userUsdcAta,
+      payoutUsdcVaultAta,
+      userBnkrAta,
+      escrowBnkrVaultAta,
+    });
   }
 
   // SELL (register_sell escrow lock) - create multiple claims for pro-rata testing.
@@ -377,30 +428,35 @@ async function main() {
     // Derive the Claim PDA from the latest on-chain counter.
     // This avoids failures if we have to retry due to blockhash/RPC hiccups.
     let claimPda: PublicKey | null = null;
-    const sellSig = await rpcWithBlockhashRetry(`register_sell(${s.label})`, async () => {
-      const poolState = await (program.account as any).poolState.fetch(poolPda);
-      const claimCounter: BN = poolState.claimCounter as BN;
-      const [pda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("claim"), poolPda.toBuffer(), bnU64LE(claimCounter)],
-        program.programId
-      );
-      claimPda = pda;
-      return await (program.methods as any)
-        .registerSell(s.amount)
-        .accounts({
-          pool: poolPda,
-          poolSigner: poolSignerPda,
-          bunkercashMint: bunkercashMintPda,
-          claim: pda,
-          user: wallet,
-          userBunkercash: userBnkrAta,
-          escrowBunkercashVault: escrowBnkrVaultAta,
-          tokenProgram: TOKEN_2022_PROGRAM_ID,
-          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc({ commitment: "confirmed" });
-    });
+    const sellSig = await rpcWithBlockhashRetry(
+      `register_sell(${s.label})`,
+      async () => {
+        const poolState = await (program.account as any).poolState.fetch(
+          poolPda
+        );
+        const claimCounter: BN = poolState.claimCounter as BN;
+        const [pda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("claim"), poolPda.toBuffer(), bnU64LE(claimCounter)],
+          program.programId
+        );
+        claimPda = pda;
+        return await (program.methods as any)
+          .registerSell(s.amount)
+          .accounts({
+            pool: poolPda,
+            poolSigner: poolSignerPda,
+            bunkercashMint: bunkercashMintPda,
+            claim: pda,
+            user: wallet,
+            userBunkercash: userBnkrAta,
+            escrowBunkercashVault: escrowBnkrVaultAta,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc({ commitment: "confirmed" });
+      }
+    );
     console.log(`\nregister_sell(${s.label}) tx:`, sellSig);
     if (!claimPda) throw new Error("Claim PDA was not computed.");
     console.log("Claim PDA:", claimPda.toBase58());
@@ -424,18 +480,21 @@ async function main() {
   // Admin must equal pool.admin (and program requires pool.admin == SQUADS_VAULT_PUBKEY).
   // Use .env SQUADS_VAULT_PUBKEY = your test wallet so e2e can sign as admin.
   if (process.env.LIQ_USDC) {
-    const poolStateForLiq = await (program.account as any).poolState.fetch(poolPda);
+    const poolStateForLiq = await (program.account as any).poolState.fetch(
+      poolPda
+    );
     const adminForLiq = poolStateForLiq.admin as PublicKey;
     const liqAmount = uiToBaseUnits(process.env.LIQ_USDC, USDC_DECIMALS);
     // Admin's USDC ATA: if admin is e2e wallet, use userUsdcAta; else would need to pass the vault ATA.
-    const adminUsdcAta =
-      adminForLiq.equals(wallet) ? userUsdcAta : await getAssociatedTokenAddressSync(
-        usdcMint,
-        adminForLiq,
-        false,
-        TOKEN_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      );
+    const adminUsdcAta = adminForLiq.equals(wallet)
+      ? userUsdcAta
+      : await getAssociatedTokenAddressSync(
+          usdcMint,
+          adminForLiq,
+          false,
+          TOKEN_PROGRAM_ID,
+          ASSOCIATED_TOKEN_PROGRAM_ID
+        );
     const addSig = await rpcWithBlockhashRetry("add_liquidity", async () => {
       return await (program.methods as any)
         .addLiquidity(liqAmount)
@@ -470,8 +529,11 @@ async function main() {
         "-",
         (c.publicKey as PublicKey).toBase58(),
         "user=" + (c.account.user as PublicKey).toBase58(),
-        "locked=" + (c.account.tokenAmountLocked?.toString?.() ?? String(c.account.tokenAmountLocked)),
-        "paid=" + (c.account.usdcPaid?.toString?.() ?? String(c.account.usdcPaid))
+        "locked=" +
+          (c.account.tokenAmountLocked?.toString?.() ??
+            String(c.account.tokenAmountLocked)),
+        "paid=" +
+          (c.account.usdcPaid?.toString?.() ?? String(c.account.usdcPaid))
       );
     }
 
@@ -527,7 +589,9 @@ async function main() {
     console.log("\nClaimState:", pk.toBase58(), {
       id: claim.id?.toString?.() ?? String(claim.id),
       user: claim.user?.toBase58?.() ?? String(claim.user),
-      tokenAmountLocked: claim.tokenAmountLocked?.toString?.() ?? String(claim.tokenAmountLocked),
+      tokenAmountLocked:
+        claim.tokenAmountLocked?.toString?.() ??
+        String(claim.tokenAmountLocked),
       usdcPaid: claim.usdcPaid?.toString?.() ?? String(claim.usdcPaid),
       isClosed: claim.isClosed,
       createdAt: claim.createdAt?.toString?.() ?? String(claim.createdAt),

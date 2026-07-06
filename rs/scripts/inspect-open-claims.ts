@@ -30,11 +30,15 @@ async function main() {
     pubkey: (x.publicKey as PublicKey).toBase58(),
     user: (x.account.user as PublicKey).toBase58(),
     id: x.account.id?.toString?.() ?? String(x.account.id),
-    locked: x.account.tokenAmountLocked?.toString?.() ?? String(x.account.tokenAmountLocked),
+    locked:
+      x.account.tokenAmountLocked?.toString?.() ??
+      String(x.account.tokenAmountLocked),
     paid: x.account.usdcPaid?.toString?.() ?? String(x.account.usdcPaid),
   }));
 
-  normalized.sort((a: any, b: any) => BigInt(b.locked) > BigInt(a.locked) ? 1 : -1);
+  normalized.sort((a: any, b: any) =>
+    BigInt(b.locked) > BigInt(a.locked) ? 1 : -1
+  );
 
   const topN = Number(process.env.TOP_N ?? "10");
   console.log("Cluster:", provider.connection.rpcEndpoint);
@@ -52,4 +56,3 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
-

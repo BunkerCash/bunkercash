@@ -15,7 +15,8 @@ import {
   getProgram,
   PROGRAM_ID,
 } from "@/lib/program";
-import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
+import { useAuth } from "@/lib/auth";
+import { useAdminTransaction } from "@/hooks/useAdminTransaction";
 
 interface FeeConfigLike {
   adminWallet: string;
@@ -49,6 +50,8 @@ function getErrorMessage(error: unknown, fallback: string): string {
 export function FeesCard() {
   const { connection } = useConnection();
   const wallet = useWallet();
+  const { isAdmin } = useAuth();
+  const { authority, isSquadsMode, submit } = useAdminTransaction();
 
   const [state, setState] = useState<FeesState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -112,12 +115,7 @@ export function FeesCard() {
     [claimFeeInput],
   );
 
-  const connectedWalletBase58 = wallet.publicKey?.toBase58() ?? null;
-  const adminWalletBase58 = state?.admin ?? null;
-  const isAuthorizedWallet =
-    !!connectedWalletBase58 &&
-    !!adminWalletBase58 &&
-    connectedWalletBase58 === adminWalletBase58;
+  const isAuthorizedWallet = isAdmin;
 
   const hasChanges =
     !!state &&
@@ -130,6 +128,8 @@ export function FeesCard() {
     if (
       !program ||
       !wallet.publicKey ||
+      !authority ||
+      !state ||
       parsedPurchaseFeeBps === null ||
       parsedClaimFeeBps === null
     ) {
@@ -146,21 +146,34 @@ export function FeesCard() {
         .accounts({
           pool: poolPda,
           feeConfig: feeConfigPda,
-          admin: wallet.publicKey,
+          admin: authority,
           systemProgram: SystemProgram.programId,
         })
         .instruction();
 
-      const tx = new Transaction();
-      tx.add(ix);
-
-      const signature = await sendAndConfirmWalletTransaction({
-        connection,
-        wallet,
-        transaction: tx,
+      const result = await submit({
+        instructions: [ix],
+        memo: "BunkerCash admin: set fee config",
+        review: {
+          fields: [
+            {
+              label: "purchase fee old -> new",
+              value: `${formatPercentFromBps(state.purchaseFeeBps)}% -> ${formatPercentFromBps(parsedPurchaseFeeBps)}%`,
+            },
+            {
+              label: "claim fee old -> new",
+              value: `${formatPercentFromBps(state.claimFeeBps)}% -> ${formatPercentFromBps(parsedClaimFeeBps)}%`,
+            },
+            { label: "pool PDA", value: poolPda.toBase58() },
+          ],
+        },
       });
 
-      setTxSuccess(signature);
+      setTxSuccess(
+        result.mode === "squads-v4"
+          ? `Fee configuration proposal created. Squads: ${result.squadsUrl}`
+          : `Fee configuration updated. Tx: ${shortPk(result.signature)}`,
+      );
       setPurchaseFeeInput("");
       setClaimFeeInput("");
       await fetchState();
@@ -224,9 +237,9 @@ export function FeesCard() {
               </div>
 
               <div className="rounded-lg border border-neutral-800 bg-neutral-950/60 p-4">
-                <p className="text-xs uppercase tracking-wide text-neutral-500">Admin Wallet</p>
+                <p className="text-xs uppercase tracking-wide text-neutral-500">Pool Authority</p>
                 <p className="mt-2 text-sm font-medium text-white">{shortPk(state.admin)}</p>
-                <p className="mt-1 text-xs text-neutral-500">Only this wallet can update fees.</p>
+                <p className="mt-1 text-xs text-neutral-500">Admin access is verified by the server.</p>
               </div>
             </div>
 
@@ -284,12 +297,11 @@ export function FeesCard() {
 
             {!wallet.publicKey ? (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
-                Connect the admin wallet to update fees.
+                Connect an authorized admin wallet to update fees.
               </div>
             ) : !isAuthorizedWallet ? (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
-                Connected wallet {shortPk(connectedWalletBase58 ?? "")} does not match the on-chain admin{" "}
-                {shortPk(state.admin)}.
+                Connected wallet is not authorized for admin updates.
               </div>
             ) : null}
 
@@ -301,7 +313,7 @@ export function FeesCard() {
 
             {txSuccess && (
               <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
-                Fee configuration updated. Transaction: {shortPk(txSuccess)}
+                {txSuccess}
               </div>
             )}
 
@@ -321,7 +333,7 @@ export function FeesCard() {
                 type="button"
               >
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldAlert className="h-4 w-4" />}
-                {submitting ? "Saving..." : "Save Fees"}
+                {submitting ? "Saving..." : isSquadsMode ? "Create Proposal" : "Save Fees"}
               </button>
             </div>
           </div>

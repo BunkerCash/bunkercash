@@ -1,11 +1,16 @@
 {
   "license": "BUSL-1.1",
   "scripts": {
+    "check:lockfiles": "node ../scripts/check-lockfiles.mjs",
     "check:pool": "ts-node -P tsconfig.json scripts/check-pool-balances.ts",
+    "deploy:governed": "ts-node -P tsconfig.json scripts/deploy-governed.ts",
     "e2e": "ts-node -P tsconfig.json scripts/e2e-buy-sell.ts",
     "init:metadata": "ts-node -P tsconfig.json scripts/init-mint-metadata.ts",
+    "require:upgrade-authority": "ts-node -P tsconfig.json scripts/require-program-upgrade-authority.ts",
     "squads:v4:create": "ts-node -P tsconfig.json scripts/create-squads-v4-multisig.ts",
     "update:metadata": "ts-node -P tsconfig.json scripts/update-mint-metadata.ts",
+    "verify:governance": "ts-node -P tsconfig.json scripts/verify-squads-setup.ts",
+    "verify:upgrade-authority": "ts-node -P tsconfig.json scripts/verify-program-upgrade-authority.ts",
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check"
   },
@@ -17,9 +22,7 @@
     "@solana/spl-token": "=0.4.14",
     "@solana/web3.js": "=1.98.4",
     "@sqds/multisig": "=2.1.4",
-    "anchor": "=1.4.2",
-    "bn.js": "=5.2.1",
-    "cargo": "=0.8.0"
+    "bn.js": "=5.2.1"
   },
   "devDependencies": {
     "@types/bn.js": "=5.1.0",

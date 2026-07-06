@@ -1,8 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EMPTY_BODY_SHA256 } from "./admin-auth-message";
+import { ADMIN_AUTH_SIGNATURE_TTL_MS, EMPTY_BODY_SHA256 } from "./admin-auth-message";
 import { AdminAuthNonceDurableObject } from "./admin-auth-nonce-durable-object";
 
 const challenge = {
+  wallet: "11111111111111111111111111111112",
+  domain: "admin.bunkercash.com",
+  env: "production",
+  cluster: "mainnet-beta",
+  programId: "11111111111111111111111111111112",
+  pool: "11111111111111111111111111111112",
+  squadsMultisig: "none",
+  squadsVault: "none",
   method: "GET",
   route: "/api/support-requests?limit=25",
   bodyHash: EMPTY_BODY_SHA256,
@@ -46,6 +54,16 @@ function makeRequest(path: string, payload = challenge) {
       "content-type": "application/json",
     },
     body: JSON.stringify(payload),
+  });
+}
+
+function makeRateLimitRequest(maxRequests = 2, windowSeconds = 60) {
+  return new Request("https://admin-auth-nonce.internal/rate-limit", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ maxRequests, windowSeconds }),
   });
 }
 
@@ -97,7 +115,29 @@ describe("AdminAuthNonceDurableObject", () => {
     });
     expect(storage.values.get("challenge")).toEqual({
       ...challenge,
-      expiresAt: Date.parse(challenge.issuedAt) + 5 * 60 * 1000,
+      expiresAt: Date.parse(challenge.issuedAt) + ADMIN_AUTH_SIGNATURE_TTL_MS,
+    });
+  });
+
+  it("rejects wallet/program context mismatches without consuming the nonce", async () => {
+    const storage = makeDurableObjectStorage();
+    const durableObject = new AdminAuthNonceDurableObject(storage.state, {});
+
+    await durableObject.fetch(makeRequest("/issue"));
+    const response = await durableObject.fetch(
+      makeRequest("/consume", {
+        ...challenge,
+        wallet: "11111111111111111111111111111113",
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Admin authorization nonce mismatch",
+    });
+    expect(storage.values.get("challenge")).toEqual({
+      ...challenge,
+      expiresAt: Date.parse(challenge.issuedAt) + ADMIN_AUTH_SIGNATURE_TTL_MS,
     });
   });
 
@@ -106,13 +146,52 @@ describe("AdminAuthNonceDurableObject", () => {
     const durableObject = new AdminAuthNonceDurableObject(storage.state, {});
 
     await durableObject.fetch(makeRequest("/issue"));
-    vi.setSystemTime(new Date("2026-04-07T10:05:01.000Z"));
+    vi.setSystemTime(new Date(Date.parse(challenge.issuedAt) + ADMIN_AUTH_SIGNATURE_TTL_MS + 1));
 
     const response = await durableObject.fetch(makeRequest("/consume"));
 
     expect(response.status).toBe(410);
     expect(await response.json()).toEqual({
       error: "Admin authorization nonce expired",
+    });
+  });
+
+  it("rejects malformed nonce payloads", async () => {
+    const storage = makeDurableObjectStorage();
+    const durableObject = new AdminAuthNonceDurableObject(storage.state, {});
+
+    const response = await durableObject.fetch(
+      makeRequest("/issue", {
+        ...challenge,
+        nonce: "not-a-nonce",
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Invalid nonce challenge",
+    });
+  });
+
+  it("rate-limits challenge checks in a fixed window", async () => {
+    const storage = makeDurableObjectStorage();
+    const durableObject = new AdminAuthNonceDurableObject(storage.state, {});
+
+    await expect(
+      durableObject.fetch(makeRateLimitRequest()),
+    ).resolves.toMatchObject({ status: 204 });
+    await expect(
+      durableObject.fetch(makeRateLimitRequest()),
+    ).resolves.toMatchObject({ status: 204 });
+
+    const rejected = await durableObject.fetch(makeRateLimitRequest());
+
+    expect(rejected.status).toBe(429);
+    expect(rejected.headers.get("retry-after")).toBe("60");
+    expect(await rejected.json()).toEqual({ retryAfterSeconds: 60 });
+    expect(storage.values.get("rate-limit-window")).toEqual({
+      count: 2,
+      resetAt: Date.now() + 60 * 1000,
     });
   });
 });

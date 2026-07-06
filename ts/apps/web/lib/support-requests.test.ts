@@ -116,6 +116,7 @@ describe("enforceSupportRequestRateLimit", () => {
   });
 
   afterEach(() => {
+    delete process.env.NEXT_PUBLIC_DEPLOY_ENV;
     vi.useRealTimers();
     vi.clearAllMocks();
   });
@@ -188,6 +189,46 @@ describe("enforceSupportRequestRateLimit", () => {
 
     expect(rateLimitFetchMock).toHaveBeenCalledTimes(1);
     expect(kvPutMock).not.toHaveBeenCalled();
+  });
+
+  it("does not trust spoofable forwarded headers in production", async () => {
+    process.env.NEXT_PUBLIC_DEPLOY_ENV = "production";
+
+    await enforceSupportRequestRateLimit(
+      makeRequest({
+        "x-forwarded-for": "198.51.100.10",
+        "x-real-ip": "198.51.100.11",
+      }),
+      supportInput,
+    );
+    await enforceSupportRequestRateLimit(
+      makeRequest({
+        "x-forwarded-for": "203.0.113.10",
+        "x-real-ip": "203.0.113.11",
+      }),
+      supportInput,
+    );
+
+    expect(rateLimitIdFromNameMock.mock.calls[0]?.[0]).toBe(
+      rateLimitIdFromNameMock.mock.calls[2]?.[0],
+    );
+  });
+
+  it("keeps spoofable header fallback available outside production", async () => {
+    process.env.NEXT_PUBLIC_DEPLOY_ENV = "dev";
+
+    await enforceSupportRequestRateLimit(
+      makeRequest({ "x-forwarded-for": "198.51.100.10" }),
+      supportInput,
+    );
+    await enforceSupportRequestRateLimit(
+      makeRequest({ "x-forwarded-for": "203.0.113.10" }),
+      supportInput,
+    );
+
+    expect(rateLimitIdFromNameMock.mock.calls[0]?.[0]).not.toBe(
+      rateLimitIdFromNameMock.mock.calls[2]?.[0],
+    );
   });
 });
 

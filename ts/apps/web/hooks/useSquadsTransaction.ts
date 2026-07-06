@@ -44,16 +44,17 @@ function assertSquadsConfigured() {
 /**
  * Hook for creating Squads v4 vault transaction proposals.
  *
- * Wraps the given instructions in a vault transaction, creates the proposal,
- * and immediately casts the creator's approval.
+ * Wraps the given instructions in a vault transaction and creates the proposal.
+ * Approval must happen as a separate explicit action after reviewing the
+ * decoded proposal details.
  *
  * Because the serialized inner message can be large, the work is split across
  * two on-chain transactions to stay under Solana's 1232-byte packet limit:
  *   TX 1 – vaultTransactionCreate  (contains the full serialized inner message)
- *   TX 2 – proposalCreate + proposalApprove
+ *   TX 2 – proposalCreate
  *
- * Both are signed together via `signAllTransactions` for a single wallet popup,
- * then sent sequentially (TX 2 depends on TX 1 being confirmed).
+ * Both are signed together via `signAllTransactions`, then sent sequentially
+ * (TX 2 depends on TX 1 being confirmed). No approval is included.
  */
 export function useSquadsTransaction() {
   const { connection } = useConnection()
@@ -136,16 +137,9 @@ export function useSquadsTransaction() {
           isDraft: false,
         })
 
-        const approveProposalIx = multisig.instructions.proposalApprove({
-          multisigPda,
-          transactionIndex: nextIndex,
-          member: wallet.publicKey,
-          memo: memo ? `approve: ${memo}` : undefined,
-        })
-
         // ── 4. Split into two transactions to stay under the 1232-byte limit ─
         //   TX 1: vaultTransactionCreate (large — carries the serialized inner message)
-        //   TX 2: proposalCreate + proposalApprove (small — only Squads PDAs)
+        //   TX 2: proposalCreate (small — only Squads PDAs)
         const tx1Message = new TransactionMessage({
           payerKey: wallet.publicKey,
           recentBlockhash: blockhash,
@@ -155,7 +149,7 @@ export function useSquadsTransaction() {
         const tx2Message = new TransactionMessage({
           payerKey: wallet.publicKey,
           recentBlockhash: blockhash,
-          instructions: [createProposalIx, approveProposalIx],
+          instructions: [createProposalIx],
         }).compileToV0Message()
 
         const vtx1 = new VersionedTransaction(tx1Message)
@@ -177,7 +171,7 @@ export function useSquadsTransaction() {
           "confirmed",
         )
 
-        // ── 6. Send TX 2 (proposal + approve) ───────────────────────────────
+        // ── 6. Send TX 2 (proposal create only) ─────────────────────────────
         // If the original blockhash expired while waiting for TX1, retry with a fresh one.
         let sig2: string
         try {
@@ -196,7 +190,7 @@ export function useSquadsTransaction() {
           const retryMsg = new TransactionMessage({
             payerKey: wallet.publicKey,
             recentBlockhash: fresh.blockhash,
-            instructions: [createProposalIx, approveProposalIx],
+            instructions: [createProposalIx],
           }).compileToV0Message()
           const retryTx = new VersionedTransaction(retryMsg)
           const retrySigned = await wallet.signAllTransactions([retryTx])
@@ -236,7 +230,7 @@ export function useSquadsTransaction() {
           transactionPda: transactionPda.toBase58(),
           squadsUrl,
           signature: sig1,
-          autoApproved: true,
+          autoApproved: false,
         }
         setResult(out)
         return out

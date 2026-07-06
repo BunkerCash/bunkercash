@@ -1,25 +1,56 @@
 import { createHash } from "crypto";
 import { clusterApiUrl, Connection, PublicKey } from "@solana/web3.js";
+import * as multisig from "@sqds/multisig";
 import {
   ADMIN_AUTH_SIGNATURE_TTL_MS,
   buildAdminAccessMessage,
   type AdminAuthRequestChallenge,
 } from "./admin-auth-message";
 import { consumeAdminAuthNonce } from "./admin-auth-nonce";
+import { buildAdminAuthContext } from "./admin-auth-nonce";
 import { getPoolPda, getReadonlyProgram } from "./program";
 import { getConfiguredRpcCluster } from "./solana-env";
 
 const CLOCK_SKEW_TOLERANCE_MS = 30 * 1000; // allow 30 s of clock skew for future timestamps
-const ADMIN_WALLETS_TTL_MS = 60 * 1000;
-const ADMIN_WALLETS_FAILURE_BACKOFF_MS = 15 * 1000;
+const ADMIN_AUTHORITY_TTL_MS = Number(process.env.ADMIN_AUTHORITY_TTL_MS ?? 30 * 1000);
+const ADMIN_AUTHORITY_FAILURE_BACKOFF_MS = 15 * 1000;
 
 interface PoolAccountLike {
   masterWallet: { toBase58: () => string };
 }
 
-let adminWalletsCache: { wallets: Set<string>; ts: number } | null = null;
-let adminWalletsPromise: Promise<Set<string>> | null = null;
-let adminWalletsFailureTs = 0;
+export type AdminGovernanceMode = "single-wallet" | "squads-v4";
+export type AdminRole = "single-wallet" | "squads-member" | "override" | "none";
+
+export interface AdminIdentity {
+  wallet: string;
+  isAdmin: boolean;
+  role: AdminRole;
+  governanceMode: AdminGovernanceMode;
+  poolMasterWallet: string;
+  squadsMultisig: string | null;
+  squadsVault: string | null;
+  squadsVaultIndex: number | null;
+  squadsPermissions: string[];
+}
+
+interface SquadsMemberSnapshot {
+  wallet: string;
+  permissions: string[];
+}
+
+interface AdminAuthorityState {
+  poolMasterWallet: string;
+  governanceMode: AdminGovernanceMode;
+  squadsMultisig: string | null;
+  squadsVault: string | null;
+  squadsVaultIndex: number | null;
+  squadsMembers: SquadsMemberSnapshot[];
+}
+
+let adminAuthorityCache: { state: AdminAuthorityState; ts: number } | null = null;
+let adminAuthorityPromise: Promise<AdminAuthorityState> | null = null;
+let adminAuthorityFailureTs = 0;
 
 function getRpcEndpoints(): string[] {
   const cluster = getConfiguredRpcCluster();
@@ -36,74 +67,228 @@ function getRpcEndpoints(): string[] {
 function withAdminOverride(wallets: Iterable<string>): Set<string> {
   const resolved = new Set(wallets);
   const override = process.env.ADMIN_OVERRIDE_WALLET?.trim();
-  if (override) {
-    resolved.add(override);
+  if (!override) {
+    return resolved;
+  }
+
+  const expiresAtRaw = process.env.ADMIN_OVERRIDE_EXPIRES_AT?.trim();
+  const expiresAtMs = expiresAtRaw ? Date.parse(expiresAtRaw) : NaN;
+  if (!expiresAtRaw || !Number.isFinite(expiresAtMs)) {
+    console.warn("[admin-auth] ADMIN_OVERRIDE_WALLET ignored: ADMIN_OVERRIDE_EXPIRES_AT is missing or invalid");
+    return resolved;
+  }
+  if (Date.now() >= expiresAtMs) {
+    console.warn("[admin-auth] ADMIN_OVERRIDE_WALLET ignored: override is expired");
+    return resolved;
+  }
+
+  try {
+    resolved.add(new PublicKey(override).toBase58());
+  } catch {
+    console.warn("[admin-auth] ADMIN_OVERRIDE_WALLET ignored: invalid wallet");
+    return resolved;
   }
   return resolved;
 }
 
-export async function getAuthorizedAdminWallets(): Promise<Set<string>> {
-  if (
-    adminWalletsCache &&
-    Date.now() - adminWalletsCache.ts < ADMIN_WALLETS_TTL_MS
-  ) {
-    return withAdminOverride(adminWalletsCache.wallets);
+function getConfiguredSquadsMultisig(): PublicKey | null {
+  const value =
+    process.env.SQUADS_MULTISIG_PUBKEY?.trim() ||
+    process.env.NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY?.trim();
+  return value ? new PublicKey(value) : null;
+}
+
+function getConfiguredSquadsVaultIndex(): number {
+  const raw =
+    process.env.SQUADS_VAULT_INDEX?.trim() ||
+    process.env.NEXT_PUBLIC_SQUADS_VAULT_INDEX?.trim() ||
+    "0";
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error("Invalid Squads vault index");
+  }
+  return value;
+}
+
+function getSquadsConfig():
+  | { multisigPda: PublicKey; vaultPda: PublicKey; vaultIndex: number }
+  | null {
+  const multisigPda = getConfiguredSquadsMultisig();
+  if (!multisigPda) return null;
+
+  const vaultIndex = getConfiguredSquadsVaultIndex();
+  const vaultPda = multisig.getVaultPda({ multisigPda, index: vaultIndex })[0];
+  return { multisigPda, vaultPda, vaultIndex };
+}
+
+function describeSquadsPermissions(permissions: multisig.generated.Permissions): string[] {
+  const result: string[] = [];
+  if (multisig.types.Permissions.has(permissions, multisig.types.Permission.Initiate)) {
+    result.push("initiate");
+  }
+  if (multisig.types.Permissions.has(permissions, multisig.types.Permission.Vote)) {
+    result.push("vote");
+  }
+  if (multisig.types.Permissions.has(permissions, multisig.types.Permission.Execute)) {
+    result.push("execute");
+  }
+  return result;
+}
+
+function memberHasConfiguredPermission(member: SquadsMemberSnapshot): boolean {
+  const required = (process.env.ADMIN_SQUADS_REQUIRED_PERMISSION ?? "member")
+    .trim()
+    .toLowerCase();
+
+  if (!required || required === "member") {
+    return true;
   }
 
-  if (
-    adminWalletsFailureTs &&
-    Date.now() - adminWalletsFailureTs < ADMIN_WALLETS_FAILURE_BACKOFF_MS
-  ) {
-    if (adminWalletsCache) {
-      return withAdminOverride(adminWalletsCache.wallets);
-    }
-    throw new Error("Admin wallet lookup temporarily unavailable");
+  if (required === "initiate" || required === "vote" || required === "execute") {
+    return member.permissions.includes(required);
   }
 
-  if (adminWalletsPromise) {
-    return withAdminOverride(await adminWalletsPromise);
-  }
+  throw new Error("Invalid ADMIN_SQUADS_REQUIRED_PERMISSION");
+}
 
-  adminWalletsPromise = (async () => {
-    const endpoints = getRpcEndpoints();
-    let lastError: unknown;
+async function fetchAdminAuthorityState(): Promise<AdminAuthorityState> {
+  const endpoints = getRpcEndpoints();
+  const squadsConfig = getSquadsConfig();
+  let lastError: unknown;
 
-    for (const endpoint of endpoints) {
-      try {
-        const connection = new Connection(endpoint, "confirmed");
-        const program = getReadonlyProgram(connection);
-        const accountApi = program.account as {
-          pool: { fetch: (pubkey: ReturnType<typeof getPoolPda>) => Promise<PoolAccountLike> };
+  for (const endpoint of endpoints) {
+    try {
+      const connection = new Connection(endpoint, "confirmed");
+      const program = getReadonlyProgram(connection);
+      const accountApi = program.account as {
+        pool: { fetch: (pubkey: ReturnType<typeof getPoolPda>) => Promise<PoolAccountLike> };
+      };
+      const poolState = await accountApi.pool.fetch(getPoolPda());
+      const poolMasterWallet = poolState.masterWallet.toBase58();
+
+      if (squadsConfig && poolMasterWallet === squadsConfig.vaultPda.toBase58()) {
+        const squadsAccount = await multisig.accounts.Multisig.fromAccountAddress(
+          connection,
+          squadsConfig.multisigPda,
+          "confirmed",
+        );
+
+        return {
+          poolMasterWallet,
+          governanceMode: "squads-v4",
+          squadsMultisig: squadsConfig.multisigPda.toBase58(),
+          squadsVault: squadsConfig.vaultPda.toBase58(),
+          squadsVaultIndex: squadsConfig.vaultIndex,
+          squadsMembers: squadsAccount.members.map((member) => ({
+            wallet: member.key.toBase58(),
+            permissions: describeSquadsPermissions(member.permissions),
+          })),
         };
-        const poolState = await accountApi.pool.fetch(getPoolPda());
-        const wallets = new Set([poolState.masterWallet.toBase58()]);
-
-        adminWalletsFailureTs = 0;
-        adminWalletsCache = { wallets, ts: Date.now() };
-        return wallets;
-      } catch (error) {
-        lastError = error;
       }
-    }
 
-    const override = process.env.ADMIN_OVERRIDE_WALLET?.trim();
-    if (override) {
-      const wallets = new Set(adminWalletsCache?.wallets ?? []);
-      adminWalletsCache = { wallets, ts: Date.now() };
-      return wallets;
+      return {
+        poolMasterWallet,
+        governanceMode: "single-wallet",
+        squadsMultisig: null,
+        squadsVault: null,
+        squadsVaultIndex: null,
+        squadsMembers: [],
+      };
+    } catch (error) {
+      lastError = error;
     }
+  }
 
-    throw lastError;
-  })();
+  throw lastError;
+}
+
+async function getAdminAuthorityState(): Promise<AdminAuthorityState> {
+  if (
+    adminAuthorityCache &&
+    Date.now() - adminAuthorityCache.ts < ADMIN_AUTHORITY_TTL_MS
+  ) {
+    return adminAuthorityCache.state;
+  }
+
+  if (
+    adminAuthorityFailureTs &&
+    Date.now() - adminAuthorityFailureTs < ADMIN_AUTHORITY_FAILURE_BACKOFF_MS
+  ) {
+    if (adminAuthorityCache) {
+      return adminAuthorityCache.state;
+    }
+    throw new Error("Admin authority lookup temporarily unavailable");
+  }
+
+  if (adminAuthorityPromise) {
+    return adminAuthorityPromise;
+  }
+
+  adminAuthorityPromise = fetchAdminAuthorityState();
 
   try {
-    return withAdminOverride(await adminWalletsPromise);
+    const state = await adminAuthorityPromise;
+    adminAuthorityFailureTs = 0;
+    adminAuthorityCache = { state, ts: Date.now() };
+    return state;
   } catch (error) {
-    adminWalletsFailureTs = Date.now();
+    adminAuthorityFailureTs = Date.now();
     throw error;
   } finally {
-    adminWalletsPromise = null;
+    adminAuthorityPromise = null;
   }
+}
+
+export async function resolveAdminIdentity(wallet: string): Promise<AdminIdentity> {
+  const state = await getAdminAuthorityState();
+  const overrideWallets = withAdminOverride([]);
+  if (overrideWallets.has(wallet)) {
+    console.warn("[admin-auth] ADMIN_OVERRIDE_WALLET used", {
+      wallet,
+      expiresAt: process.env.ADMIN_OVERRIDE_EXPIRES_AT,
+      governanceMode: state.governanceMode,
+    });
+    return {
+      wallet,
+      isAdmin: true,
+      role: "override",
+      governanceMode: state.governanceMode,
+      poolMasterWallet: state.poolMasterWallet,
+      squadsMultisig: state.squadsMultisig,
+      squadsVault: state.squadsVault,
+      squadsVaultIndex: state.squadsVaultIndex,
+      squadsPermissions: [],
+    };
+  }
+
+  if (state.governanceMode === "squads-v4") {
+    const member = state.squadsMembers.find((entry) => entry.wallet === wallet);
+    const isAdmin = !!member && memberHasConfiguredPermission(member);
+    return {
+      wallet,
+      isAdmin,
+      role: isAdmin ? "squads-member" : "none",
+      governanceMode: state.governanceMode,
+      poolMasterWallet: state.poolMasterWallet,
+      squadsMultisig: state.squadsMultisig,
+      squadsVault: state.squadsVault,
+      squadsVaultIndex: state.squadsVaultIndex,
+      squadsPermissions: member?.permissions ?? [],
+    };
+  }
+
+  const isAdmin = wallet === state.poolMasterWallet;
+  return {
+    wallet,
+    isAdmin,
+    role: isAdmin ? "single-wallet" : "none",
+    governanceMode: state.governanceMode,
+    poolMasterWallet: state.poolMasterWallet,
+    squadsMultisig: state.squadsMultisig,
+    squadsVault: state.squadsVault,
+    squadsVaultIndex: state.squadsVaultIndex,
+    squadsPermissions: [],
+  };
 }
 
 function decodeBase64(value: string) {
@@ -143,6 +328,8 @@ function hashBodyText(bodyText: string): string {
 }
 
 function validateSignedChallenge(args: {
+  wallet: string;
+  domain: string;
   issuedAt: string | null;
   nonce: string | null;
   method: string;
@@ -151,7 +338,7 @@ function validateSignedChallenge(args: {
 }):
   | { ok: true; challenge: AdminAuthRequestChallenge }
   | { ok: false; error: string } {
-  const { issuedAt, nonce, method, route, bodyHash } = args;
+  const { wallet, domain, issuedAt, nonce, method, route, bodyHash } = args;
 
   if (!issuedAt || !nonce) {
     return { ok: false as const, error: "Missing admin authorization headers" };
@@ -176,6 +363,7 @@ function validateSignedChallenge(args: {
   return {
     ok: true as const,
     challenge: {
+      ...buildAdminAuthContext({ wallet, domain }),
       method,
       route,
       bodyHash,
@@ -190,17 +378,20 @@ export async function authorizeGeoblockingUpdate(args: {
   signature: string | null;
   issuedAt: string | null;
   nonce: string | null;
+  domain: string;
   method: string;
   route: string;
   bodyText: string;
 }) {
-  const { wallet, signature, issuedAt, nonce, method, route, bodyText } = args;
+  const { wallet, signature, issuedAt, nonce, domain, method, route, bodyText } = args;
 
   if (!wallet || !signature) {
     return { ok: false as const, error: "Missing admin authorization headers" };
   }
 
   const challenge = validateSignedChallenge({
+    wallet,
+    domain,
     issuedAt,
     nonce,
     method,
@@ -219,11 +410,6 @@ export async function authorizeGeoblockingUpdate(args: {
       return { ok: false as const, error: "Invalid admin signature" };
     }
 
-    const authorizedWallets = await getAuthorizedAdminWallets();
-    if (!authorizedWallets.has(wallet)) {
-      return { ok: false as const, error: "Connected wallet is not authorized" };
-    }
-
     const nonceResult = await consumeAdminAuthNonce(challenge.challenge);
     if (!nonceResult.ok) {
       return {
@@ -231,12 +417,17 @@ export async function authorizeGeoblockingUpdate(args: {
         error: nonceResult.error ?? "Admin authorization nonce is invalid",
       };
     }
+
+    const identity = await resolveAdminIdentity(wallet);
+    if (!identity.isAdmin) {
+      return { ok: false as const, error: "Connected wallet is not authorized" };
+    }
+
+    return { ok: true as const, identity };
   } catch (e: unknown) {
     console.error("[geoblocking-auth] Authorization verification failed:", e instanceof Error ? e.message : e);
     return { ok: false as const, error: "Failed to verify admin authorization" };
   }
-
-  return { ok: true as const };
 }
 
 export async function authorizeAdminAccess(args: {
@@ -244,17 +435,20 @@ export async function authorizeAdminAccess(args: {
   signature: string | null;
   issuedAt: string | null;
   nonce: string | null;
+  domain: string;
   method: string;
   route: string;
   bodyHash: string;
 }) {
-  const { wallet, signature, issuedAt, nonce, method, route, bodyHash } = args;
+  const { wallet, signature, issuedAt, nonce, domain, method, route, bodyHash } = args;
 
   if (!wallet || !signature) {
     return { ok: false as const, error: "Missing admin authorization headers" };
   }
 
   const challenge = validateSignedChallenge({
+    wallet,
+    domain,
     issuedAt,
     nonce,
     method,
@@ -275,12 +469,6 @@ export async function authorizeAdminAccess(args: {
       return { ok: false as const, error: "Invalid admin signature" };
     }
 
-    const authorizedWallets = await getAuthorizedAdminWallets();
-    const isAdmin = authorizedWallets.has(wallet);
-    if (!isAdmin) {
-      return { ok: true as const, isAdmin: false };
-    }
-
     const nonceResult = await consumeAdminAuthNonce(challenge.challenge);
     if (!nonceResult.ok) {
       return {
@@ -289,7 +477,8 @@ export async function authorizeAdminAccess(args: {
       };
     }
 
-    return { ok: true as const, isAdmin: true };
+    const identity = await resolveAdminIdentity(wallet);
+    return { ok: true as const, isAdmin: identity.isAdmin, identity };
   } catch (e: unknown) {
     console.error("[admin-auth] Access verification failed:", e instanceof Error ? e.message : e);
     return { ok: false as const, error: "Failed to verify admin authorization" };

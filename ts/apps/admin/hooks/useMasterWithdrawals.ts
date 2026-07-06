@@ -214,7 +214,7 @@ export function useMasterWithdrawals() {
         setLoading(false);
       }
     },
-    [poolPda, rpcEndpoints],
+    [poolPda, rpcEndpoint, rpcEndpoints],
   );
 
   useEffect(() => {

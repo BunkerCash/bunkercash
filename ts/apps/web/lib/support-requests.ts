@@ -16,6 +16,10 @@ const IP_RATE_LIMIT_MAX_REQUESTS = 3;
 const IP_RATE_LIMIT_WINDOW_SECONDS = 15 * 60;
 const EMAIL_RATE_LIMIT_MAX_REQUESTS = 5;
 const EMAIL_RATE_LIMIT_WINDOW_SECONDS = 24 * 60 * 60;
+// Turnstile/CAPTCHA decision: not required for the initial support form gate.
+// The public endpoint is limited by trusted Cloudflare client IP plus email.
+// Add Turnstile if production telemetry shows sustained bot abuse inside
+// these windows.
 
 export type {
   CreateSupportRequestInput,
@@ -45,6 +49,10 @@ function readString(value: unknown): string | null {
 
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+function isProductionDeployEnv(): boolean {
+  return process.env.NEXT_PUBLIC_DEPLOY_ENV?.trim() === "production";
 }
 
 function normalizeOptional(value: unknown, maxLength: number): string | null {
@@ -100,6 +108,10 @@ function getClientIp(request: Request): string | null {
   const cfConnectingIp = readString(request.headers.get("cf-connecting-ip"));
   if (cfConnectingIp) {
     return cfConnectingIp;
+  }
+
+  if (isProductionDeployEnv()) {
+    return "missing-cf-connecting-ip";
   }
 
   const xRealIp = readString(request.headers.get("x-real-ip"));

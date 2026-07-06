@@ -22,6 +22,7 @@ import {
   createAssociatedTokenAccountIdempotentInstruction,
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
+import { assertMainnetFundingAllowed } from "./governance";
 
 // Import the webapp's IDL so this script doesn't depend on generated types.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -37,7 +38,9 @@ const POOL_SIGNER_SEED = "bunkercash_pool_signer";
 function requireUsdcMint(): PublicKey {
   const mint = process.env.USDC_MINT;
   if (!mint) {
-    throw new Error("USDC_MINT must be set explicitly before running bootstrap-fixed-price.ts.");
+    throw new Error(
+      "USDC_MINT must be set explicitly before running bootstrap-fixed-price.ts."
+    );
   }
   return new PublicKey(mint);
 }
@@ -58,7 +61,10 @@ async function ensureAta(params: {
     ASSOCIATED_TOKEN_PROGRAM_ID
   );
 
-  const info = await params.provider.connection.getAccountInfo(ata, "confirmed");
+  const info = await params.provider.connection.getAccountInfo(
+    ata,
+    "confirmed"
+  );
   if (info) return ata;
 
   const ix = createAssociatedTokenAccountIdempotentInstruction(
@@ -92,6 +98,14 @@ async function main() {
   const program = new Program(idlJson as unknown as Idl, provider);
   console.log("Program:", program.programId.toBase58());
 
+  if (process.env.TEST_BUY_USDC) {
+    await assertMainnetFundingAllowed({
+      provider,
+      programId: program.programId,
+      action: "test buy",
+    });
+  }
+
   const [poolPda] = PublicKey.findProgramAddressSync(
     [Buffer.from(POOL_SEED)],
     program.programId
@@ -117,7 +131,10 @@ async function main() {
   console.log("Admin (pool admin):", adminPubkey.toBase58());
 
   // Initialize pool + mint if not already initialized.
-  const poolInfo = await provider.connection.getAccountInfo(poolPda, "confirmed");
+  const poolInfo = await provider.connection.getAccountInfo(
+    poolPda,
+    "confirmed"
+  );
   if (!poolInfo) {
     const priceUsdcPerToken = new BN(1_000_000); // 1 USDC per 1 token (USDC has 6 decimals)
     const initSig = await (program.methods as any)
@@ -165,7 +182,10 @@ async function main() {
   });
 
   console.log("User USDC ATA:", userUsdcAta.toBase58());
-  console.log("Payout USDC vault ATA (Pool Signer):", payoutUsdcVaultAta.toBase58());
+  console.log(
+    "Payout USDC vault ATA (Pool Signer):",
+    payoutUsdcVaultAta.toBase58()
+  );
   console.log("User BunkerCash ATA:", userBunkercashAta.toBase58());
 
   // Optional test buy (set TEST_BUY_USDC=2.5 to buy 2.5 USDC worth).

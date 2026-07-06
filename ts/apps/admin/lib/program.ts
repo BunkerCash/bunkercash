@@ -6,9 +6,20 @@ import idlJson from './bunkercash.fixed.idl.json'
 
 type IdlWithAddress = Idl & { address: string }
 
-const idl = idlJson as unknown as Idl
 const idlWithAddress = idlJson as unknown as IdlWithAddress
-const PROGRAM_ID = new PublicKey(idlWithAddress.address)
+
+function resolveProgramAddress(): string {
+  const configuredProgramId = process.env.NEXT_PUBLIC_BUNKERCASH_PROGRAM_ID?.trim()
+  if (configuredProgramId) return configuredProgramId
+  if (process.env.NEXT_PUBLIC_DEPLOY_ENV === 'production') {
+    throw new Error('NEXT_PUBLIC_BUNKERCASH_PROGRAM_ID is required in production')
+  }
+  return idlWithAddress.address
+}
+
+const programAddress = resolveProgramAddress()
+const PROGRAM_ID = new PublicKey(programAddress)
+const idl = { ...idlJson, address: programAddress } as unknown as Idl
 
 export type BunkercashIDL = Idl
 type BrowserWallet = ConstructorParameters<typeof AnchorProvider>[1]
