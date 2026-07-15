@@ -24,11 +24,14 @@ export async function sendAndConfirmWalletTransaction({
   wallet,
   transaction,
   commitment = "confirmed",
+  onSigned,
 }: {
   connection: Connection
   wallet: ProgramWallet
   transaction: Transaction
   commitment?: Commitment
+  /** Called with the signature once the wallet has signed, before confirmation. */
+  onSigned?: (signature: string) => void
 }): Promise<string> {
   if (!wallet.publicKey || !wallet.signTransaction) {
     throw new Error("Wallet not connected")
@@ -45,6 +48,7 @@ export async function sendAndConfirmWalletTransaction({
   if (!signature) {
     throw new Error("Wallet did not return a transaction signature")
   }
+  onSigned?.(signature)
 
   try {
     await connection.sendRawTransaction(signedTransaction.serialize(), {

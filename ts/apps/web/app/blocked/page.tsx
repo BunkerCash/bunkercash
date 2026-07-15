@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { ShieldAlert } from "lucide-react";
+import { WarnIcon } from "@/components/design/icons";
+import { Disclaimer } from "@/components/design/Disclaimer";
 
 export const metadata = {
   title: "Access Restricted | BunkerCash",
@@ -7,33 +8,33 @@ export const metadata = {
 
 export default function BlockedPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-black px-4">
-      <div className="max-w-md w-full text-center">
-        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-red-500/10 border border-red-500/20 mb-6">
-          <ShieldAlert className="w-8 h-8 text-red-400" />
-        </div>
-        <h1 className="text-2xl font-bold text-white mb-4">
-          Access Restricted
-        </h1>
-        <div className="text-neutral-400 text-sm leading-relaxed mb-6 space-y-3">
-          <p>BunkerCash is not available in your jurisdiction.</p>
-          <p>
-            Access to protocol functions has been restricted based on
-            jurisdictional and eligibility requirements.
-          </p>
-          <p>No offer or solicitation is made where unlawful.</p>
-        </div>
-        <div className="space-y-4">
-          <div className="text-xs text-neutral-600 leading-relaxed">
-            If you believe this restriction is incorrect, contact support.
-            Additional verification may be required.
+    <div className="flex min-h-screen flex-col bg-canvas text-ink">
+      <Disclaimer />
+      <div className="flex flex-1 items-center justify-center px-4">
+        <div className="flex max-w-md flex-col items-center gap-5 text-center">
+          <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-sell-line bg-sell-soft">
+            <WarnIcon size={24} className="text-sell" />
+          </span>
+          <h1 className="text-2xl font-semibold">Access restricted</h1>
+          <div className="flex flex-col gap-3 text-[13.5px] leading-relaxed text-ink-3">
+            <p>BunkerCash is not available in your jurisdiction.</p>
+            <p>
+              Access to protocol functions has been restricted based on
+              jurisdictional and eligibility requirements.
+            </p>
+            <p>No offer or solicitation is made where unlawful.</p>
           </div>
-          <Link
-            href="/support?source=blocked-page&subject=Access%20restriction%20review"
-            className="inline-flex items-center justify-center rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 text-sm font-medium text-cyan-200 transition-colors hover:border-cyan-300/50 hover:bg-cyan-400/15 hover:text-cyan-100"
-          >
-            Contact Support
-          </Link>
+          <div className="flex flex-col items-center gap-3">
+            <span className="text-[12px] text-ink-3">
+              If you believe this restriction is incorrect, contact support.
+            </span>
+            <Link
+              href="/support?source=blocked-page&subject=Access%20restriction%20review"
+              className="h-10 rounded-lg border border-line-2 bg-surface-2 px-5 text-[13.5px] font-semibold leading-10 text-ink no-underline transition-colors hover:border-mint-line"
+            >
+              Contact support
+            </Link>
+          </div>
         </div>
       </div>
     </div>

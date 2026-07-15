@@ -130,11 +130,15 @@ function toRateLimitObjectName(scope: string, hashedIdentity: string): string {
   return `${scope}:${hashedIdentity}`;
 }
 
-async function getSupportRateLimitNamespace(): Promise<DurableObjectNamespace> {
+async function getSupportRateLimitNamespace(): Promise<DurableObjectNamespace | null> {
   const { env } = await getCloudflareContext();
   const namespace = (env as Record<string, unknown>)[RATE_LIMIT_BINDING];
 
   if (!namespace) {
+    if (process.env.NODE_ENV === "development") {
+      return null;
+    }
+
     throw new Error(
       `Durable Object binding "${RATE_LIMIT_BINDING}" not found in environment`,
     );
@@ -169,6 +173,10 @@ async function enforceWindowRateLimit(options: {
 }) {
   const { scope, identity, maxRequests, windowSeconds } = options;
   const namespace = await getSupportRateLimitNamespace();
+  if (!namespace) {
+    return;
+  }
+
   const objectName = toRateLimitObjectName(
     scope,
     await hashIdentifier(identity),

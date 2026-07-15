@@ -11,32 +11,40 @@ import {
   createAssociatedTokenAccountIdempotentInstruction,
   getAssociatedTokenAddressSync,
 } from '@solana/spl-token'
+import { useSetAtom } from "jotai";
 import {
   getBunkercashMintPda,
   getFeeConfigPda,
   getMinClaimConfigPda,
   getPoolPda,
   getProgram,
-  getSettlementStatePda,
+  getReadonlyProgram,
   type ProgramWallet,
   PROGRAM_ID,
 } from '@/lib/program'
 import { countFractionalDigits, parseUiAmountToBaseUnits } from '@/lib/amounts'
 import { useTokenBalance } from "@/hooks/useTokenBalance";
-import { markClaimCancelledOptimistic, useMyClaims } from "@/hooks/useMyClaims";
+import { useUsdcBalance } from "@/hooks/useUsdcBalance";
+import { useMyClaims } from "@/hooks/useMyClaims";
+import { usePoolStats } from "@/hooks/usePoolStats";
 import { invalidateTransactionCache } from "@/hooks/useMyTransactions";
 import { useToast } from "@/components/ui/ToastContext";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
 import { useOptionalWallet } from "@/hooks/useOptionalWallet";
-import { PhantomConnectButton } from "@/components/wallet/PhantomConnectButton";
+import { connectModalOpenAtom } from "@/lib/ui-atoms";
+import {
+  AckCheckbox,
+  AmountInputCard,
+  AmountOutputCard,
+  ComposerCta,
+  DetailRow,
+  type CtaKind,
+} from "@/components/trade/composerParts";
+import {
+  ReviewSheet,
+  type SheetPhase,
+  type SheetRow,
+} from "@/components/trade/ReviewSheet";
 
 function isWalletRejection(e: unknown): boolean {
   const msg =
@@ -102,38 +110,6 @@ interface FileClaimMethods {
   }
 }
 
-interface CancelClaimMethods {
-  cancelClaim: () => {
-    accounts: (accounts: {
-      pool: PublicKey
-      claim: PublicKey
-      user: PublicKey
-      userBunkercash: PublicKey
-      poolBunkercashEscrow: PublicKey
-      bunkercashMint: PublicKey
-      tokenProgram: PublicKey
-      systemProgram: PublicKey
-      settlementState: PublicKey
-    }) => {
-      instruction: () => Promise<TransactionInstruction>
-    }
-  }
-}
-
-interface MigrateClaimMethods {
-  migrateClaim: () => {
-    accounts: (accounts: {
-      pool: PublicKey
-      claim: PublicKey
-      settlementCheck: PublicKey
-      payer: PublicKey
-      systemProgram: PublicKey
-    }) => {
-      instruction: () => Promise<TransactionInstruction>
-    }
-  }
-}
-
 function toUi(amount: bigint, decimals: number): string {
   const s = amount.toString().padStart(decimals + 1, "0")
   const head = s.slice(0, -decimals)
@@ -153,15 +129,16 @@ export function WithdrawInterface() {
   const signTransaction = wallet?.signTransaction
   const signAllTransactions = wallet?.signAllTransactions
   const { showToast } = useToast();
-  const [activeView, setActiveView] = useState<'register' | 'history'>('register')
+  const openConnect = useSetAtom(connectModalOpenAtom);
   const [amountUi, setAmountUi] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [confirmed, setConfirmed] = useState(false);
-  const [confirmationStep, setConfirmationStep] = useState<"idle" | "warning" | "final">("idle");
-  const [error, setError] = useState<string | null>(null)
-  const [txSig, setTxSig] = useState<string | null>(null)
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [phase, setPhase] = useState<SheetPhase>("review");
+  const [liveSig, setLiveSig] = useState<string | null>(null);
+  const [failureMessage, setFailureMessage] = useState<string | null>(null);
+  const [receipt, setReceipt] = useState<{ k: string; v: string }[]>([]);
   const txInFlight = useRef(false);
-  const [cancellingClaim, setCancellingClaim] = useState<string | null>(null);
   const [poolState, setPoolState] = useState<{
     masterWallet: PublicKey
     nav: bigint
@@ -186,11 +163,12 @@ export function WithdrawInterface() {
   const mintPda = useMemo(() => getBunkercashMintPda(PROGRAM_ID), [])
   const feeConfigPda = useMemo(() => getFeeConfigPda(PROGRAM_ID), [])
   const minClaimConfigPda = useMemo(() => getMinClaimConfigPda(PROGRAM_ID), [])
-  const settlementStatePda = useMemo(() => getSettlementStatePda(poolPda, PROGRAM_ID), [poolPda])
 
   const { balance: tokenBalanceUi, refreshBalance: fetchTokenBalance } =
     useTokenBalance();
+  const { balance: usdcBalance } = useUsdcBalance();
   const { claims, refreshClaims: fetchClaims } = useMyClaims();
+  const { stats } = usePoolStats();
   const amountRaw = useMemo(() => parseUiAmountToBaseUnits(amountUi, 6), [amountUi])
   const tokenBalanceRaw = useMemo(
     () => parseUiAmountToBaseUnits(tokenBalanceUi, 6),
@@ -198,10 +176,10 @@ export function WithdrawInterface() {
   )
 
   const fetchPoolState = useCallback(async () => {
-    if (!program) return
-
     try {
-      const accountApi = (program as Program<Idl>).account as WithdrawAccountApi
+      // Pool state is public — read it without a connected wallet too.
+      const readProgram = program ?? getReadonlyProgram(connection)
+      const accountApi = (readProgram as Program<Idl>).account as WithdrawAccountApi
       const state = await accountApi.pool.fetch(poolPda)
       let claimFeeBps = 0
 
@@ -242,7 +220,7 @@ export function WithdrawInterface() {
     } catch {
       setPoolState(null)
     }
-  }, [feeConfigPda, minClaimConfigPda, poolPda, program])
+  }, [connection, feeConfigPda, minClaimConfigPda, poolPda, program])
 
   useEffect(() => {
     void fetchPoolState()
@@ -291,30 +269,15 @@ export function WithdrawInterface() {
     ) {
       return `Sell request must be worth at least ${toUi(poolState.minClaimUsdc, 6)} USDC after fees`
     }
-    if (tokenBalanceRaw != null && amountRaw > tokenBalanceRaw) {
-      return "Amount exceeds your BNKR balance"
+    if (publicKey && tokenBalanceRaw != null && amountRaw > tokenBalanceRaw) {
+      return `Amount exceeds your BNKR balance of ${tokenBalanceUi}.`
     }
     return null
-  }, [amountRaw, amountUi, netClaimUsdcRaw, poolState, tokenBalanceRaw])
+  }, [amountRaw, amountUi, netClaimUsdcRaw, poolState, tokenBalanceRaw, tokenBalanceUi, publicKey])
 
-  const displayError = error ?? inputError
   const canSubmitSell = Boolean(
     wallet && program && publicKey && connection && userBunkercashAta
   );
-
-  const submitDisabled =
-    submitting ||
-    !canSubmitSell ||
-    !amountRaw ||
-    amountRaw <= 0n ||
-    !confirmed ||
-    !!inputError;
-
-  const submitButtonLabel = submitting
-    ? "Submitting…"
-    : !canSubmitSell
-      ? "Connect Wallet to Sell"
-      : "Sell";
 
   const handleRegisterSell = async () => {
     if (!wallet || !program || !publicKey || !connection || !userBunkercashAta)
@@ -323,9 +286,12 @@ export function WithdrawInterface() {
     if (txInFlight.current) return;
     txInFlight.current = true;
 
-    setError(null);
-    setTxSig(null);
+    const soldUi = amountUi || "0";
+    const receivedUi = netClaimUsdcRaw != null ? toUi(netClaimUsdcRaw, 6) : "0";
+    setFailureMessage(null);
+    setLiveSig(null);
     setSubmitting(true);
+    setPhase("signing");
     try {
       if (inputError || amountRaw == null || amountRaw <= 0n) {
         throw new Error(inputError ?? "Amount must be greater than 0")
@@ -334,7 +300,7 @@ export function WithdrawInterface() {
       const sellAmount = new BN(amountRaw.toString())
 
       if (tokenBalanceRaw != null && amountRaw > tokenBalanceRaw) {
-        setError("Amount exceeds your BNKR balance");
+        setPhase("review");
         showToast("Insufficient BNKR balance", "error");
         txInFlight.current = false;
         setSubmitting(false);
@@ -402,53 +368,66 @@ export function WithdrawInterface() {
         connection,
         wallet,
         transaction: tx,
+        onSigned: (signature) => {
+          setLiveSig(signature);
+          setPhase("pending");
+        },
       });
-      setTxSig(sig);
+      setReceipt([
+        { k: "Escrowed", v: `${soldUi} BNKR` },
+        { k: "Received (est.)", v: `${receivedUi} USDC` },
+        { k: "Signature", v: `${sig.slice(0, 5)}…${sig.slice(-4)}` },
+      ]);
+      setLiveSig(sig);
+      setPhase("success");
       setAmountUi("");
       setConfirmed(false);
-      setConfirmationStep("idle");
       await fetchTokenBalance();
       await fetchClaims();
       await fetchPoolState();
       invalidateTransactionCache();
       showToast(`Sell request submitted. Tx: ${sig.slice(0, 8)}…`, "success");
-      setActiveView("history");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e ?? "");
       if (isWalletRejection(e)) {
-        setError("Transaction was rejected in your wallet.");
+        setPhase("review");
         showToast("Transaction rejected by wallet", "warning");
       } else if (msg.includes("already been processed")) {
-        setError(null);
-        setTxSig(null);
+        setSheetOpen(false);
+        setPhase("review");
         await fetchTokenBalance();
         await fetchClaims();
         invalidateTransactionCache();
-        setActiveView("history");
-        showToast("Sell request was already processed. Check History.", "success");
+        showToast("Sell request was already processed. Check your wallet page.", "success");
       } else if (e instanceof SendTransactionError) {
         const logs = await e.getLogs(connection);
         if (logs?.length) {
           console.error('File claim transaction logs:', logs);
         }
-        setError(e.message || "Transaction failed");
+        setFailureMessage(e.message || "Transaction failed");
+        setPhase("failed");
         showToast(e.message || "Transaction failed", "error");
       } else if (msg.includes("ConstraintSeeds")) {
-        setError("Sell request counter changed before submission. Please retry.");
+        setFailureMessage("Sell request counter changed before submission. Please retry.");
+        setPhase("failed");
         showToast("Sell request counter changed, please retry", "warning");
         await fetchPoolState();
       } else if (msg.includes("ClaimAmountTooSmall") || msg.includes("non-zero USDC value")) {
-        setError("Amount is too small to produce any USDC at the current reference value.");
+        setFailureMessage("Amount is too small to produce any USDC at the current reference value.");
+        setPhase("failed");
         showToast("Sell amount too small at current reference value", "warning");
       } else if (msg.includes("ClaimBelowMinimum") || msg.includes("below the minimum claim size")) {
         const minUi = toUi(poolState?.minClaimUsdc ?? DEFAULT_MIN_CLAIM_USDC, 6);
-        setError(`Sell request must be worth at least ${minUi} USDC after fees.`);
+        setFailureMessage(`Sell request must be worth at least ${minUi} USDC after fees.`);
+        setPhase("failed");
         showToast(`Sell request below the ${minUi} USDC minimum`, "warning");
       } else if (msg.includes("already in use") || msg.includes("0x0")) {
-        setError("Sell request slot conflict — another transaction landed first. Please try again.");
+        setFailureMessage("Sell request slot conflict — another transaction landed first. Please try again.");
+        setPhase("failed");
         showToast("Sell request slot taken, please retry", "warning");
       } else {
-        setError(msg || "Transaction failed");
+        setFailureMessage(msg || "Transaction failed");
+        setPhase("failed");
         showToast(msg || "Transaction failed", "error");
       }
     } finally {
@@ -457,422 +436,180 @@ export function WithdrawInterface() {
     }
   };
 
-  const handleOpenConfirmation = () => {
-    if (submitDisabled) return;
-    setConfirmationStep("warning");
-  };
+  const openClaims = claims.filter(
+    (c) => !c.cancelled && !c.processed && c.bunkercashRemaining !== "0",
+  );
 
-  const handleCloseConfirmation = (open: boolean) => {
-    if (!open && !submitting) {
-      setConfirmationStep("idle");
-    }
-  };
+  const rate =
+    poolState && poolState.totalBunkercashSupply > 0n
+      ? Number(poolState.nav) / Number(poolState.totalBunkercashSupply)
+      : null;
+  const rateFmt = rate != null ? rate.toFixed(4) : "—";
+  const feePct = formatPercentFromBps(poolState?.claimFeeBps ?? 0);
+  const estUsdcUi = netClaimUsdcRaw != null ? toUi(netClaimUsdcRaw, 6) : "";
 
-  const handleFinalConfirmation = () => {
-    setConfirmationStep("idle");
-    void handleRegisterSell();
-  };
+  const liquidRaw = stats.treasuryUsdcRaw;
+  const estUsdcNum = netClaimUsdcRaw != null ? Number(netClaimUsdcRaw) / 1e6 : 0;
+  const expectImmediate = liquidRaw != null && estUsdcNum <= liquidRaw;
 
-  const handleCancelClaim = async (claimPubkey: string) => {
-    if (!wallet || !program || !publicKey || !connection || !userBunkercashAta) return;
-    if (cancellingClaim) return;
-    const claim = claims.find((entry) => entry.pubkey === claimPubkey);
-    const hasRemainingEscrow = claim?.bunkercashRemaining !== "0";
-    const isCancellable =
-      claim !== undefined && !claim.cancelled && !claim.processed && hasRemainingEscrow;
-    if (!isCancellable) return;
-
-    setCancellingClaim(claimPubkey);
-    try {
-      const claimPk = new PublicKey(claimPubkey);
-      const poolBunkercashEscrow = getAssociatedTokenAddressSync(
-        mintPda,
-        poolPda,
-        true,
-        TOKEN_2022_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID,
-      );
-
-      const tx = new Transaction();
-
-      // Legacy claims (pre-epoch-fields layout) can't be deserialized by
-      // cancel_claim, which uses the current Claim struct. Migrate the
-      // account in the same atomic transaction first — migrate_claim is
-      // permissionless and the user already signs/pays — so cancel_claim
-      // then sees the current 99-byte layout. (migrate_claim itself reverts
-      // if a settlement epoch is open, surfaced as a clear error below.)
-      if (claim.needsMigration) {
-        const migrateApi = (program as Program<Idl>).methods as unknown as MigrateClaimMethods;
-        const migrateIx = await migrateApi
-          .migrateClaim()
-          .accounts({
-            pool: poolPda,
-            claim: claimPk,
-            settlementCheck: settlementStatePda,
-            payer: publicKey,
-            systemProgram: SystemProgram.programId,
-          })
-          .instruction();
-        tx.add(migrateIx);
-      }
-
-      const methodsApi = (program as Program<Idl>).methods as unknown as CancelClaimMethods;
-      const cancelIx = await methodsApi
-        .cancelClaim()
-        .accounts({
-          pool: poolPda,
-          claim: claimPk,
-          user: publicKey,
-          userBunkercash: userBunkercashAta,
-          poolBunkercashEscrow,
-          bunkercashMint: mintPda,
-          tokenProgram: TOKEN_2022_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-          settlementState: settlementStatePda,
-        })
-        .instruction();
-
-      tx.add(cancelIx);
-      const sig = await sendAndConfirmWalletTransaction({
-        connection,
-        wallet,
-        transaction: tx,
-      });
-      markClaimCancelledOptimistic(claimPubkey);
-      showToast(`Sell request cancelled. Tx: ${sig.slice(0, 8)}…`, "success");
-      await fetchTokenBalance();
-      await fetchClaims();
-      await fetchPoolState();
-      invalidateTransactionCache();
-    } catch (e: unknown) {
-      if (isWalletRejection(e)) {
-        showToast("Transaction rejected by wallet", "warning");
-      } else {
-        const msg = e instanceof Error ? e.message : String(e ?? "");
-        if (msg.includes("already been cancelled")) {
-          markClaimCancelledOptimistic(claimPubkey);
-          await fetchClaims();
-          await fetchPoolState();
-          invalidateTransactionCache();
-          showToast("Sell request was already cancelled. History updated.", "success");
-        } else if (msg.includes("MigrationBlockedDuringSettlement")) {
-          showToast(
-            "This older sell request must be upgraded before cancelling, but a settlement is in progress. Try again after it closes.",
-            "warning",
-          );
-        } else {
-          showToast(msg || "Failed to cancel sell request", "error");
-        }
-      }
-    } finally {
-      setCancellingClaim(null);
-    }
-  };
-
+  // ---- CTA state ----
+  const ctaKind: CtaKind = "sell";
+  let ctaLabel = "Review sell request";
+  let ctaDisabled = false;
+  let ctaAction: (() => void) | undefined;
   if (!publicKey) {
-    return (
-      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-8 text-center">
-        <p className="text-neutral-500">Connect your wallet to continue.</p>
-        <PhantomConnectButton className="mt-4 inline-flex items-center justify-center rounded-xl bg-[#00FFB2] px-6 py-3 text-sm font-semibold text-black transition-all hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600" />
-      </div>
-    )
+    ctaLabel = "Connect wallet";
+    ctaAction = () => openConnect(true);
+  } else if (!poolState) {
+    ctaLabel = "Loading pool data…";
+    ctaDisabled = true;
+  } else if (!amountRaw || amountRaw <= 0n) {
+    ctaLabel = "Enter an amount";
+    ctaDisabled = true;
+  } else if (inputError) {
+    ctaLabel = inputError.startsWith("Amount exceeds")
+      ? "Insufficient BNKR"
+      : "Review sell request";
+    ctaDisabled = true;
+  } else if (!confirmed) {
+    ctaLabel = "Accept the settlement terms";
+    ctaDisabled = true;
+  } else if (!canSubmitSell) {
+    ctaLabel = "Wallet unavailable";
+    ctaDisabled = true;
+  } else {
+    ctaAction = () => {
+      setPhase("review");
+      setSheetOpen(true);
+    };
   }
 
+  const sheetRows: SheetRow[] = [
+    { k: "You sell", v: `${amountUi || "0"} BNKR`, strong: true },
+    { k: "Reference rate", v: `1 BNKR = ${rateFmt} USDC` },
+    {
+      k: "Claim fee",
+      v:
+        feeBunkercashRaw != null && feeBunkercashRaw > 0n
+          ? `${feePct}% (${toUi(feeBunkercashRaw, 6)} BNKR)`
+          : `${feePct}%`,
+    },
+    {
+      k: "Escrowed after fee",
+      v: netBunkercashRaw != null ? `${toUi(netBunkercashRaw, 6)} BNKR` : "—",
+    },
+    {
+      k: "Expected settlement",
+      v: expectImmediate ? "Immediate" : "Queued — depends on liquidity",
+      tone: expectImmediate ? "mint" : "warn",
+    },
+    {
+      k: "You receive (est.)",
+      v: `${estUsdcUi || "0"} USDC`,
+      strong: true,
+      tone: "mint",
+      highlight: true,
+    },
+  ];
+
   return (
-    <div className="space-y-6 sm:space-y-8">
-      <div className="flex gap-2 bg-neutral-900 p-1 rounded-xl">
-        <button
-          onClick={() => setActiveView("register")}
-          className={`flex-1 px-4 py-3 text-sm rounded-lg transition-all ${
-            activeView === "register"
-              ? "bg-[#00FFB2] text-black font-semibold"
-              : "text-neutral-500 hover:text-white"
-          }`}
-        >
-          Sell
-        </button>
-        <button
-          onClick={() => setActiveView("history")}
-          className={`flex-1 px-4 py-3 text-sm rounded-lg transition-all ${
-            activeView === "history"
-              ? "bg-[#00FFB2] text-black font-semibold"
-              : "text-neutral-500 hover:text-white"
-          }`}
-        >
-          History
-        </button>
+    <>
+      <span className="text-[12.5px] leading-relaxed text-ink-3">
+        Selling files a settlement request. Your BNKR is escrowed and USDC is
+        paid from pool liquidity — cancellable while unsettled.
+      </span>
+
+      <AmountInputCard
+        label="You sell"
+        token="BNKR"
+        value={amountUi}
+        onChange={setAmountUi}
+        balance={publicKey && tokenBalanceUi != null ? tokenBalanceUi : "—"}
+        onMax={
+          publicKey && tokenBalanceUi != null
+            ? () => setAmountUi(tokenBalanceUi)
+            : undefined
+        }
+        error={inputError}
+      />
+
+      <AmountOutputCard
+        label="You receive (estimated)"
+        token="USDC"
+        value={estUsdcUi}
+        balance={publicKey && usdcBalance != null ? usdcBalance : "—"}
+      />
+
+      <div className="flex flex-col gap-2 px-1 py-0.5">
+        <DetailRow label="Reference rate">1 BNKR = {rateFmt} USDC</DetailRow>
+        <DetailRow label="Claim fee">{feePct}%</DetailRow>
+        <DetailRow label="Est. network fee">0.000005 SOL</DetailRow>
+        <DetailRow label="Liquid USDC available">
+          {stats.treasuryUsdc != null ? `$${stats.treasuryUsdc}` : "—"}
+        </DetailRow>
+        <DetailRow label="Expected settlement" mono={false}>
+          <span
+            className={`font-medium ${expectImmediate ? "text-mint" : "text-warn"}`}
+          >
+            {expectImmediate ? "Immediate" : "Queued — partial fill likely"}
+          </span>
+        </DetailRow>
       </div>
 
-      {activeView === "register" ? (
-        <div className="space-y-5 sm:space-y-6">
-          <div className="bg-neutral-900/50 rounded-xl p-4 border border-neutral-800">
-            <p className="text-sm text-neutral-300 font-semibold mb-1">
-              Sell request
-            </p>
-            <p className="text-xs text-neutral-500">
-              Filing a sell request locks your tokens in escrow and creates a
-              pending settlement, subject to available protocol liquidity.
-              You can cancel an open request at any time to reclaim your
-              escrowed tokens.
-            </p>
-            <p className="mt-2 text-xs text-neutral-500">
-              Current claim fee: {formatPercentFromBps(poolState?.claimFeeBps ?? 0)}%
-            </p>
-          </div>
+      <AckCheckbox checked={confirmed} onToggle={() => setConfirmed(!confirmed)}>
+        I understand a claim fee is deducted, my remaining BNKR is locked in
+        escrow while the request is open, settlement depends on available pool
+        liquidity, and I can cancel an unsettled request at any time.
+      </AckCheckbox>
 
-          <div className="bg-neutral-900 rounded-2xl border border-neutral-800 p-4 sm:p-6">
-            <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-              <span className="text-xs uppercase tracking-wider text-neutral-500">
-                Amount
-              </span>
-              <span className="text-xs text-neutral-600">
-                Balance: {tokenBalanceUi} BNKR
-              </span>
-            </div>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-              <input
-                type="text"
-                value={amountUi}
-                onChange={(e) => setAmountUi(e.target.value)}
-                placeholder="0.00"
-                className="min-w-0 flex-1 bg-transparent text-2xl font-bold outline-none placeholder:text-neutral-800 sm:text-3xl"
-              />
-              <div className="inline-flex w-fit items-center gap-2 self-start rounded-xl border-2 border-[#00FFB2] bg-[#00FFB2]/10 px-4 py-2.5 sm:self-auto sm:px-5 sm:py-3">
-                <span className="font-semibold text-sm text-[#00FFB2]">
-                  BNKR
-                </span>
-              </div>
-            </div>
-            <div className="mt-3 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setAmountUi(tokenBalanceUi)}
-                className="text-xs text-[#00FFB2] hover:underline"
-              >
-                MAX
-              </button>
-            </div>
-          </div>
-
-          {feeBunkercashRaw != null && netBunkercashRaw != null && netBunkercashRaw > 0n && (
-            <div className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-4 text-sm text-neutral-300">
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                <span>Claim fee ({formatPercentFromBps(poolState?.claimFeeBps ?? 0)}%)</span>
-                <span>{toUi(feeBunkercashRaw, 6)} BNKR</span>
-              </div>
-              <div className="mt-2 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                <span>Escrowed amount</span>
-                <span>{toUi(netBunkercashRaw, 6)} BNKR</span>
-              </div>
-              {netClaimUsdcRaw != null && (
-                <div className="mt-2 flex flex-col gap-1 font-medium text-white sm:flex-row sm:items-center sm:justify-between">
-                  <span>Estimated settlement value</span>
-                  <span>{toUi(netClaimUsdcRaw, 6)} USDC</span>
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="flex items-start gap-3 px-1">
-            <input
-              type="checkbox"
-              id="confirm-sell"
-              checked={confirmed}
-              onChange={(e) => setConfirmed(e.target.checked)}
-              className="mt-1 h-4 w-4 rounded border-neutral-700 bg-neutral-800 text-[#00FFB2] focus:ring-[#00FFB2]"
-            />
-            <label
-              htmlFor="confirm-sell"
-              className="text-sm text-neutral-400 cursor-pointer select-none"
-            >
-              I understand that a fee will be deducted and my remaining tokens
-              will be locked in escrow. Settlement timing and amount depend on
-              available protocol liquidity. I can cancel anytime to reclaim
-              escrowed tokens.
-            </label>
-          </div>
-
-          {displayError && (
-            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-              {displayError}
-            </div>
-          )}
-          {!displayError && !canSubmitSell && (
-            <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-400">
-              Connect your wallet before submitting a sell request.
-            </div>
-          )}
-          {txSig && (
-            <div className="space-y-1 rounded-xl border border-[#00FFB2]/30 bg-[#00FFB2]/10 px-4 py-3 text-sm text-[#00FFB2]">
-              <div>Sell request submitted. Tx: {txSig.slice(0, 8)}…{txSig.slice(-8)}</div>
-              <div className="text-[#00FFB2]/70">
-                Your USDC arrives when the next settlement runs (subject to pool
-                liquidity). Track status under Transactions or History.
-              </div>
-            </div>
-          )}
-
-          <button
-            onClick={handleOpenConfirmation}
-            disabled={submitDisabled}
-            className="w-full rounded-xl bg-[#00FFB2] py-4 text-base font-semibold text-black transition-all hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600 sm:py-5 sm:text-lg"
-          >
-            {submitButtonLabel}
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {!publicKey ? (
-            <div className="text-center py-12 text-neutral-600">
-              Connect your wallet to view sell requests
-            </div>
-          ) : claims.length === 0 ? (
-            <div className="text-center py-12 text-neutral-600">
-              No sell requests yet
-            </div>
-          ) : (
-            claims.map((c) => {
-              const isCancellable =
-                !c.cancelled && !c.processed && c.bunkercashRemaining !== "0";
-              const statusLabel = c.cancelled
-                ? "cancelled"
-                : c.processed
-                  ? "settled"
-                  : Number(c.paidUsdc) > 0
-                    ? "partially settled"
-                    : "pending";
-              const statusClass = c.cancelled
-                ? "bg-red-500/15 text-red-400"
-                : c.processed
-                  ? "bg-[#00FFB2]/20 text-[#00FFB2]"
-                  : Number(c.paidUsdc) > 0
-                    ? "bg-sky-500/15 text-sky-300"
-                    : "bg-neutral-800 text-neutral-400";
-
-              return (
-                <div key={c.pubkey} className="bg-neutral-900 rounded-xl p-5 border border-neutral-800">
-                  <div className="flex justify-between items-start mb-3">
-                    <div>
-                      <div className="text-lg font-semibold">Sell Request #{c.id}</div>
-                    </div>
-                    <div className={`px-3 py-1 rounded-full text-xs font-medium ${statusClass}`}>
-                      {statusLabel}
-                    </div>
-                  </div>
-                  <div className="mt-2 flex justify-between text-sm">
-                    <span className="text-neutral-500">Requested Settlement</span>
-                    <span className="text-neutral-300">
-                      {Number(c.requestedUsdc) / 1e6} USDC
-                    </span>
-                  </div>
-                  <div className="mt-1 flex justify-between text-sm">
-                    <span className="text-neutral-500">Settled Amount</span>
-                    <span className="text-neutral-300">
-                      {Number(c.paidUsdc) / 1e6} USDC
-                    </span>
-                  </div>
-                  {!c.processed && !c.cancelled && (
-                    <div className="mt-1 flex justify-between text-sm">
-                      <span className="text-neutral-500">Remaining Amount</span>
-                      <span className="text-neutral-300">
-                        {Number(c.remainingUsdc) / 1e6} USDC
-                      </span>
-                    </div>
-                  )}
-                  {Number(c.bunkercashRemaining) > 0 && !c.cancelled && (
-                    <div className="mt-1 flex justify-between text-sm">
-                      <span className="text-neutral-500">Escrowed BNKR</span>
-                      <span className="text-neutral-300">
-                        {Number(c.bunkercashRemaining) / 1e6} BNKR
-                      </span>
-                    </div>
-                  )}
-                  <div className="mt-1 flex justify-between text-sm">
-                    <span className="text-neutral-500">Sell Request Account</span>
-                    <span className="text-neutral-500 font-mono">
-                      {c.pubkey.slice(0, 4)}…
-                      {c.pubkey.slice(-4)}
-                    </span>
-                  </div>
-                  {isCancellable && (
-                    <button
-                      onClick={() => void handleCancelClaim(c.pubkey)}
-                      disabled={cancellingClaim === c.pubkey}
-                      className="mt-4 w-full rounded-xl border border-red-500/30 bg-red-500/10 py-2.5 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50"
-                    >
-                      {cancellingClaim === c.pubkey ? "Cancelling…" : "Cancel Sell Request"}
-                    </button>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
+      {publicKey && openClaims.length > 0 && (
+        <span className="px-1 text-[12.5px] text-ink-3">
+          You have {openClaims.length} open sell{" "}
+          {openClaims.length === 1 ? "request" : "requests"} — track or cancel
+          {openClaims.length === 1 ? " it" : " them"} on the{" "}
+          <a href="/wallet">Wallet page</a>.
+        </span>
       )}
 
-      <Dialog
-        open={confirmationStep === "warning"}
-        onOpenChange={handleCloseConfirmation}
+      <ComposerCta
+        kind={ctaKind}
+        disabled={ctaDisabled || submitting}
+        busy={submitting}
+        onClick={ctaAction}
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Are you sure?</DialogTitle>
-            <DialogDescription>
-              A claim fee will be deducted and sent to the admin wallet. The
-              remaining tokens will be locked in escrow until settlement or
-              cancellation.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <button
-              type="button"
-              onClick={() => setConfirmationStep("idle")}
-              className="rounded-xl border border-neutral-700 px-4 py-2 text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => setConfirmationStep("final")}
-              className="rounded-xl bg-[#00FFB2] px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-[#00FFB2]/90"
-            >
-              Continue
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        {submitting ? "Submitting…" : ctaLabel}
+      </ComposerCta>
 
-      <Dialog
-        open={confirmationStep === "final"}
-        onOpenChange={handleCloseConfirmation}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Confirm sell request</DialogTitle>
-            <DialogDescription>
-              Once approved, the claim fee is deducted and the remaining tokens
-              are locked in escrow. You can cancel the request later to reclaim
-              escrowed tokens.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <button
-              type="button"
-              onClick={() => setConfirmationStep("idle")}
-              className="rounded-xl border border-neutral-700 px-4 py-2 text-sm text-neutral-200 transition-colors hover:bg-neutral-800"
-            >
-              Go Back
-            </button>
-            <button
-              type="button"
-              onClick={handleFinalConfirmation}
-              className="rounded-xl bg-[#00FFB2] px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-[#00FFB2]/90"
-            >
-              Confirm Sell
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+      <span className="text-center text-[11.5px] leading-relaxed text-ink-3">
+        Displayed values are interface values only and do not constitute a
+        guarantee of value, liquidity, or future settlement.
+      </span>
+
+      <ReviewSheet
+        open={sheetOpen}
+        side="sell"
+        phase={phase}
+        rows={sheetRows}
+        sellNote={
+          expectImmediate
+            ? "Your BNKR moves to escrow when the request is created. At current liquidity this request is expected to settle immediately."
+            : "Your BNKR moves to escrow when the request is created. This request may exceed liquid USDC and will queue until liquidity is replenished."
+        }
+        liveSig={liveSig}
+        receipt={receipt}
+        failureMessage={failureMessage}
+        walletName={wallet?.wallet?.adapter.name}
+        onClose={() => {
+          setSheetOpen(false);
+          setPhase("review");
+        }}
+        onConfirm={() => void handleRegisterSell()}
+        onRetry={() => setPhase("review")}
+        onDone={() => {
+          setSheetOpen(false);
+          setPhase("review");
+        }}
+      />
+    </>
   );
 }

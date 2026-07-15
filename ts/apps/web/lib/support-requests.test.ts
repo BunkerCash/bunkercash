@@ -117,6 +117,7 @@ describe("enforceSupportRequestRateLimit", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllEnvs();
     vi.clearAllMocks();
   });
 
@@ -188,6 +189,17 @@ describe("enforceSupportRequestRateLimit", () => {
 
     expect(rateLimitFetchMock).toHaveBeenCalledTimes(1);
     expect(kvPutMock).not.toHaveBeenCalled();
+  });
+
+  it("skips rate limiting in development when the local Durable Object binding is absent", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.mocked(getCloudflareContext).mockResolvedValue({ env: {} } as never);
+
+    await expect(
+      enforceSupportRequestRateLimit(makeRequest(), supportInput),
+    ).resolves.toBeUndefined();
+
+    expect(rateLimitFetchMock).not.toHaveBeenCalled();
   });
 });
 

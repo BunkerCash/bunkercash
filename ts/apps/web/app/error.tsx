@@ -1,27 +1,34 @@
-'use client'
+"use client";
 
-export default function Error({
+import { Disclaimer } from "@/components/design/Disclaimer";
+
+export default function ErrorPage({
   reset,
 }: {
-  error: Error & { digest?: string }
-  reset: () => void
+  error: Error & { digest?: string };
+  reset: () => void;
 }) {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-black text-white">
-      <div className="text-center space-y-6 px-6">
-        <h1 className="text-9xl font-bold text-red-500">500</h1>
-        <h2 className="text-3xl font-semibold">Something went wrong!</h2>
-        <p className="text-neutral-400 text-lg max-w-md mx-auto">
-          An error occurred while processing your request.
-        </p>
-        <button
-          onClick={reset}
-          className="inline-block bg-[#00FFB2] text-black px-8 py-3 rounded-lg font-semibold hover:bg-[#00FFB2]/90 transition-all"
-        >
-          Try Again
-        </button>
+    <div className="flex min-h-screen flex-col bg-canvas text-ink">
+      <Disclaimer />
+      <div className="flex flex-1 items-center justify-center px-4">
+        <div className="flex flex-col items-center gap-5 text-center">
+          <span className="font-mono text-[80px] font-bold leading-none text-sell max-[839px]:text-[56px]">
+            500
+          </span>
+          <h1 className="text-2xl font-semibold">Something went wrong</h1>
+          <p className="max-w-sm text-[14px] leading-relaxed text-ink-3">
+            An error occurred while processing your request.
+          </p>
+          <button
+            type="button"
+            onClick={reset}
+            className="h-10 rounded-lg bg-mint-btn px-5 text-[13.5px] font-semibold text-mint-ink transition-colors hover:bg-mint-btn-h"
+          >
+            Try again
+          </button>
+        </div>
       </div>
     </div>
-  )
+  );
 }
-

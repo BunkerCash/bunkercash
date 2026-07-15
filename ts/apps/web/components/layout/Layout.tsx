@@ -1,6 +1,11 @@
 import { ReactNode } from "react";
-import { Navbar } from "./Navbar";
+import { EnvNotice } from "./EnvNotice";
+import { SiteHeader } from "./SiteHeader";
+import { StatusRail } from "./StatusRail";
+import { MobileNav } from "./MobileNav";
 import { Footer } from "./Footer";
+import { ConnectWalletModal } from "@/components/wallet/ConnectWalletModal";
+import { Disclaimer } from "@/components/design/Disclaimer";
 
 interface LayoutProps {
   children: ReactNode;
@@ -8,14 +13,17 @@ interface LayoutProps {
 
 export const Layout = ({ children }: LayoutProps) => {
   return (
-    <div className="min-h-screen flex flex-col">
-      <div className="fixed top-0 left-0 right-0 z-[60] flex h-8 items-center justify-center gap-2 border-b border-yellow-500/30 bg-yellow-500/10 px-3 text-center text-[11px] font-medium uppercase tracking-wider text-yellow-300 backdrop-blur-md sm:text-xs">
-        <span className="inline-block h-1.5 w-1.5 rounded-full bg-yellow-400 animate-pulse" />
-        Devnet · early testing only
+    <div className="flex min-h-screen flex-col text-[14.5px] leading-normal">
+      <Disclaimer />
+      <EnvNotice />
+      <div className="sticky top-0 z-[60] flex-none">
+        <SiteHeader />
+        <StatusRail />
       </div>
-      <Navbar />
-      <main className="flex-1 pt-24">{children}</main>
+      <main className="flex-1 animate-fade-in">{children}</main>
       <Footer />
+      <MobileNav />
+      <ConnectWalletModal />
     </div>
   );
 };
