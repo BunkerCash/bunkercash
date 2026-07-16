@@ -15,11 +15,15 @@ import {
 } from "@solana/spl-token";
 import {
   getBunkercashMintPda,
+  getFeeConfigPda,
+  getMinClaimConfigPda,
   getPoolPda,
   getPoolSignerPda,
+  getPurchaseLimitConfigPda,
   fetchMintTokenProgram,
   fetchConfiguredUsdcMint,
   fetchRawPoolAccount,
+  getReadonlyProgram,
   PROGRAM_ID,
 } from "@/lib/program";
 import { fetchDecodedClaimAccounts } from "@/lib/claim-accounts";
@@ -46,6 +50,12 @@ export interface PoolDataResponse {
   treasuryUsdcRaw: number | null;
   pricePerToken: number;
   adminWallet: string;
+  purchaseFeeBps: number;
+  claimFeeBps: number;
+  minClaimUsdcRaw: number;
+  purchaseLimitUsdcRaw: number | null;
+  totalDepositedUsdcRaw: number | null;
+  remainingPurchaseCapacityUsdcRaw: number | null;
   ts: number;
 }
 
@@ -78,6 +88,25 @@ export interface ClaimsResponse {
 
 const BUNKERCASH_DECIMALS = 6;
 const USDC_DECIMALS = 6;
+const DEFAULT_MIN_CLAIM_USDC = 1_000_000n;
+
+interface Stringable {
+  toString(): string;
+}
+
+interface PurchaseLimitConfigAccount {
+  purchaseLimitUsdc: Stringable;
+  totalDepositedUsdc: Stringable;
+}
+
+interface FeeConfigAccount {
+  purchaseFeeBps?: Stringable;
+  claimFeeBps?: Stringable;
+}
+
+interface MinClaimConfigAccount {
+  minClaimUsdc: Stringable;
+}
 
 function getRpcEndpoints(): string[] {
   const cluster = getConfiguredRpcCluster();
@@ -132,6 +161,18 @@ export async function fetchPoolData(): Promise<PoolDataResponse> {
   return withConnectionFallback(async (connection) => {
     const cluster = getClusterFromEndpoint(connection.rpcEndpoint ?? "");
     const poolPda = getPoolPda(PROGRAM_ID);
+    const readProgram = getReadonlyProgram(connection);
+    const accountApi = readProgram.account as {
+      purchaseLimitConfig?: {
+        fetch: (pubkey: PublicKey) => Promise<PurchaseLimitConfigAccount>;
+      };
+      feeConfig?: {
+        fetch: (pubkey: PublicKey) => Promise<FeeConfigAccount>;
+      };
+      minClaimConfig?: {
+        fetch: (pubkey: PublicKey) => Promise<MinClaimConfigAccount>;
+      };
+    };
 
     const poolAccount = await fetchRawPoolAccount(connection);
     if (!poolAccount) {
@@ -165,6 +206,66 @@ export async function fetchPoolData(): Promise<PoolDataResponse> {
     const tokenPrice =
       circulatingSupplyRaw > 0 ? availableNavUsdcRaw / circulatingSupplyRaw : 1;
     const adminWallet = poolAccount.masterWallet.toBase58();
+
+    let purchaseFeeBps = 0;
+    let claimFeeBps = 0;
+    if (accountApi.feeConfig) {
+      try {
+        const feeConfig = await accountApi.feeConfig.fetch(getFeeConfigPda(PROGRAM_ID));
+        purchaseFeeBps = Number(feeConfig.purchaseFeeBps?.toString() ?? "0");
+        claimFeeBps = Number(feeConfig.claimFeeBps?.toString() ?? "0");
+      } catch {
+        purchaseFeeBps = 0;
+        claimFeeBps = 0;
+      }
+    }
+
+    let purchaseLimitUsdcRaw: number | null = null;
+    let totalDepositedUsdcRaw: number | null = null;
+    let remainingPurchaseCapacityUsdcRaw: number | null = null;
+    if (accountApi.purchaseLimitConfig) {
+      try {
+        const purchaseLimitConfig = await accountApi.purchaseLimitConfig.fetch(
+          getPurchaseLimitConfigPda(PROGRAM_ID),
+        );
+        const purchaseLimitUsdc = BigInt(
+          purchaseLimitConfig.purchaseLimitUsdc.toString(),
+        );
+        const totalDepositedUsdc = BigInt(
+          purchaseLimitConfig.totalDepositedUsdc.toString(),
+        );
+
+        totalDepositedUsdcRaw = Number(totalDepositedUsdc) / 10 ** USDC_DECIMALS;
+        if (purchaseLimitUsdc > 0n) {
+          purchaseLimitUsdcRaw = Number(purchaseLimitUsdc) / 10 ** USDC_DECIMALS;
+          remainingPurchaseCapacityUsdcRaw =
+            Number(
+              purchaseLimitUsdc > totalDepositedUsdc
+                ? purchaseLimitUsdc - totalDepositedUsdc
+                : 0n,
+            ) /
+            10 ** USDC_DECIMALS;
+        }
+      } catch {
+        purchaseLimitUsdcRaw = null;
+        totalDepositedUsdcRaw = null;
+        remainingPurchaseCapacityUsdcRaw = null;
+      }
+    }
+
+    let minClaimUsdcRaw = Number(DEFAULT_MIN_CLAIM_USDC) / 10 ** USDC_DECIMALS;
+    if (accountApi.minClaimConfig) {
+      try {
+        const minClaimConfig = await accountApi.minClaimConfig.fetch(
+          getMinClaimConfigPda(PROGRAM_ID),
+        );
+        minClaimUsdcRaw =
+          Number(BigInt(minClaimConfig.minClaimUsdc.toString())) /
+          10 ** USDC_DECIMALS;
+      } catch {
+        minClaimUsdcRaw = Number(DEFAULT_MIN_CLAIM_USDC) / 10 ** USDC_DECIMALS;
+      }
+    }
 
     let treasuryUsdcRaw: number | null = null;
     try {
@@ -209,6 +310,12 @@ export async function fetchPoolData(): Promise<PoolDataResponse> {
       treasuryUsdcRaw,
       pricePerToken: tokenPrice,
       adminWallet,
+      purchaseFeeBps,
+      claimFeeBps,
+      minClaimUsdcRaw,
+      purchaseLimitUsdcRaw,
+      totalDepositedUsdcRaw,
+      remainingPurchaseCapacityUsdcRaw,
       ts: Date.now(),
     };
   });

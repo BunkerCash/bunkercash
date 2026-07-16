@@ -33,6 +33,12 @@ describe("collectSnapshot", () => {
       treasuryUsdcRaw: 14000,
       pricePerToken: 1.5,
       adminWallet: "AdminWallet123",
+      purchaseFeeBps: 150,
+      claimFeeBps: 75,
+      minClaimUsdcRaw: 25,
+      purchaseLimitUsdcRaw: 50000,
+      totalDepositedUsdcRaw: 1200,
+      remainingPurchaseCapacityUsdcRaw: 48800,
       ts: Date.now(),
     });
 

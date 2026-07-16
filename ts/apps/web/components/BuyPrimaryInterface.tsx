@@ -550,7 +550,14 @@ export function BuyPrimaryInterface() {
   }
 
   const rateFmt = pricePerToken != null ? pricePerToken.toFixed(4) : "—";
-  const feePct = formatPercentFromBps(poolState?.purchaseFeeBps ?? 0);
+  const feePct =
+    poolState != null ? formatPercentFromBps(poolState.purchaseFeeBps) : null;
+  const capacityRemainingLabel =
+    poolState == null
+      ? "—"
+      : remainingPurchaseCapacityRaw != null
+        ? `${toUi(remainingPurchaseCapacityRaw, USDC_DECIMALS)} USDC`
+        : "Unlimited";
 
   const sheetRows: SheetRow[] = [
     { k: "You pay", v: `${usdcAmount || "0"} USDC`, strong: true },
@@ -558,11 +565,16 @@ export function BuyPrimaryInterface() {
     {
       k: "Protocol fee",
       v:
-        purchaseFeeRaw != null && purchaseFeeRaw > 0n
-          ? `${feePct}% (${toUi(purchaseFeeRaw, USDC_DECIMALS)} USDC)`
-          : `${feePct}%`,
+        feePct == null
+          ? "—"
+          : purchaseFeeRaw != null && purchaseFeeRaw > 0n
+            ? `${feePct}% (${toUi(purchaseFeeRaw, USDC_DECIMALS)} USDC)`
+            : `${feePct}%`,
     },
-    { k: "Est. network fee", v: "0.000005 SOL" },
+    {
+      k: "Capacity remaining",
+      v: capacityRemainingLabel,
+    },
     {
       k: "You receive (est.)",
       v: `${tokenAmountUi || "0"} BNKR`,
@@ -602,8 +614,10 @@ export function BuyPrimaryInterface() {
 
       <div className="flex flex-col gap-2 px-1 py-0.5">
         <DetailRow label="Reference rate">1 BNKR = {rateFmt} USDC</DetailRow>
-        <DetailRow label="Protocol fee">{feePct}%</DetailRow>
-        <DetailRow label="Est. network fee">0.000005 SOL</DetailRow>
+        <DetailRow label="Protocol fee">
+          {feePct != null ? `${feePct}%` : "—"}
+        </DetailRow>
+        <DetailRow label="Capacity remaining">{capacityRemainingLabel}</DetailRow>
         <DetailRow label="Delivery" mono={false}>
           Minted directly to your wallet
         </DetailRow>

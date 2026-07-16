@@ -34,6 +34,11 @@ const PERIODS = (Object.keys(PERIOD_DAYS) as Period[]).map((p) => ({
   label: p,
 }));
 
+function formatPercentFromBps(bps: number): string {
+  const formatted = (bps / 100).toFixed(2);
+  return formatted.replace(/\.?0+$/, "");
+}
+
 function ChangeChip({ change }: { change: number }) {
   const up = change >= 0;
   return (
@@ -70,6 +75,14 @@ export default function Home() {
 
   const rate = stats.pricePerToken;
   const rateFmt = rate != null ? rate.toFixed(4) : "—";
+  const purchaseFeePct =
+    stats.purchaseFeeBps != null
+      ? `${formatPercentFromBps(stats.purchaseFeeBps)}%`
+      : "—";
+  const claimFeePct =
+    stats.claimFeeBps != null
+      ? `${formatPercentFromBps(stats.claimFeeBps)}%`
+      : "—";
   const updatedFmt = stats.lastRefreshed
     ? stats.lastRefreshed.toLocaleTimeString("en-GB")
     : "—";
@@ -235,6 +248,12 @@ export default function Home() {
                 </span>
               </div>
               <div className="flex justify-between gap-2.5 text-[13px]">
+                <span className="text-ink-3">Protocol fee</span>
+                <span className="font-mono tabular-nums text-ink-2">
+                  {purchaseFeePct}
+                </span>
+              </div>
+              <div className="flex justify-between gap-2.5 text-[13px]">
                 <span className="text-ink-3">100 USDC receives</span>
                 <span className="font-mono tabular-nums text-ink-2">
                   {rate != null && rate > 0
@@ -243,9 +262,11 @@ export default function Home() {
                 </span>
               </div>
               <div className="flex justify-between gap-2.5 text-[13px]">
-                <span className="text-ink-3">Est. network fee</span>
+                <span className="text-ink-3">Capacity remaining</span>
                 <span className="font-mono tabular-nums text-ink-2">
-                  0.000005 SOL
+                  {stats.remainingPurchaseCapacityUsdc != null
+                    ? `$${stats.remainingPurchaseCapacityUsdc}`
+                    : "Unlimited"}
                 </span>
               </div>
             </div>
@@ -282,6 +303,18 @@ export default function Home() {
                   {stats.pendingClaimsUsdc != null
                     ? `$${stats.pendingClaimsUsdc}`
                     : "—"}
+                </span>
+              </div>
+              <div className="flex justify-between gap-2.5 text-[13px]">
+                <span className="text-ink-3">Claim fee</span>
+                <span className="font-mono tabular-nums text-ink-2">
+                  {claimFeePct}
+                </span>
+              </div>
+              <div className="flex justify-between gap-2.5 text-[13px]">
+                <span className="text-ink-3">Minimum claim</span>
+                <span className="font-mono tabular-nums text-ink-2">
+                  {stats.minClaimUsdc != null ? `$${stats.minClaimUsdc}` : "—"}
                 </span>
               </div>
               <div className="flex justify-between gap-2.5 text-[13px]">

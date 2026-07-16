@@ -30,6 +30,15 @@ function pct(part: number, total: number): number {
   return total > 0 ? (part / total) * 100 : 0;
 }
 
+function formatPercentFromBps(bps: number): string {
+  const formatted = (bps / 100).toFixed(2);
+  return formatted.replace(/\.?0+$/, "");
+}
+
+function shortenAddress(value: string): string {
+  return `${value.slice(0, 6)}…${value.slice(-6)}`;
+}
+
 // ---------------------------------------------------------------------------
 // Horizontal bar visual (used for composition breakdowns)
 // ---------------------------------------------------------------------------
@@ -142,6 +151,66 @@ export default function PoolPage() {
     [loading, stats],
   );
 
+  const configMetrics: Metric[] = useMemo(
+    () => [
+      {
+        label: "Purchase fee",
+        value:
+          loading || stats.purchaseFeeBps == null
+            ? shimmer
+            : `${formatPercentFromBps(stats.purchaseFeeBps)}%`,
+        tip: "Current protocol fee applied to buy transactions.",
+      },
+      {
+        label: "Claim fee",
+        value:
+          loading || stats.claimFeeBps == null
+            ? shimmer
+            : `${formatPercentFromBps(stats.claimFeeBps)}%`,
+        tip: "Current protocol fee deducted when filing a sell request.",
+      },
+      {
+        label: "Minimum claim",
+        value:
+          loading || stats.minClaimUsdcRaw == null
+            ? shimmer
+            : `$${fmtCompact(stats.minClaimUsdcRaw)}`,
+        tip: "Minimum sell request value, after fees, required by the pool.",
+      },
+      {
+        label: "Purchase capacity",
+        value:
+          loading
+            ? shimmer
+            : stats.purchaseLimitUsdcRaw != null
+              ? `$${fmtCompact(stats.purchaseLimitUsdcRaw)}`
+              : "Unlimited",
+        tip: "Configured cap on total USDC deposits, if one is active.",
+      },
+      {
+        label: "Capacity remaining",
+        value:
+          loading
+            ? shimmer
+            : stats.remainingPurchaseCapacityUsdcRaw != null
+              ? `$${fmtCompact(stats.remainingPurchaseCapacityUsdcRaw)}`
+              : "Unlimited",
+        tip: "Available room remaining under the current purchase cap.",
+      },
+      {
+        label: "Admin wallet",
+        value:
+          loading || !stats.adminWallet ? shimmer : shortenAddress(stats.adminWallet),
+        sub:
+          !loading && stats.adminWallet ? (
+            <span className="font-mono">{stats.adminWallet}</span>
+          ) : undefined,
+        tip: "Pool authority currently configured on-chain.",
+      },
+    ],
+    [loading, shimmer, stats],
+  );
+
   const treasurySegments = useMemo(() => {
     if (stats.treasuryUsdcRaw == null || stats.pendingClaimsUsdcRaw == null)
       return null;
@@ -245,6 +314,11 @@ export default function PoolPage() {
           {supplySegments && !loading && (
             <CompositionBar segments={supplySegments} />
           )}
+        </SectionCard>
+
+        <SectionCard label="Protocol config">
+          <CardHeader title="Protocol config" />
+          <MetricGrid metrics={configMetrics} />
         </SectionCard>
 
         {/* Protocol data source */}

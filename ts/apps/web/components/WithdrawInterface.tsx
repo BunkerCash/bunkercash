@@ -444,7 +444,10 @@ export function WithdrawInterface() {
       ? Number(poolState.nav) / Number(poolState.totalBunkercashSupply)
       : null;
   const rateFmt = rate != null ? rate.toFixed(4) : "—";
-  const feePct = formatPercentFromBps(poolState?.claimFeeBps ?? 0);
+  const feePct =
+    poolState != null ? formatPercentFromBps(poolState.claimFeeBps) : null;
+  const minClaimUi =
+    poolState != null ? toUi(poolState.minClaimUsdc, 6) : "—";
   const estUsdcUi = netClaimUsdcRaw != null ? toUi(netClaimUsdcRaw, 6) : "";
 
   const liquidRaw = stats.treasuryUsdcRaw;
@@ -489,9 +492,11 @@ export function WithdrawInterface() {
     {
       k: "Claim fee",
       v:
-        feeBunkercashRaw != null && feeBunkercashRaw > 0n
-          ? `${feePct}% (${toUi(feeBunkercashRaw, 6)} BNKR)`
-          : `${feePct}%`,
+        feePct == null
+          ? "—"
+          : feeBunkercashRaw != null && feeBunkercashRaw > 0n
+            ? `${feePct}% (${toUi(feeBunkercashRaw, 6)} BNKR)`
+            : `${feePct}%`,
     },
     {
       k: "Escrowed after fee",
@@ -501,6 +506,10 @@ export function WithdrawInterface() {
       k: "Expected settlement",
       v: expectImmediate ? "Immediate" : "Queued — depends on liquidity",
       tone: expectImmediate ? "mint" : "warn",
+    },
+    {
+      k: "Minimum claim",
+      v: `${minClaimUi} USDC`,
     },
     {
       k: "You receive (est.)",
@@ -541,8 +550,10 @@ export function WithdrawInterface() {
 
       <div className="flex flex-col gap-2 px-1 py-0.5">
         <DetailRow label="Reference rate">1 BNKR = {rateFmt} USDC</DetailRow>
-        <DetailRow label="Claim fee">{feePct}%</DetailRow>
-        <DetailRow label="Est. network fee">0.000005 SOL</DetailRow>
+        <DetailRow label="Claim fee">
+          {feePct != null ? `${feePct}%` : "—"}
+        </DetailRow>
+        <DetailRow label="Minimum claim">{minClaimUi} USDC</DetailRow>
         <DetailRow label="Liquid USDC available">
           {stats.treasuryUsdc != null ? `$${stats.treasuryUsdc}` : "—"}
         </DetailRow>

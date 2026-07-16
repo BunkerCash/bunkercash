@@ -28,7 +28,13 @@ async function d1Fallback(): Promise<PoolDataResponse | null> {
         pendingClaimsUsdcRaw: row.pendingClaimsUsdc ?? 0,
         treasuryUsdcRaw: row.treasuryUsdc ?? null,
         pricePerToken: row.pricePerToken ?? row.tokenPrice ?? 1,
-        adminWallet: "",
+        adminWallet: row.adminWallet ?? "",
+        purchaseFeeBps: 0,
+        claimFeeBps: 0,
+        minClaimUsdcRaw: 1,
+        purchaseLimitUsdcRaw: null,
+        totalDepositedUsdcRaw: null,
+        remainingPurchaseCapacityUsdcRaw: null,
         ts: Date.now(),
       };
     } finally {
