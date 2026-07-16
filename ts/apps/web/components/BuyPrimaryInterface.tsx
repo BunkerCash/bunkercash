@@ -14,6 +14,7 @@ import {
   getSupportedUsdcConfigPda,
   fetchConfiguredUsdcMint,
   fetchMintTokenProgram,
+  fetchRawPoolAccountWithRetry,
   getProgram,
   getReadonlyProgram,
   type ProgramWallet,
@@ -74,13 +75,6 @@ function isWalletRejection(e: unknown): boolean {
 
 interface Stringable {
   toString(): string;
-}
-
-interface PoolAccount {
-  masterWallet: PublicKey;
-  nav: Stringable;
-  totalBunkercashSupply: Stringable;
-  totalPendingClaims: Stringable;
 }
 
 interface PurchaseLimitConfigAccount {
@@ -181,15 +175,24 @@ export function BuyPrimaryInterface() {
     () => getClusterFromEndpoint(connection.rpcEndpoint ?? ""),
     [connection],
   );
+
   const { usdcMint, usdcTokenProgram, error: usdcMintError } = useSupportedUsdcMint();
 
   const fetchPoolState = useCallback(async () => {
     if (!connection) return;
     try {
       // Pool state is public — read it without a connected wallet too.
+      // Raw decode instead of Anchor's typed fetch: the deployed program may
+      // predate `settlement_epoch_seq`, and the typed decode throws on the
+      // shorter account even though every field we need is present.
+      const state = await fetchRawPoolAccountWithRetry(connection);
+      if (!state) {
+        setPoolError("not_initialized");
+        setPoolState(null);
+        return;
+      }
       const readProgram = program ?? getReadonlyProgram(connection);
       const accountApi = (readProgram as Program<Idl>).account as {
-        pool: { fetch: (key: PublicKey) => Promise<PoolAccount> };
         purchaseLimitConfig?: {
           fetch: (key: PublicKey) => Promise<PurchaseLimitConfigAccount>;
         };
@@ -197,7 +200,6 @@ export function BuyPrimaryInterface() {
           fetch: (key: PublicKey) => Promise<FeeConfigAccount>;
         };
       }
-      const state = await accountApi.pool.fetch(poolPda);
       let purchaseLimitUsdc = BigInt(0);
       let totalDepositedUsdc = BigInt(0);
       let purchaseFeeBps = 0;
@@ -224,14 +226,14 @@ export function BuyPrimaryInterface() {
         }
       }
 
-      const nav = BigInt(state.nav.toString())
-      const totalPendingClaims = BigInt(state.totalPendingClaims.toString())
+      const nav = state.nav
+      const totalPendingClaims = state.totalPendingClaims
       const availableNav = nav > totalPendingClaims ? nav - totalPendingClaims : 0n
 
       const nextState: BuyPoolState = {
         masterWallet: state.masterWallet,
         nav: availableNav,
-        totalBunkercashSupply: BigInt(state.totalBunkercashSupply.toString()),
+        totalBunkercashSupply: state.totalBunkercashSupply,
         purchaseLimitUsdc,
         totalDepositedUsdc,
         purchaseFeeBps,
@@ -240,7 +242,7 @@ export function BuyPrimaryInterface() {
       setPoolState(nextState);
       setPoolError(null);
     } catch {
-      setPoolError("not_initialized");
+      setPoolError("rpc_error");
       setPoolState(null);
     }
   }, [program, poolPda, connection, purchaseLimitConfigPda, feeConfigPda, endpoint]);
@@ -622,6 +624,24 @@ export function BuyPrimaryInterface() {
             className="self-start rounded-lg border border-line-2 bg-surface-2 px-3 py-1.5 text-xs font-semibold transition-colors hover:border-mint-line"
           >
             Retry
+          </button>
+        </div>
+      )}
+      {poolError === "rpc_error" && (
+        <div className="flex flex-col gap-2 rounded-[10px] border border-warn-line bg-warn-soft px-4 py-3">
+          <span className="flex items-center gap-2 text-[13px] font-semibold text-warn">
+            <WarnIcon />
+            Unable to reach Solana network
+          </span>
+          <span className="text-[12px] text-ink-3">
+            The RPC endpoint is not responding. Your funds are unaffected.
+          </span>
+          <button
+            type="button"
+            onClick={() => void fetchPoolState()}
+            className="self-start rounded-lg border border-line-2 bg-surface-2 px-3 py-1.5 text-xs font-semibold transition-colors hover:border-mint-line"
+          >
+            Retry connection
           </button>
         </div>
       )}

@@ -6,7 +6,7 @@
  * cached in Cloudflare KV via `cachedFetch` so every user reads from the
  * nearest edge PoP instead of hitting the RPC directly.
  */
-import { Connection, PublicKey } from "@solana/web3.js";
+import { Connection, PublicKey, clusterApiUrl } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
 import {
   getAssociatedTokenAddressSync,
@@ -14,31 +14,20 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import {
-  getReadonlyProgram,
   getBunkercashMintPda,
   getPoolPda,
   getPoolSignerPda,
   fetchMintTokenProgram,
   fetchConfiguredUsdcMint,
+  fetchRawPoolAccount,
   PROGRAM_ID,
 } from "@/lib/program";
 import { fetchDecodedClaimAccounts } from "@/lib/claim-accounts";
 import type { DecodedClaimAccount } from "@/lib/claim-accounts";
 import { getClusterFromEndpoint } from "@/lib/constants";
-import { getServerRpcEndpoint } from "@/lib/solana-env";
+import { getServerRpcEndpoint, getConfiguredRpcCluster } from "@/lib/solana-env";
 
 // ── Types ──────────────────────────────────────────────
-
-interface Stringable {
-  toString(): string;
-}
-
-interface PoolAccountLike {
-  nav: Stringable;
-  totalBunkercashSupply: Stringable;
-  totalPendingClaims: Stringable;
-  masterWallet: PublicKey;
-}
 
 export interface PoolDataResponse {
   tokenPrice: number;
@@ -90,6 +79,32 @@ export interface ClaimsResponse {
 const BUNKERCASH_DECIMALS = 6;
 const USDC_DECIMALS = 6;
 
+function getRpcEndpoints(): string[] {
+  const cluster = getConfiguredRpcCluster();
+  const endpoints = [
+    getServerRpcEndpoint(),
+    clusterApiUrl(cluster),
+    ...(cluster === "testnet" ? ["https://solana-testnet-rpc.publicnode.com"] : []),
+  ];
+  return [...new Set(endpoints.filter(Boolean))];
+}
+
+async function withConnectionFallback<T>(
+  fn: (connection: Connection) => Promise<T>,
+): Promise<T> {
+  const errors: string[] = [];
+  for (const endpoint of getRpcEndpoints()) {
+    const connection = new Connection(endpoint, "confirmed");
+    try {
+      return await fn(connection);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(`${endpoint}: ${message}`);
+    }
+  }
+  throw new Error(`All configured RPC endpoints failed. ${errors.join(" | ")}`);
+}
+
 export function getConnection(): Connection {
   return new Connection(getServerRpcEndpoint(), "confirmed");
 }
@@ -114,97 +129,89 @@ function serializeClaim(claim: DecodedClaimAccount): SerializedClaim {
 // ── Fetchers (called by cachedFetch in the route handlers) ─────
 
 export async function fetchPoolData(): Promise<PoolDataResponse> {
-  const connection = getConnection();
-  const cluster = getClusterFromEndpoint(connection.rpcEndpoint ?? "");
-  const program = getReadonlyProgram(connection);
-  const poolPda = getPoolPda(PROGRAM_ID);
+  return withConnectionFallback(async (connection) => {
+    const cluster = getClusterFromEndpoint(connection.rpcEndpoint ?? "");
+    const poolPda = getPoolPda(PROGRAM_ID);
 
-  const accountApi = program.account as {
-    pool: { fetch: (pubkey: PublicKey) => Promise<PoolAccountLike> };
-  };
+    const poolAccount = await fetchRawPoolAccount(connection);
+    if (!poolAccount) {
+      throw new Error("Pool account not found — pool not initialized on this cluster");
+    }
+    const circulatingSupplyRaw =
+      Number(poolAccount.totalBunkercashSupply) / 10 ** BUNKERCASH_DECIMALS;
+    const navUsdcRaw =
+      Number(poolAccount.nav) / 10 ** USDC_DECIMALS;
+    const pendingClaimsUsdcRaw =
+      Number(poolAccount.totalPendingClaims) / 10 ** USDC_DECIMALS;
 
-  const poolAccount = await accountApi.pool.fetch(poolPda);
-  // pool.total_bunkercash_supply already excludes BNKR escrowed for pending
-  // sells (it is subtracted at file time, restored on cancel), so it is the
-  // circulating supply and the correct pricing denominator.
-  const circulatingSupplyRaw =
-    Number(poolAccount.totalBunkercashSupply.toString()) / 10 ** BUNKERCASH_DECIMALS;
-  const navUsdcRaw =
-    Number(poolAccount.nav.toString()) / 10 ** USDC_DECIMALS;
-  const pendingClaimsUsdcRaw =
-    Number(poolAccount.totalPendingClaims.toString()) / 10 ** USDC_DECIMALS;
-
-  // BNKR locked in escrow for pending (cancelable) sell requests. These tokens
-  // still exist on the mint until burned at settlement.
-  let escrowBunkercashRaw = 0;
-  try {
-    const bunkercashMint = getBunkercashMintPda(PROGRAM_ID);
-    const escrowAta = getAssociatedTokenAddressSync(
-      bunkercashMint,
-      poolPda,
-      true,
-      TOKEN_2022_PROGRAM_ID,
-      ASSOCIATED_TOKEN_PROGRAM_ID,
-    );
-    const escrowBal = await connection.getTokenAccountBalance(escrowAta);
-    escrowBunkercashRaw = escrowBal.value.uiAmount ?? 0;
-  } catch {
-    escrowBunkercashRaw = 0;
-  }
-
-  const totalSupplyRaw = circulatingSupplyRaw + escrowBunkercashRaw;
-  const availableNavUsdcRaw = Math.max(navUsdcRaw - pendingClaimsUsdcRaw, 0);
-  const tokenPrice =
-    circulatingSupplyRaw > 0 ? availableNavUsdcRaw / circulatingSupplyRaw : 1;
-  const adminWallet = poolAccount.masterWallet.toBase58();
-
-  // Vault balance
-  let treasuryUsdcRaw: number | null = null;
-  try {
-    const poolSignerPda = getPoolSignerPda(poolPda, PROGRAM_ID);
-    let usdcMint: PublicKey | null = null;
+    let escrowBunkercashRaw = 0;
     try {
-      usdcMint = await fetchConfiguredUsdcMint(connection);
-    } catch {
-      // Ignore initial fetch errors, handled by fallback
-    }
-    
-    if (!usdcMint && process.env.NEXT_PUBLIC_USDC_MINT && cluster !== "localnet") {
-      usdcMint = new PublicKey(process.env.NEXT_PUBLIC_USDC_MINT);
-    }
-
-    if (usdcMint) {
-      const usdcTokenProgram = await fetchMintTokenProgram(connection, usdcMint);
-      if (!usdcTokenProgram) {
-        throw new Error("Unsupported configured USDC mint");
-      }
-      const payoutVault = getAssociatedTokenAddressSync(
-        usdcMint,
-        poolSignerPda,
+      const bunkercashMint = getBunkercashMintPda(PROGRAM_ID);
+      const escrowAta = getAssociatedTokenAddressSync(
+        bunkercashMint,
+        poolPda,
         true,
-        usdcTokenProgram,
+        TOKEN_2022_PROGRAM_ID,
         ASSOCIATED_TOKEN_PROGRAM_ID,
       );
-      const bal = await connection.getTokenAccountBalance(payoutVault);
-      treasuryUsdcRaw = bal.value.uiAmount ?? 0;
+      const escrowBal = await connection.getTokenAccountBalance(escrowAta);
+      escrowBunkercashRaw = escrowBal.value.uiAmount ?? 0;
+    } catch {
+      escrowBunkercashRaw = 0;
     }
-  } catch {
-    // Vault may not exist yet
-    treasuryUsdcRaw = 0;
-  }
 
-  return {
-    tokenPrice,
-    totalSupplyRaw,
-    circulatingSupplyRaw,
-    escrowBunkercashRaw,
-    navUsdcRaw,
-    pendingClaimsUsdcRaw,
-    treasuryUsdcRaw,
-    pricePerToken: tokenPrice,
-    adminWallet,
-    ts: Date.now(),
-  };
+    const totalSupplyRaw = circulatingSupplyRaw + escrowBunkercashRaw;
+    const availableNavUsdcRaw = Math.max(navUsdcRaw - pendingClaimsUsdcRaw, 0);
+    const tokenPrice =
+      circulatingSupplyRaw > 0 ? availableNavUsdcRaw / circulatingSupplyRaw : 1;
+    const adminWallet = poolAccount.masterWallet.toBase58();
+
+    let treasuryUsdcRaw: number | null = null;
+    try {
+      const poolSignerPda = getPoolSignerPda(poolPda, PROGRAM_ID);
+      let usdcMint: PublicKey | null = null;
+      try {
+        usdcMint = await fetchConfiguredUsdcMint(connection);
+      } catch {
+        // Ignore initial fetch errors, handled by fallback
+      }
+
+      if (!usdcMint && process.env.NEXT_PUBLIC_USDC_MINT && cluster !== "localnet") {
+        usdcMint = new PublicKey(process.env.NEXT_PUBLIC_USDC_MINT);
+      }
+
+      if (usdcMint) {
+        const usdcTokenProgram = await fetchMintTokenProgram(connection, usdcMint);
+        if (!usdcTokenProgram) {
+          throw new Error("Unsupported configured USDC mint");
+        }
+        const payoutVault = getAssociatedTokenAddressSync(
+          usdcMint,
+          poolSignerPda,
+          true,
+          usdcTokenProgram,
+          ASSOCIATED_TOKEN_PROGRAM_ID,
+        );
+        const bal = await connection.getTokenAccountBalance(payoutVault);
+        treasuryUsdcRaw = bal.value.uiAmount ?? 0;
+      }
+    } catch {
+      treasuryUsdcRaw = 0;
+    }
+
+    return {
+      tokenPrice,
+      totalSupplyRaw,
+      circulatingSupplyRaw,
+      escrowBunkercashRaw,
+      navUsdcRaw,
+      pendingClaimsUsdcRaw,
+      treasuryUsdcRaw,
+      pricePerToken: tokenPrice,
+      adminWallet,
+      ts: Date.now(),
+    };
+  });
 }
 
 export async function fetchAllClaims(): Promise<ClaimsResponse> {

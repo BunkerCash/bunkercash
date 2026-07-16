@@ -13,6 +13,7 @@ import {
 } from '@solana/spl-token'
 import { useSetAtom } from "jotai";
 import {
+  fetchRawPoolAccountWithRetry,
   getBunkercashMintPda,
   getFeeConfigPda,
   getMinClaimConfigPda,
@@ -62,14 +63,6 @@ interface Stringable {
   toString(): string
 }
 
-interface PoolAccount {
-  masterWallet: PublicKey
-  nav: Stringable
-  totalBunkercashSupply: Stringable
-  totalPendingClaims: Stringable
-  claimCounter: Stringable
-}
-
 interface FeeConfigAccount {
   claimFeeBps: Stringable
 }
@@ -79,7 +72,6 @@ interface MinClaimConfigAccount {
 }
 
 interface WithdrawAccountApi {
-  pool: { fetch: (pubkey: PublicKey) => Promise<PoolAccount> }
   feeConfig?: { fetch: (pubkey: PublicKey) => Promise<FeeConfigAccount> }
   minClaimConfig?: { fetch: (pubkey: PublicKey) => Promise<MinClaimConfigAccount> }
 }
@@ -178,9 +170,14 @@ export function WithdrawInterface() {
   const fetchPoolState = useCallback(async () => {
     try {
       // Pool state is public — read it without a connected wallet too.
+      // Raw decode: tolerant of a deployed program older than the bundled IDL.
+      const state = await fetchRawPoolAccountWithRetry(connection)
+      if (!state) {
+        setPoolState(null)
+        return
+      }
       const readProgram = program ?? getReadonlyProgram(connection)
       const accountApi = (readProgram as Program<Idl>).account as WithdrawAccountApi
-      const state = await accountApi.pool.fetch(poolPda)
       let claimFeeBps = 0
 
       if (accountApi.feeConfig) {
@@ -205,15 +202,15 @@ export function WithdrawInterface() {
         }
       }
 
-      const nav = BigInt(state.nav.toString())
-      const totalPendingClaims = BigInt(state.totalPendingClaims.toString())
+      const nav = state.nav
+      const totalPendingClaims = state.totalPendingClaims
       const availableNav = nav > totalPendingClaims ? nav - totalPendingClaims : 0n
 
       setPoolState({
         masterWallet: state.masterWallet,
         nav: availableNav,
-        totalBunkercashSupply: BigInt(state.totalBunkercashSupply.toString()),
-        claimCounter: BigInt(state.claimCounter.toString()),
+        totalBunkercashSupply: state.totalBunkercashSupply,
+        claimCounter: state.claimCounter,
         claimFeeBps,
         minClaimUsdc,
       })
@@ -307,11 +304,13 @@ export function WithdrawInterface() {
         return;
       }
 
-      const accountApi = (program as Program<Idl>).account as WithdrawAccountApi
       // Always read the latest on-chain counter before deriving the claim PDA.
       // A cached counter can drift after a prior sell request and trigger Anchor's
       // `ConstraintSeeds` check on the `claim` account.
-      const livePoolState = await accountApi.pool.fetch(poolPda)
+      const livePoolState = await fetchRawPoolAccountWithRetry(connection)
+      if (!livePoolState) {
+        throw new Error("Pool account not found — pool not initialized on this cluster")
+      }
       const claimId = new BN(livePoolState.claimCounter.toString());
       const idLe = Uint8Array.from(claimId.toArray("le", 8));
       const [claimPda] = PublicKey.findProgramAddressSync(

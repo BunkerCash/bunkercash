@@ -27,6 +27,7 @@ import {
 import { useAllOpenClaims, type OpenClaim } from "@/hooks/useAllOpenClaims";
 import { usePayoutVault } from "@/hooks/usePayoutVault";
 import {
+  fetchRawPoolAccount,
   getBunkercashMintPda,
   getMinSettlementConfigPda,
   getProgram,
@@ -81,14 +82,6 @@ interface MigrateClaimMethods {
       instruction: () => Promise<TransactionInstruction>;
     };
   };
-}
-
-interface Stringable {
-  toString(): string;
-}
-
-interface PoolAccountLike {
-  totalPendingClaims: Stringable;
 }
 
 interface SettlementItem {
@@ -320,12 +313,12 @@ export function SettlementCard() {
     async (signal?: AbortSignal) => {
       try {
         setPoolStateError(null);
-        const accountApi = readonlyProgram.account as {
-          pool: { fetch: (pubkey: typeof poolPda) => Promise<PoolAccountLike> };
-        };
-        const poolState = await accountApi.pool.fetch(poolPda);
+        const poolState = await fetchRawPoolAccount(connection);
         if (signal?.aborted) return;
-        setPoolPendingClaims(BigInt(poolState.totalPendingClaims.toString()));
+        if (!poolState) {
+          throw new Error("Pool account not found — pool not initialized on this cluster");
+        }
+        setPoolPendingClaims(poolState.totalPendingClaims);
       } catch (e: unknown) {
         if (signal?.aborted) return;
         setPoolPendingClaims(null);
@@ -334,7 +327,7 @@ export function SettlementCard() {
         );
       }
     },
-    [poolPda, readonlyProgram],
+    [connection],
   );
 
   useEffect(() => {

@@ -2,7 +2,9 @@
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "main": "worker.js",
   "name": "bunkercash-web",
-  "account_id": "42174612dffcd370fe39ef1184bbde1e",
+  // bunkercash.com is attached to the bunkercash-web worker in this account
+  // (Contact@bunkercoin.io). Deploying elsewhere will not update the domain.
+  "account_id": "9eb655a86ca1ba777efa7889d7eb93e6",
   "compatibility_date": "2024-09-23",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "observability": {
@@ -37,8 +39,8 @@
   "kv_namespaces": [
     {
       "binding": "GEOBLOCKING_KV",
-      "id": "90dd5883670b4004b07dd0101882ffca",
-      "preview_id": "1b082a764e57434b8b9663a51b378606",
+      "id": "9abcd5888b5c436fba6f445f8ba68e98",
+      "preview_id": "a6f9582a6f8444bea09b37128e00bb17",
     },
   ],
   "durable_objects": {
@@ -58,7 +60,7 @@
   "d1_databases": [
     {
       "binding": "METRICS_DB",
-      "database_id": "258218e5-e0d2-4f78-a272-c6a76174bcd6",
+      "database_id": "97cc29d2-b9e4-4430-83ce-bb1272e1d629",
       "database_name": "bunkercash-metrics",
       "migrations_dir": "../../packages/metrics-data/migrations",
     },

@@ -15,6 +15,7 @@ import {
   getPoolSignerPda,
   fetchMintTokenProgram,
   fetchConfiguredUsdcMint,
+  fetchRawPoolAccount,
   PROGRAM_ID,
 } from "@/lib/program";
 import { fetchDecodedClaimAccounts } from "@/lib/claim-accounts";
@@ -26,13 +27,6 @@ import { getConfiguredRpcCluster, getServerRpcEndpoint } from "@/lib/solana-env"
 
 interface Stringable {
   toString(): string;
-}
-
-interface PoolAccountLike {
-  masterWallet: PublicKey;
-  nav: Stringable;
-  totalBunkercashSupply: Stringable;
-  totalPendingClaims: Stringable;
 }
 
 interface FeeConfigAccountLike {
@@ -154,20 +148,18 @@ function serializeClaim(claim: DecodedClaimAccount): SerializedClaim {
 export async function fetchPoolData(): Promise<PoolDataResponse> {
   return withConnectionFallback(async (connection) => {
     const cluster = getClusterFromEndpoint(connection.rpcEndpoint ?? "");
-    const program = getReadonlyProgram(connection);
     const poolPda = getPoolPda(PROGRAM_ID);
 
-    const accountApi = program.account as {
-      pool: { fetch: (pubkey: PublicKey) => Promise<PoolAccountLike> };
-    };
-
-    const poolAccount = await accountApi.pool.fetch(poolPda);
+    const poolAccount = await fetchRawPoolAccount(connection);
+    if (!poolAccount) {
+      throw new Error("Pool account not found — pool not initialized on this cluster");
+    }
     const totalSupplyRaw =
-      Number(poolAccount.totalBunkercashSupply.toString()) / 10 ** BUNKERCASH_DECIMALS;
+      Number(poolAccount.totalBunkercashSupply) / 10 ** BUNKERCASH_DECIMALS;
     const navUsdcRaw =
-      Number(poolAccount.nav.toString()) / 10 ** USDC_DECIMALS;
+      Number(poolAccount.nav) / 10 ** USDC_DECIMALS;
     const pendingClaimsUsdcRaw =
-      Number(poolAccount.totalPendingClaims.toString()) / 10 ** USDC_DECIMALS;
+      Number(poolAccount.totalPendingClaims) / 10 ** USDC_DECIMALS;
     const availableNavUsdcRaw = Math.max(navUsdcRaw - pendingClaimsUsdcRaw, 0);
     const tokenPrice = totalSupplyRaw > 0 ? availableNavUsdcRaw / totalSupplyRaw : 1;
     const adminWallet = poolAccount.masterWallet.toBase58();
@@ -221,15 +213,16 @@ export async function fetchPoolData(): Promise<PoolDataResponse> {
 export async function fetchFeeConfig(): Promise<FeeConfigResponse> {
   return withConnectionFallback(async (connection) => {
     const program = getReadonlyProgram(connection);
-    const poolPda = getPoolPda(PROGRAM_ID);
     const feeConfigPda = getFeeConfigPda(PROGRAM_ID);
 
     const accountApi = program.account as {
-      pool: { fetch: (pubkey: PublicKey) => Promise<PoolAccountLike> };
       feeConfig?: { fetch: (pubkey: PublicKey) => Promise<FeeConfigAccountLike> };
     };
 
-    const poolAccount = await accountApi.pool.fetch(poolPda);
+    const poolAccount = await fetchRawPoolAccount(connection);
+    if (!poolAccount) {
+      throw new Error("Pool account not found — pool not initialized on this cluster");
+    }
     let purchaseFeeBps = 0;
     let claimFeeBps = 0;
 

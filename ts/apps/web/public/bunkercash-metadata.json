@@ -2,14 +2,14 @@
   "name": "BunkerCash",
   "symbol": "BunkerCash",
   "description": "BunkerCash token metadata.",
-  "image": "https://bunkercash-web.bunkercoin.workers.dev/bunkercash.jpeg",
-  "external_url": "https://bunkercash-web.bunkercoin.workers.dev",
+  "image": "https://bunkercash.com/bunkercash.jpeg",
+  "external_url": "https://bunkercash.com",
   "seller_fee_basis_points": 0,
   "properties": {
     "category": "image",
     "files": [
       {
-        "uri": "https://bunkercash-web.bunkercoin.workers.dev/bunkercash.jpeg",
+        "uri": "https://bunkercash.com/bunkercash.jpeg",
         "type": "image/jpeg"
       }
     ]
