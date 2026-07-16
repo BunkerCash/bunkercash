@@ -31,12 +31,14 @@ function buildHeliusUrl(cluster: SolanaCluster, key: string): string {
   return `https://${subdomain}.helius-rpc.com/?api-key=${key}`;
 }
 
-// resolves the rpc endpoint to use server-side: helius if HELIUS_RPC_KEY is set,
-// otherwise the public env var, falling back to the cluster's default rpc.
+// Resolves the server-side RPC endpoint. Helius does not expose a Solana
+// testnet endpoint, so testnet always uses the configured/default RPC.
 export function getServerRpcEndpoint(): string {
   const cluster = getConfiguredRpcCluster();
   const heliusKey = process.env.HELIUS_RPC_KEY;
-  if (heliusKey) return buildHeliusUrl(cluster, heliusKey);
+  if (heliusKey && cluster !== "testnet") {
+    return buildHeliusUrl(cluster, heliusKey);
+  }
   return (
     process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
     process.env.NEXT_PUBLIC_RPC_ENDPOINT ||
