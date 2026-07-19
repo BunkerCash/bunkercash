@@ -176,7 +176,7 @@ export function BuyPrimaryInterface() {
     [connection],
   );
 
-  const { usdcMint, usdcTokenProgram, error: usdcMintError } = useSupportedUsdcMint();
+  const { usdcMint, usdcTokenProgram, loading: usdcMintLoading, error: usdcMintError } = useSupportedUsdcMint();
 
   const fetchPoolState = useCallback(async () => {
     if (!connection) return;
@@ -531,6 +531,9 @@ export function BuyPrimaryInterface() {
   } else if (!poolState) {
     ctaLabel = "Loading pool data…";
     ctaDisabled = true;
+  } else if (usdcMintLoading) {
+    ctaLabel = "Loading mint details…";
+    ctaDisabled = true;
   } else if (!usdcMint || !supportsUsdcDeposits) {
     ctaLabel = "Unsupported network";
     ctaDisabled = true;
@@ -664,7 +667,7 @@ export function BuyPrimaryInterface() {
           Failed to load configured USDC mint details: {usdcMintError}
         </div>
       )}
-      {!usdcMintError && usdcMint && !supportsUsdcDeposits && (
+      {!usdcMintError && !usdcMintLoading && usdcMint && !supportsUsdcDeposits && (
         <div className="rounded-[10px] border border-warn-line bg-warn-soft px-4 py-3 text-[13px] text-warn">
           The configured USDC mint is unsupported for this deployment. Ask the
           team to verify the selected mint.
