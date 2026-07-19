@@ -1,16 +1,13 @@
 import Link from "next/link";
-import { Mail, Phone, ShieldCheck, ArrowLeftRight } from "lucide-react";
 import { Layout } from "@/components/layout/Layout";
+import { PageContainer } from "@/components/design/PageContainer";
+import { SectionCard, CardHeader } from "@/components/design/primitives";
 import { SupportRequestForm } from "@/components/SupportRequestForm";
 import { getSupportContactDetails } from "@/lib/support-requests";
 
 export const metadata = {
   title: "Support | BunkerCash",
 };
-
-function buildTelHref(phone: string) {
-  return `tel:${phone.replace(/[^+\d]/g, "")}`;
-}
 
 interface SupportPageProps {
   searchParams?: Promise<{
@@ -30,116 +27,94 @@ export default async function SupportPage({ searchParams }: SupportPageProps) {
 
   return (
     <Layout>
-      <div className="container mx-auto px-4 py-12">
-        <div className="mx-auto max-w-6xl">
-          <div className="mb-10 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-            <div className="rounded-3xl border border-white/10 bg-neutral-950/80 p-8 shadow-[0_30px_80px_rgba(0,0,0,0.35)]">
-              <div className="mb-6 inline-flex rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">
-                Support Request
-              </div>
-              <h1 className="max-w-2xl text-3xl font-semibold text-white sm:text-4xl">
-                Contact the BunkerCash support team
-              </h1>
-              <p className="mt-4 max-w-2xl text-sm leading-7 text-neutral-400 sm:text-base">
-                Use this page if access was blocked in error or if you need help
-                with protocol eligibility, account review, or operational support.
-              </p>
+      <PageContainer className="gap-5">
+        <div className="flex flex-col gap-0.5">
+          <h1 className="text-xl font-semibold tracking-[-0.01em]">Support</h1>
+          <span className="text-[13px] text-ink-3">
+            Get help with access, eligibility, or operational issues.
+          </span>
+        </div>
 
-              <div className="mt-8 grid gap-4 sm:grid-cols-2">
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-400/10 text-cyan-300">
-                    <ShieldCheck className="h-5 w-5" />
-                  </div>
-                  <h2 className="text-sm font-semibold text-white">
+        <div className="flex flex-wrap items-start gap-5">
+          {/* Left: info cards */}
+          <div className="flex min-w-0 flex-[1.2_1_340px] flex-col gap-4">
+            <SectionCard label="How we can help">
+              <div className="flex flex-col gap-4 px-[18px] py-4">
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[13.5px] font-semibold">
                     Eligibility review
-                  </h2>
-                  <p className="mt-2 text-sm leading-6 text-neutral-400">
+                  </span>
+                  <span className="text-[13px] leading-relaxed text-ink-3">
                     Tell us why the restriction looks incorrect and include any
                     relevant jurisdiction details.
-                  </p>
+                  </span>
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-400/10 text-emerald-300">
-                    <ArrowLeftRight className="h-5 w-5" />
-                  </div>
-                  <h2 className="text-sm font-semibold text-white">
+                <div className="border-t border-line" />
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[13.5px] font-semibold">
                     Follow-up channel
-                  </h2>
-                  <p className="mt-2 text-sm leading-6 text-neutral-400">
+                  </span>
+                  <span className="text-[13px] leading-relaxed text-ink-3">
                     Leave an email and optional phone number so the team can
                     respond without a wallet connection.
-                  </p>
+                  </span>
                 </div>
               </div>
-            </div>
+            </SectionCard>
 
-            <div className="rounded-3xl border border-white/10 bg-[linear-gradient(180deg,rgba(34,211,238,0.12),rgba(10,10,10,0.92))] p-8">
-              <h2 className="text-lg font-semibold text-white">
-                Direct contact
-              </h2>
-              <div className="mt-6 space-y-4">
+            <SectionCard label="Direct contact">
+              <CardHeader title="Direct contact" />
+              <div className="flex flex-col gap-3 px-[18px] py-4">
                 <a
                   href={`mailto:${contact.email}`}
-                  className="flex items-start gap-4 rounded-2xl border border-white/10 bg-black/20 p-4 transition-colors hover:border-cyan-300/40 hover:bg-black/30"
+                  className="flex items-center gap-3 rounded-lg border border-line bg-surface-2 px-4 py-3 text-[13px] text-ink no-underline transition-colors hover:border-mint-line"
                 >
-                  <div className="mt-1 inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-400/10 text-cyan-300">
-                    <Mail className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-white">Email support</p>
-                    <p className="mt-1 text-sm text-cyan-200">{contact.email}</p>
-                  </div>
+                  <span className="text-ink-3">Email</span>
+                  <span className="font-medium text-mint">{contact.email}</span>
                 </a>
-
-                {contact.phone ? (
+                {contact.phone && (
                   <a
-                    href={buildTelHref(contact.phone)}
-                    className="flex items-start gap-4 rounded-2xl border border-white/10 bg-black/20 p-4 transition-colors hover:border-emerald-300/40 hover:bg-black/30"
+                    href={`tel:${contact.phone.replace(/[^+\d]/g, "")}`}
+                    className="flex items-center gap-3 rounded-lg border border-line bg-surface-2 px-4 py-3 text-[13px] text-ink no-underline transition-colors hover:border-mint-line"
                   >
-                    <div className="mt-1 inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-400/10 text-emerald-300">
-                      <Phone className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-white">Phone</p>
-                      <p className="mt-1 text-sm text-emerald-200">
-                        {contact.phone}
-                      </p>
-                    </div>
+                    <span className="text-ink-3">Phone</span>
+                    <span className="font-medium">{contact.phone}</span>
                   </a>
-                ) : null}
+                )}
               </div>
-
-              <p className="mt-6 text-sm leading-6 text-neutral-300">
-                Prefer a written record? Submit the form and the request will be
-                logged for the admin team.
-              </p>
-
-              <Link
-                href="/blocked"
-                className="mt-6 inline-flex text-sm font-medium text-cyan-200 transition-colors hover:text-cyan-100"
-              >
-                Back to restricted-access notice
-              </Link>
-            </div>
+              <div className="border-t border-line px-[18px] py-3">
+                <Link
+                  href="/blocked"
+                  className="text-[12.5px] font-medium text-ink-2 no-underline transition-colors hover:text-mint"
+                >
+                  ← Back to restricted-access notice
+                </Link>
+              </div>
+            </SectionCard>
           </div>
 
-          <div className="rounded-3xl border border-white/10 bg-neutral-950/80 p-8 shadow-[0_24px_64px_rgba(0,0,0,0.28)]">
-            <div className="mb-6">
-              <h2 className="text-2xl font-semibold text-white">
-                Submit a support request
-              </h2>
-              <p className="mt-2 text-sm leading-6 text-neutral-400">
-                Requests submitted here are stored for review in the admin panel.
-              </p>
-            </div>
-            <SupportRequestForm
-              supportEmail={contact.email}
-              initialSource={initialSource}
-              initialSubject={initialSubject}
+          {/* Right: form */}
+          <SectionCard
+            label="Submit a request"
+            className="min-w-0 flex-[1.5_1_400px]"
+          >
+            <CardHeader
+              title="Submit a support request"
+              className="border-b-0 pb-0"
             />
-          </div>
+            <div className="px-[18px] pb-5 pt-1">
+              <p className="mb-4 text-[13px] text-ink-3">
+                Requests submitted here are stored for review by the admin team.
+              </p>
+              <SupportRequestForm
+                supportEmail={contact.email}
+                initialSource={initialSource}
+                initialSubject={initialSubject}
+              />
+            </div>
+          </SectionCard>
         </div>
-      </div>
+      </PageContainer>
     </Layout>
   );
 }

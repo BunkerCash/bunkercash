@@ -1,230 +1,333 @@
-import { Layout } from "@/components/layout/Layout";
-import {
-  BookOpen,
-  TrendingUp,
-  ArrowLeftRight,
-  Coins,
-  AlertTriangle,
-  Scale,
-} from "lucide-react";
+"use client";
 
-const Information = () => {
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Layout } from "@/components/layout/Layout";
+import { PageContainer } from "@/components/design/PageContainer";
+import { SectionCard } from "@/components/design/primitives";
+import { WarnIcon } from "@/components/design/icons";
+import { cn } from "@/lib/utils";
+
+// ---------------------------------------------------------------------------
+// Data
+// ---------------------------------------------------------------------------
+type Section = { id: string; title: string };
+
+const SECTIONS: Section[] = [
+  { id: "overview", title: "1. Overview" },
+  { id: "mechanics", title: "2. Protocol Mechanics" },
+  { id: "token-limitations", title: "3. Token Limitations" },
+  { id: "no-ownership", title: "4. No Ownership / No Revenue Rights" },
+  { id: "settlement-risks", title: "5. Settlement and Liquidity Risks" },
+  { id: "technical-risks", title: "6. Technical Risks" },
+  { id: "regulatory", title: "7. Regulatory and Jurisdictional Restrictions" },
+  { id: "legal-disclaimer", title: "8. Legal Disclaimer" },
+];
+
+// ---------------------------------------------------------------------------
+// TOC sidebar (sticky, desktop only)
+// ---------------------------------------------------------------------------
+function TocSidebar({ activeId }: { activeId: string }) {
+  return (
+    <nav
+      aria-label="Table of contents"
+      className="sticky top-[140px] hidden w-[220px] flex-none flex-col gap-0.5 self-start desk:flex"
+    >
+      {SECTIONS.map((s) => (
+        <a
+          key={s.id}
+          href={`#${s.id}`}
+          className={cn(
+            "rounded-md px-2.5 py-1.5 text-[12.5px] no-underline transition-colors hover:text-ink",
+            activeId === s.id
+              ? "bg-mint-soft font-semibold text-mint"
+              : "text-ink-3",
+          )}
+        >
+          {s.title}
+        </a>
+      ))}
+    </nav>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section wrapper + typography helpers
+// ---------------------------------------------------------------------------
+function ContentSection({
+  id,
+  title,
+  children,
+}: {
+  id: string;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section id={id} className="scroll-mt-36">
+      <h2 className="mb-3 text-base font-semibold tracking-[-0.01em]">
+        {title}
+      </h2>
+      <div className="flex flex-col gap-3">{children}</div>
+    </section>
+  );
+}
+
+function P({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[13.5px] leading-[1.7] text-ink-2">{children}</p>
+  );
+}
+
+function Strong({ children }: { children: React.ReactNode }) {
+  return <span className="font-medium text-ink">{children}</span>;
+}
+
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
+export default function InformationPage() {
+  const [activeId, setActiveId] = useState(SECTIONS[0].id);
+  const observerRef = useRef<IntersectionObserver | null>(null);
+
+  const setupObserver = useCallback(() => {
+    observerRef.current?.disconnect();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setActiveId(entry.target.id);
+            break;
+          }
+        }
+      },
+      { rootMargin: "-140px 0px -60% 0px", threshold: 0 },
+    );
+    for (const s of SECTIONS) {
+      const el = document.getElementById(s.id);
+      if (el) observer.observe(el);
+    }
+    observerRef.current = observer;
+  }, []);
+
+  useEffect(() => {
+    setupObserver();
+    return () => observerRef.current?.disconnect();
+  }, [setupObserver]);
+
   return (
     <Layout>
-      <div className="container mx-auto px-4 py-12">
-        <div className="max-w-3xl mx-auto">
-          {/* Header */}
-          <div className="text-center mb-10">
-            <h1 className="text-4xl font-bold text-foreground mb-4">
-              How BunkerCash works
-            </h1>
-            <p className="text-muted-foreground text-lg">
-              A plain-language guide to buying, selling, and how the price is
-              set. Risks and limitations are summarized at the bottom.
-            </p>
-          </div>
+      <PageContainer className="gap-5">
+        <div className="flex flex-col gap-0.5">
+          <h1 className="text-xl font-semibold tracking-[-0.01em]">
+            Documentation
+          </h1>
+          <span className="text-[13px] text-ink-3">
+            Documentation, restrictions, and risk disclosures for BunkerCash.
+          </span>
+        </div>
 
-          <div className="space-y-6">
-            {/* What it is */}
-            <section className="glass-card p-8">
-              <div className="flex items-center gap-3 mb-5">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <BookOpen className="h-6 w-6 text-primary" />
-                </div>
-                <h2 className="text-2xl font-bold">What BunkerCash is</h2>
-              </div>
-              <div className="space-y-4 text-muted-foreground leading-relaxed">
-                <p>
-                  BunkerCash (BNKR) is a digital token you buy with USDC and
-                  sell back for USDC, all on the Solana blockchain. Its price is
-                  set by the protocol from on-chain pool data — there is no order
-                  book and no third-party market maker.
-                </p>
-                <p>
-                  Holding BNKR is not ownership of any company, asset, or revenue
-                  stream. It is a digital token whose value can rise, fall, or
-                  reach zero.
-                </p>
-              </div>
-            </section>
-
-            {/* Pricing */}
-            <section className="glass-card p-8">
-              <div className="flex items-center gap-3 mb-5">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <TrendingUp className="h-6 w-6 text-primary" />
-                </div>
-                <h2 className="text-2xl font-bold">How the price works</h2>
-              </div>
-              <div className="space-y-4 text-muted-foreground leading-relaxed">
-                <p>
-                  The price is a <span className="text-foreground font-medium">reference rate</span>{" "}
-                  shown as <span className="text-foreground font-medium">USDC per token</span>. It is
-                  calculated on-chain as:
-                </p>
-                <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-foreground">
-                  reference rate = available pool value (NAV) ÷ circulating token supply
-                </div>
-                <p>
-                  The rate moves when the pool&rsquo;s Net Asset Value (NAV) or
-                  the circulating supply changes — for example when people buy or
-                  sell, when sell requests settle, or when the pool&rsquo;s NAV
-                  is updated. Both buying and selling use this same protocol
-                  rate, so there is no spread between a &ldquo;buy price&rdquo;
-                  and a &ldquo;sell price.&rdquo;
-                </p>
-              </div>
-            </section>
-
-            {/* Buying & selling */}
-            <section className="glass-card p-8">
-              <div className="flex items-center gap-3 mb-5">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <ArrowLeftRight className="h-6 w-6 text-primary" />
-                </div>
-                <h2 className="text-2xl font-bold">Buying and selling</h2>
-              </div>
-              <div className="space-y-4 text-muted-foreground leading-relaxed">
-                <p>
-                  <span className="text-foreground font-medium">Buying is instant.</span>{" "}
-                  You send USDC and receive newly minted BNKR at the current
-                  reference rate. Buys may be subject to per-wallet purchase
-                  limits and regional eligibility checks.
-                </p>
-                <p>
-                  <span className="text-foreground font-medium">Selling is a request, not an instant swap.</span>{" "}
-                  When you sell, your BNKR is locked in the pool and a sell
-                  request is created. You receive USDC when a{" "}
-                  <span className="text-foreground font-medium">settlement</span>{" "}
-                  runs, which pays requests from the pool&rsquo;s available
-                  (&ldquo;liquid&rdquo;) USDC. If liquidity is limited, a request
-                  may settle partially and the rest pays out as more liquidity
-                  becomes available.
-                </p>
-                <p>
-                  You can track a sell under{" "}
-                  <span className="text-foreground font-medium">Transactions</span>{" "}
-                  or <span className="text-foreground font-medium">History</span>,
-                  where it shows as Pending, Partially settled, or Settled. While
-                  a request is still pending you can{" "}
-                  <span className="text-foreground font-medium">cancel</span> it
-                  to get your locked BNKR back.
-                </p>
-                <p>
-                  <span className="text-foreground font-medium">BunkerCash trades in USDC only</span>{" "}
-                  — there is no buying or selling with SOL. You only need a small
-                  amount of SOL in your wallet to pay Solana network fees.
-                </p>
-              </div>
-            </section>
-
-            {/* What happens to tokens */}
-            <section className="glass-card p-8">
-              <div className="flex items-center gap-3 mb-5">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <Coins className="h-6 w-6 text-primary" />
-                </div>
-                <h2 className="text-2xl font-bold">What happens to your tokens</h2>
-              </div>
-              <ul className="space-y-3 text-muted-foreground leading-relaxed">
-                <li className="flex gap-3">
-                  <span className="text-primary">•</span>
-                  <span>
-                    <span className="text-foreground font-medium">Buy:</span> new
-                    BNKR is minted to your wallet and circulating supply
-                    increases.
-                  </span>
-                </li>
-                <li className="flex gap-3">
-                  <span className="text-primary">•</span>
-                  <span>
-                    <span className="text-foreground font-medium">Sell request:</span>{" "}
-                    your BNKR is moved into pool escrow (locked, not yet
-                    destroyed) and removed from circulating supply.
-                  </span>
-                </li>
-                <li className="flex gap-3">
-                  <span className="text-primary">•</span>
-                  <span>
-                    <span className="text-foreground font-medium">Settled:</span>{" "}
-                    the settled portion of escrowed BNKR is permanently burned
-                    and you receive the corresponding USDC.
-                  </span>
-                </li>
-                <li className="flex gap-3">
-                  <span className="text-primary">•</span>
-                  <span>
-                    <span className="text-foreground font-medium">Cancelled:</span>{" "}
-                    escrowed BNKR is returned to your wallet and rejoins
-                    circulating supply.
-                  </span>
-                </li>
-              </ul>
-            </section>
-
-            {/* Risks */}
-            <section className="glass-card p-8 border-destructive/30">
-              <div className="flex items-center gap-3 mb-5">
-                <div className="p-2 rounded-lg bg-destructive/10">
-                  <AlertTriangle className="h-6 w-6 text-destructive" />
-                </div>
-                <h2 className="text-2xl font-bold">Risks &amp; limitations</h2>
-              </div>
-              <ul className="space-y-3 text-muted-foreground leading-relaxed">
-                <li className="flex gap-3">
-                  <span className="text-destructive">•</span>
-                  <span>
-                    <span className="text-foreground font-medium">No guaranteed liquidity or timing.</span>{" "}
-                    Sells settle only from available pool liquidity. You may not
-                    be able to convert tokens quickly, fully, or at all.
-                  </span>
-                </li>
-                <li className="flex gap-3">
-                  <span className="text-destructive">•</span>
-                  <span>
-                    <span className="text-foreground font-medium">Value can fall to zero.</span>{" "}
-                    The reference rate can decrease substantially. Only use funds
-                    you can afford to lose.
-                  </span>
-                </li>
-                <li className="flex gap-3">
-                  <span className="text-destructive">•</span>
-                  <span>
-                    <span className="text-foreground font-medium">Technical risk.</span>{" "}
-                    Smart contracts and the Solana network can have bugs,
-                    outages, or congestion that delay or block actions.
-                  </span>
-                </li>
-                <li className="flex gap-3">
-                  <span className="text-destructive">•</span>
-                  <span>
-                    <span className="text-foreground font-medium">Access can be restricted.</span>{" "}
-                    Availability depends on your jurisdiction and eligibility,
-                    and can be limited or suspended at any time.
-                  </span>
-                </li>
-              </ul>
-              <p className="mt-5 text-sm text-muted-foreground leading-relaxed">
-                This page is informational only and is not financial, investment,
-                legal, or tax advice, nor an offer or solicitation. All
-                information is provided &ldquo;as is.&rdquo; By using BunkerCash
-                you accept these risks. See the{" "}
-                <a href="/imprint" className="text-primary hover:underline">
-                  imprint
-                </a>{" "}
-                for legal details.
-              </p>
-            </section>
-
-            <div className="flex items-center justify-center gap-2 pt-2 text-sm text-muted-foreground">
-              <Scale className="h-4 w-4" />
-              <span>Transparent, on-chain, and protocol-defined.</span>
-            </div>
+        {/* Important notice banner */}
+        <div className="flex items-start gap-2.5 rounded-lg border border-warn-line bg-warn-soft px-4 py-3 text-[13px] leading-relaxed text-warn">
+          <WarnIcon size={14} className="mt-0.5 flex-none" />
+          <div className="flex flex-col gap-0.5">
+            <span className="font-semibold">Please Read Carefully</span>
+            <span className="text-[12.5px] text-ink-2">
+              This page contains important information about protocol
+              restrictions, token limitations, and associated risks.
+            </span>
           </div>
         </div>
-      </div>
+
+        <div className="flex items-start gap-8">
+          <TocSidebar activeId={activeId} />
+
+          <SectionCard className="min-w-0 flex-1 px-[22px] py-5 max-[839px]:px-4">
+            <div className="flex flex-col gap-7">
+              {/* 1. Overview */}
+              <ContentSection id="overview" title="1. Overview">
+                <P>
+                  BunkerCash is an access-restricted digital token protocol. The
+                  protocol does not provide ownership in assets, rights to
+                  revenue, guaranteed liquidity, or guaranteed future value.
+                </P>
+                <P>
+                  Protocol functions are available only in eligible
+                  jurisdictions and subject to applicable restrictions. Access
+                  may be limited, suspended, or unavailable at any time without
+                  notice.
+                </P>
+              </ContentSection>
+
+              {/* 2. Protocol Mechanics */}
+              <ContentSection id="mechanics" title="2. Protocol Mechanics">
+                <P>
+                  The protocol enables eligible users to acquire tokens through
+                  a defined interface, subject to protocol-defined parameters
+                  and access restrictions. Token pricing is determined by
+                  protocol-defined reference rates derived from on-chain state.
+                </P>
+                <P>
+                  Users may submit settlement requests to remove tokens from
+                  circulation. Submitted tokens are permanently removed and
+                  cannot be recovered, traded, or transferred. Settlement of
+                  requests depends entirely on available protocol liquidity and
+                  is not guaranteed in timing or amount.
+                </P>
+                <P>
+                  Protocol interactions may be unavailable or delayed due to
+                  network conditions, maintenance, or other factors outside
+                  user control.
+                </P>
+              </ContentSection>
+
+              {/* 3. Token Limitations */}
+              <ContentSection
+                id="token-limitations"
+                title="3. Token Limitations"
+              >
+                <P>
+                  BunkerCash tokens are digital protocol tokens only. They do
+                  not represent any share, equity, debt, security, or other
+                  financial instrument. Holding tokens does not create any
+                  contractual relationship or entitlement to benefits, profits,
+                  or distributions of any kind.
+                </P>
+                <P>
+                  There is no guarantee of future value. Token value may
+                  decrease substantially or become zero with no guarantee of
+                  recovery. Displayed interface values are informational only.
+                </P>
+              </ContentSection>
+
+              {/* 4. No Ownership / No Revenue Rights */}
+              <ContentSection
+                id="no-ownership"
+                title="4. No Ownership / No Revenue Rights"
+              >
+                <P>
+                  Tokens confer no ownership in real estate or other assets, no
+                  equity rights, and no revenue rights.
+                </P>
+                <P>
+                  Real-world activities, including real-world assets, are not
+                  represented on-chain in any form. There is no direct or
+                  indirect connection between token holdings and any physical,
+                  financial, or business assets. The token exists solely as a
+                  digital instrument on the blockchain, completely separate from
+                  any off-chain operations.
+                </P>
+                <P>
+                  No content on this interface or in protocol documentation
+                  implies or creates any ownership interest, profit-sharing
+                  arrangement, or revenue entitlement.
+                </P>
+              </ContentSection>
+
+              {/* 5. Settlement and Liquidity Risks */}
+              <ContentSection
+                id="settlement-risks"
+                title="5. Settlement and Liquidity Risks"
+              >
+                <P>
+                  <Strong>
+                    There is no guaranteed liquidity and no guaranteed
+                    settlement timing.
+                  </Strong>
+                </P>
+                <P>
+                  Settlement of requests depends entirely on available protocol
+                  liquidity, which is discretionary and may change without
+                  notice. Liquidity may be insufficient to fulfill all pending
+                  requests. No timeline or schedule for settlements exists or is
+                  implied.
+                </P>
+                <P>
+                  You may not be able to convert tokens at any price or at all.
+                  Only interact with the protocol using amounts you can afford
+                  to lose completely.
+                </P>
+                <P>
+                  This website does not provide financial, investment, legal, or
+                  tax advice. Nothing on this website should be construed as a
+                  recommendation to purchase, sell, or hold any token. All
+                  information is provided &ldquo;as is&rdquo; without
+                  warranties of any kind. You should consult with qualified
+                  professional advisors before making any decisions related to
+                  digital tokens.
+                </P>
+              </ContentSection>
+
+              {/* 6. Technical Risks */}
+              <ContentSection
+                id="technical-risks"
+                title="6. Technical Risks"
+              >
+                <P>
+                  Smart contracts may contain bugs, vulnerabilities, or
+                  exploits. The underlying blockchain network may experience
+                  congestion, outages, or other disruptions that affect
+                  protocol availability.
+                </P>
+                <P>
+                  Protocol interactions may be unavailable or delayed due to
+                  network conditions, smart contract state, or infrastructure
+                  issues. No guarantees exist regarding platform operation,
+                  uptime, or continuity. You may lose your entire participation
+                  amount without recourse due to technical failures.
+                </P>
+              </ContentSection>
+
+              {/* 7. Regulatory and Jurisdictional Restrictions */}
+              <ContentSection
+                id="regulatory"
+                title="7. Regulatory and Jurisdictional Restrictions"
+              >
+                <P>
+                  <Strong>Access is restricted by jurisdiction.</Strong>
+                </P>
+                <P>
+                  Protocol access is not available in all jurisdictions. Users
+                  are responsible for ensuring compliance with all applicable
+                  local laws and regulations. The legal status of digital tokens
+                  may change in your jurisdiction, potentially restricting or
+                  prohibiting access without notice.
+                </P>
+                <P>
+                  The protocol operator reserves the right to restrict, suspend,
+                  or terminate access for any user or jurisdiction at any time
+                  and for any reason.
+                </P>
+              </ContentSection>
+
+              {/* 8. Legal Disclaimer */}
+              <ContentSection
+                id="legal-disclaimer"
+                title="8. Legal Disclaimer"
+              >
+                <P>
+                  This interface is informational only and does not constitute
+                  financial advice, an offer to sell, or a solicitation to
+                  purchase any security or financial instrument. Nothing on this
+                  interface should be construed as a recommendation to acquire,
+                  sell, or hold any token.
+                </P>
+                <P>
+                  All information is provided &ldquo;as is&rdquo; without
+                  warranties of any kind. You should consult with qualified
+                  professional advisors before making any decisions related to
+                  digital tokens.
+                </P>
+                <P>
+                  By using this protocol, you acknowledge that you have read,
+                  understood, and accepted all restrictions, risks, and
+                  disclaimers described on this page. No content on this
+                  interface creates any contractual obligation or liability.
+                </P>
+              </ContentSection>
+            </div>
+          </SectionCard>
+        </div>
+      </PageContainer>
     </Layout>
   );
-};
-
-export default Information;
+}

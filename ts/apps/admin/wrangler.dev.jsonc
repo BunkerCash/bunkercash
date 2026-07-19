@@ -1,0 +1,29 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "main": "worker.js",
+  "name": "bunkercash-admin-next-dev",
+  "compatibility_date": "2024-09-23",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "vars": {
+    "NEXT_PUBLIC_SOLANA_RPC_URL": "https://api.testnet.solana.com",
+    "NEXT_PUBLIC_SOLANA_CLUSTER": "testnet",
+    "NEXT_PUBLIC_CLUSTER": "testnet",
+    "NEXT_PUBLIC_USDC_MINT": "DCM1oDQRSv9dn4xpZrXuX23yvivoFHSKKF1mjuCEcjdQ",
+    "NEXT_PUBLIC_TOKEN_METADATA_URI": "https://bunkercash-web.bunkercoin.workers.dev/bunkercash-metadata.json",
+    "NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY": "GD3jX4ixATyMN5QZGfhGZeYgz3b6bgPjSBF3qtzEfYew"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "GEOBLOCKING_KV",
+      "id": "a6f9582a6f8444bea09b37128e00bb17"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "METRICS_DB",
+      "database_id": "97cc29d2-b9e4-4430-83ce-bb1272e1d629",
+      "database_name": "bunkercash-metrics",
+      "migrations_dir": "../../packages/metrics-data/migrations"
+    }
+  ]
+}

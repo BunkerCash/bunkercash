@@ -1,5 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import {
+  ADMIN_AUTH_SIGNATURE_TTL_MS,
   EMPTY_BODY_SHA256,
   normalizeAdminAuthMethod,
   type AdminAuthRequestChallenge,
@@ -23,6 +24,13 @@ export interface AdminAuthNonceResult {
   ok: boolean;
   error?: string;
 }
+
+interface LocalAdminAuthChallenge extends AdminAuthRequestChallenge {
+  expiresAt: number;
+  consumedAt?: number;
+}
+
+const localChallenges = new Map<string, LocalAdminAuthChallenge>();
 
 function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
@@ -90,6 +98,62 @@ async function getAdminAuthNonceNamespace(): Promise<AdminAuthNonceNamespace> {
   return namespace as AdminAuthNonceNamespace;
 }
 
+function shouldUseLocalNonceStore(error: unknown): boolean {
+  return (
+    process.env.NODE_ENV === "development" &&
+    error instanceof Error &&
+    error.message.includes(`"${ADMIN_AUTH_NONCE_BINDING}"`)
+  );
+}
+
+function cleanupLocalChallenges(now = Date.now()): void {
+  for (const [nonce, challenge] of localChallenges) {
+    if (challenge.expiresAt < now || challenge.consumedAt) {
+      localChallenges.delete(nonce);
+    }
+  }
+}
+
+function issueLocalChallenge(
+  challenge: AdminAuthRequestChallenge,
+): AdminAuthRequestChallenge {
+  cleanupLocalChallenges();
+  localChallenges.set(challenge.nonce, {
+    ...challenge,
+    expiresAt: Date.parse(challenge.issuedAt) + ADMIN_AUTH_SIGNATURE_TTL_MS,
+  });
+
+  return challenge;
+}
+
+function consumeLocalChallenge(
+  challenge: AdminAuthRequestChallenge,
+): AdminAuthNonceResult {
+  cleanupLocalChallenges();
+  const stored = localChallenges.get(challenge.nonce);
+  if (!stored) {
+    return { ok: false, error: "Admin authorization nonce was not issued" };
+  }
+
+  if (
+    stored.method !== challenge.method ||
+    stored.route !== challenge.route ||
+    stored.bodyHash !== challenge.bodyHash ||
+    stored.issuedAt !== challenge.issuedAt
+  ) {
+    return { ok: false, error: "Admin authorization nonce mismatch" };
+  }
+
+  if (Date.now() > stored.expiresAt) {
+    localChallenges.delete(challenge.nonce);
+    return { ok: false, error: "Admin authorization nonce expired" };
+  }
+
+  stored.consumedAt = Date.now();
+  localChallenges.delete(challenge.nonce);
+  return { ok: true };
+}
+
 async function fetchNonceObject(
   nonce: string,
   path: string,
@@ -112,13 +176,22 @@ export async function issueAdminAuthChallenge(
     nonce,
   };
 
-  const response = await fetchNonceObject(nonce, "/issue", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(challenge),
-  });
+  let response: Response;
+  try {
+    response = await fetchNonceObject(nonce, "/issue", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(challenge),
+    });
+  } catch (error) {
+    if (shouldUseLocalNonceStore(error)) {
+      return issueLocalChallenge(challenge);
+    }
+
+    throw error;
+  }
 
   if (!response.ok) {
     throw new Error(`Failed to issue admin authorization nonce (${response.status})`);
@@ -131,17 +204,28 @@ export async function consumeAdminAuthNonce(
   challenge: AdminAuthRequestChallenge,
 ): Promise<AdminAuthNonceResult> {
   const normalized = normalizeChallengeRequest(challenge);
-  const response = await fetchNonceObject(challenge.nonce, "/consume", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      ...normalized,
-      issuedAt: challenge.issuedAt,
-      nonce: challenge.nonce,
-    } satisfies AdminAuthRequestChallenge),
-  });
+  const normalizedChallenge = {
+    ...normalized,
+    issuedAt: challenge.issuedAt,
+    nonce: challenge.nonce,
+  } satisfies AdminAuthRequestChallenge;
+  let response: Response;
+
+  try {
+    response = await fetchNonceObject(challenge.nonce, "/consume", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(normalizedChallenge),
+    });
+  } catch (error) {
+    if (shouldUseLocalNonceStore(error)) {
+      return consumeLocalChallenge(normalizedChallenge);
+    }
+
+    throw error;
+  }
 
   if (response.ok) {
     return { ok: true };

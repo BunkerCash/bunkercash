@@ -1,92 +1,246 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
+  /*
+   * BunkerCash design tokens.
+   * Dark is the default theme; light values apply under [data-theme="light"]
+   * (set on <html> by next-themes).
+   *
+   * Two token families live here:
+   *  1. Design tokens (hex/rgba) — consumed by the platform UI via Tailwind
+   *     (bg-canvas, bg-surface-2, border-line, text-ink-2, bg-mint-btn, …).
+   *  2. shadcn HSL triplets — consumed by components/ui/* primitives; retuned
+   *     to the same palette so legacy pages match until they are migrated.
+   */
   :root {
-    --background: 220 20% 6%;
-    --foreground: 220 20% 92%;
+    --sans: var(--font-general-sans), ui-sans-serif, system-ui, -apple-system,
+      sans-serif;
+    --mono: var(--font-geist-mono), "SF Mono", ui-monospace, monospace;
 
-    --card: 220 20% 8%;
-    --card-foreground: 220 20% 92%;
+    --bg: #0b0e10;
+    --surface: #101416;
+    --surface-2: #151a1d;
+    --surface-3: #1c2226;
+    --line: #20272b;
+    --line-2: #2b343a;
+    --text: #f0f4f2;
+    --text-2: #a6b1ab;
+    --text-3: #79837e;
+    --mint: #00e59b;
+    --mint-btn: #00c98a;
+    --mint-btn-h: #0fdd9b;
+    --mint-ink: #04291d;
+    --mint-soft: rgba(0, 229, 155, 0.08);
+    --mint-line: rgba(0, 229, 155, 0.35);
+    --sell: #e4636f;
+    --sell-h: #ef7580;
+    --sell-soft: rgba(228, 99, 111, 0.09);
+    --sell-line: rgba(228, 99, 111, 0.35);
+    --amber: #e2bc66;
+    --amber-soft: rgba(226, 188, 102, 0.09);
+    --amber-line: rgba(226, 188, 102, 0.32);
+    --red: #f26d6d;
+    --red-soft: rgba(242, 109, 109, 0.09);
+    --red-line: rgba(242, 109, 109, 0.32);
+    --blue: #5ba3f0;
+    --blue-soft: rgba(91, 163, 240, 0.1);
+    --shadow-pop: 0 24px 64px -24px rgba(0, 0, 0, 0.7),
+      0 4px 16px -6px rgba(0, 0, 0, 0.5);
 
-    --popover: 220 20% 10%;
-    --popover-foreground: 220 20% 92%;
-
-    --primary: 166 100% 50%;
-    --primary-foreground: 0 0% 0%;
-
-    --secondary: 231 100% 68%;
-    --secondary-foreground: 220 20% 92%;
-
-    --muted: 220 15% 15%;
-    --muted-foreground: 220 15% 65%;
-
-    --accent: 231 100% 68%;
-    --accent-foreground: 220 20% 92%;
-
-    --destructive: 0 65% 70%;
-    --destructive-foreground: 220 20% 6%;
-
-    --warning: 0 100% 71%;
-    --warning-foreground: 220 20% 6%;
-
-    --border: 220 15% 18%;
-    --input: 220 15% 18%;
-    --ring: 166 100% 50%;
-
+    /* shadcn triplets (hsl) retuned to the palette above */
+    --background: 204 19% 5%;
+    --foreground: 150 15% 95%;
+    --card: 200 16% 7%;
+    --card-foreground: 150 15% 95%;
+    --popover: 203 16% 10%;
+    --popover-foreground: 150 15% 95%;
+    --primary: 161 100% 39%;
+    --primary-foreground: 160 82% 9%;
+    --secondary: 203 16% 10%;
+    --secondary-foreground: 150 15% 95%;
+    --muted: 204 15% 13%;
+    --muted-foreground: 147 7% 67%;
+    --accent: 204 15% 13%;
+    --accent-foreground: 150 15% 95%;
+    --destructive: 0 84% 69%;
+    --destructive-foreground: 204 19% 5%;
+    --warning: 42 68% 64%;
+    --warning-foreground: 204 19% 5%;
+    --border: 202 15% 15%;
+    --input: 202 15% 15%;
+    --ring: 161 100% 45%;
     --radius: 0.75rem;
 
-    --sidebar-background: 220 20% 6%;
-    --sidebar-foreground: 220 15% 65%;
-    --sidebar-primary: 166 100% 50%;
-    --sidebar-primary-foreground: 220 20% 6%;
-    --sidebar-accent: 220 15% 12%;
-    --sidebar-accent-foreground: 220 20% 92%;
-    --sidebar-border: 220 15% 18%;
-    --sidebar-ring: 166 100% 50%;
+    --sidebar-background: 204 19% 5%;
+    --sidebar-foreground: 147 7% 67%;
+    --sidebar-primary: 161 100% 45%;
+    --sidebar-primary-foreground: 204 19% 5%;
+    --sidebar-accent: 203 16% 10%;
+    --sidebar-accent-foreground: 150 15% 95%;
+    --sidebar-border: 202 15% 15%;
+    --sidebar-ring: 161 100% 45%;
   }
 
-  .dark {
-    --background: 220 20% 6%;
-    --foreground: 220 20% 92%;
-    --card: 220 20% 8%;
-    --card-foreground: 220 20% 92%;
-    --popover: 220 20% 10%;
-    --popover-foreground: 220 20% 92%;
-    --primary: 166 100% 50%;
-    --primary-foreground: 0 0% 0%;
-    --secondary: 231 100% 68%;
-    --secondary-foreground: 220 20% 92%;
-    --muted: 220 15% 15%;
-    --muted-foreground: 220 15% 65%;
-    --accent: 231 100% 68%;
-    --accent-foreground: 220 20% 92%;
-    --destructive: 0 65% 70%;
-    --destructive-foreground: 220 20% 6%;
-    --border: 220 15% 18%;
-    --input: 220 15% 18%;
-    --ring: 166 100% 50%;
-  }
-}
+  [data-theme="light"] {
+    --bg: #f5f4f1;
+    --surface: #fdfdfc;
+    --surface-2: #f0efea;
+    --surface-3: #e7e5df;
+    --line: #e2e0d9;
+    --line-2: #cfccc2;
+    --text: #191e1c;
+    --text-2: #525c57;
+    --text-3: #717b76;
+    --mint: #0a8a61;
+    --mint-btn: #0b8a63;
+    --mint-btn-h: #0a7a58;
+    --mint-ink: #ffffff;
+    --mint-soft: rgba(10, 138, 97, 0.08);
+    --mint-line: rgba(10, 138, 97, 0.35);
+    --sell: #be4a52;
+    --sell-h: #a93e46;
+    --sell-soft: rgba(190, 74, 82, 0.08);
+    --sell-line: rgba(190, 74, 82, 0.32);
+    --amber: #8a6a17;
+    --amber-soft: rgba(138, 106, 23, 0.1);
+    --amber-line: rgba(138, 106, 23, 0.3);
+    --red: #c24a4a;
+    --red-soft: rgba(194, 74, 74, 0.08);
+    --red-line: rgba(194, 74, 74, 0.3);
+    --blue: #2470b8;
+    --blue-soft: rgba(36, 112, 184, 0.09);
+    --shadow-pop: 0 24px 60px -28px rgba(30, 40, 35, 0.35),
+      0 4px 14px -6px rgba(30, 40, 35, 0.18);
 
-@layer base {
+    --background: 45 17% 95%;
+    --foreground: 156 9% 11%;
+    --card: 60 20% 99%;
+    --card-foreground: 156 9% 11%;
+    --popover: 50 17% 93%;
+    --popover-foreground: 156 9% 11%;
+    --primary: 162 85% 29%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 50 17% 93%;
+    --secondary-foreground: 156 9% 11%;
+    --muted: 45 14% 89%;
+    --muted-foreground: 150 6% 34%;
+    --accent: 45 14% 89%;
+    --accent-foreground: 156 9% 11%;
+    --destructive: 0 50% 53%;
+    --destructive-foreground: 0 0% 100%;
+    --warning: 43 71% 32%;
+    --warning-foreground: 0 0% 100%;
+    --border: 47 13% 87%;
+    --input: 47 13% 87%;
+    --ring: 161 87% 29%;
+
+    --sidebar-background: 45 17% 95%;
+    --sidebar-foreground: 150 6% 34%;
+    --sidebar-primary: 161 87% 29%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 50 17% 93%;
+    --sidebar-accent-foreground: 156 9% 11%;
+    --sidebar-border: 47 13% 87%;
+    --sidebar-ring: 161 87% 29%;
+  }
+
   * {
-    border-color: hsl(var(--border));
+    border-color: var(--line);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
   body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
-    font-family: "Inter", sans-serif;
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14.5px;
+    line-height: 1.5;
     -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  a {
+    color: var(--mint);
+    text-decoration: none;
+  }
+  a:hover {
+    text-decoration: underline;
+  }
+
+  button {
+    text-align: left;
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  input::placeholder {
+    color: var(--text-3);
+    opacity: 0.6;
+  }
+  select {
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+  }
+  select option {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+
+  ::selection {
+    background: var(--mint-soft);
+  }
+  :focus-visible {
+    outline: 2px solid var(--mint);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--line-2);
+    border-radius: 99px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 
 @layer components {
+  /* Horizontal scroller that hides its scrollbar (status rail, filter rows) */
+  .rail-scroll {
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .rail-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* ---- Legacy classes; remove once all pages use design tokens ---- */
   .glass-card {
     background-color: hsl(var(--card) / 0.8);
     backdrop-filter: blur(24px);
@@ -155,32 +309,3 @@
   }
 }
 
-@layer utilities {
-  .animate-fade-in {
-    animation: fadeIn 0.5s ease-out forwards;
-  }
-
-  .animate-slide-up {
-    animation: slideUp 0.5s ease-out forwards;
-  }
-
-  @keyframes fadeIn {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
-  }
-
-  @keyframes slideUp {
-    from {
-      opacity: 0;
-      transform: translateY(20px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-}

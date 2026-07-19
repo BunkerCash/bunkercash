@@ -1,53 +1,46 @@
 import { Layout } from "@/components/layout/Layout";
-import { FileText, Mail } from "lucide-react";
+import { PageContainer } from "@/components/design/PageContainer";
+import { SectionCard, CardHeader } from "@/components/design/primitives";
 
-const Imprint = () => {
+export default function ImprintPage() {
   return (
     <Layout>
-      <div className="container mx-auto px-4 py-12">
-        <div className="max-w-3xl mx-auto">
-          <div className="text-center mb-10">
-            <h1 className="text-4xl font-bold text-foreground mb-4">
-              Imprint
-            </h1>
-            <p className="text-muted-foreground text-lg">
-              Provider information and legal contact details.
-            </p>
-          </div>
-
-          <div className="space-y-8">
-            <div className="glass-card p-8">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <FileText className="h-6 w-6 text-primary" />
-                </div>
-                <h2 className="text-2xl font-bold">Provider</h2>
-              </div>
-              <div className="space-y-2 text-muted-foreground leading-relaxed">
-                <p>BunkerCash</p>
-                <p>Office 2207, Boulevard Plaza Tower 1</p>
-                <p>Sheikh Mohammed Bin Rashid Boulevard</p>
-                <p>Downtown Dubai, P.O. Box 334036</p>
-                <p>Dubai, United Arab Emirates</p>
-              </div>
-            </div>
-
-            <div className="glass-card p-8">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <Mail className="h-6 w-6 text-primary" />
-                </div>
-                <h2 className="text-2xl font-bold">Contact</h2>
-              </div>
-              <div className="space-y-2 text-muted-foreground leading-relaxed">
-                <p>Email: [contact@example.com]</p>
-              </div>
-            </div>
-          </div>
+      <PageContainer className="gap-5">
+        <div className="flex flex-col gap-0.5">
+          <h1 className="text-xl font-semibold tracking-[-0.01em]">Imprint</h1>
+          <span className="text-[13px] text-ink-3">
+            Provider information and legal contact details.
+          </span>
         </div>
-      </div>
+
+        <div className="flex max-w-2xl flex-col gap-4">
+          <SectionCard label="Provider">
+            <CardHeader title="Provider" />
+            <div className="flex flex-col gap-1 px-[18px] py-4 text-[13.5px] leading-relaxed text-ink-2">
+              <span className="font-medium text-ink">BunkerCash</span>
+              <span>Office 2207, Boulevard Plaza Tower 1</span>
+              <span>Sheikh Mohammed Bin Rashid Boulevard</span>
+              <span>Downtown Dubai, P.O. Box 334036</span>
+              <span>Dubai, United Arab Emirates</span>
+            </div>
+          </SectionCard>
+
+          <SectionCard label="Contact">
+            <CardHeader title="Contact" />
+            <div className="flex flex-col gap-1 px-[18px] py-4 text-[13.5px] leading-relaxed text-ink-2">
+              <span>
+                Email:{" "}
+                <a
+                  href="mailto:contact@example.com"
+                  className="font-medium text-mint no-underline transition-colors hover:underline"
+                >
+                  contact@example.com
+                </a>
+              </span>
+            </div>
+          </SectionCard>
+        </div>
+      </PageContainer>
     </Layout>
   );
-};
-
-export default Imprint;
+}

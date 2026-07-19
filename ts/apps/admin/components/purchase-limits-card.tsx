@@ -13,6 +13,7 @@ import { AlertCircle, DollarSign, Info, Loader2, RefreshCw, Settings } from "luc
 import { usePayoutVault } from "@/hooks/usePayoutVault";
 import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
 import {
+  fetchRawPoolAccount,
   getProgram,
   getReadonlyProgram,
   getPoolPda,
@@ -25,11 +26,6 @@ import { formatUsdc, parseUsdcInput, shortPk } from "@/lib/master-operations";
 
 interface Stringable {
   toString(): string;
-}
-
-interface PoolAccountLike {
-  masterWallet: { toBase58(): string };
-  nav: Stringable;
 }
 
 interface PurchaseLimitConfigLike {
@@ -136,7 +132,6 @@ export function PurchaseLimitsCard() {
     setError(null);
     try {
       const accountApi = program.account as {
-        pool: { fetch: (pubkey: typeof poolPda) => Promise<PoolAccountLike> };
         purchaseLimitConfig?: {
           fetch: (pubkey: typeof purchaseLimitConfigPda) => Promise<PurchaseLimitConfigLike>;
         };
@@ -145,7 +140,10 @@ export function PurchaseLimitsCard() {
         };
       };
 
-      const poolAccount = await accountApi.pool.fetch(poolPda);
+      const poolAccount = await fetchRawPoolAccount(connection);
+      if (!poolAccount) {
+        throw new Error("Pool account not found — pool not initialized on this cluster");
+      }
       let purchaseLimitUsdcRaw = BigInt(0);
       let totalDepositedUsdcRaw = BigInt(0);
       let supportedUsdcMint: string | null = null;
@@ -176,7 +174,7 @@ export function PurchaseLimitsCard() {
 
       setState({
         admin: poolAccount.masterWallet.toBase58(),
-        navUsdcRaw: BigInt(poolAccount.nav.toString()),
+        navUsdcRaw: poolAccount.nav,
         purchaseLimitUsdcRaw,
         totalDepositedUsdcRaw,
         supportedUsdcMint,
@@ -187,7 +185,7 @@ export function PurchaseLimitsCard() {
     } finally {
       setLoading(false);
     }
-  }, [poolPda, program, purchaseLimitConfigPda, supportedUsdcConfigPda]);
+  }, [connection, program, purchaseLimitConfigPda, supportedUsdcConfigPda]);
 
   useEffect(() => {
     void fetchState();

@@ -1,11 +1,18 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import "../index.css";
 import { Providers } from "./providers";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
+const generalSans = localFont({
+  src: [
+    { path: "../fonts/GeneralSans-Regular.woff2", weight: "400" },
+    { path: "../fonts/GeneralSans-Medium.woff2", weight: "500" },
+    { path: "../fonts/GeneralSans-Semibold.woff2", weight: "600" },
+    { path: "../fonts/GeneralSans-Bold.woff2", weight: "700" },
+  ],
+  variable: "--font-general-sans",
+  display: "swap",
 });
 
 const geistMono = Geist_Mono({
@@ -27,9 +34,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-black text-white`}
+        className={`${generalSans.variable} ${geistMono.variable} font-sans antialiased bg-canvas text-ink`}
       >
         <Providers>{children}</Providers>
       </body>

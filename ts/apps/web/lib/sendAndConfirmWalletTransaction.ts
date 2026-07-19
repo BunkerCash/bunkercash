@@ -24,11 +24,14 @@ export async function sendAndConfirmWalletTransaction({
   wallet,
   transaction,
   commitment = "confirmed",
+  onSigned,
 }: {
   connection: Connection
   wallet: ProgramWallet
   transaction: Transaction
   commitment?: Commitment
+  /** Called with the signature once the wallet has signed, before confirmation. */
+  onSigned?: (signature: string) => void
 }): Promise<string> {
   if (!wallet.publicKey || !wallet.signTransaction) {
     throw new Error("Wallet not connected")
@@ -45,6 +48,7 @@ export async function sendAndConfirmWalletTransaction({
   if (!signature) {
     throw new Error("Wallet did not return a transaction signature")
   }
+  onSigned?.(signature)
 
   try {
     await connection.sendRawTransaction(signedTransaction.serialize(), {
@@ -56,13 +60,33 @@ export async function sendAndConfirmWalletTransaction({
     }
   }
 
-  const confirmation = await connection.confirmTransaction(
-    { signature, blockhash, lastValidBlockHeight },
-    commitment,
-  )
+  try {
+    const confirmation = await connection.confirmTransaction(
+      { signature, blockhash, lastValidBlockHeight },
+      commitment,
+    )
 
-  if (confirmation.value.err) {
-    throw new Error(JSON.stringify(confirmation.value.err))
+    if (confirmation.value.err) {
+      throw new Error(JSON.stringify(confirmation.value.err))
+    }
+  } catch (error) {
+    // A blockhash-expiry timeout does not mean the transaction failed — on a
+    // lagging RPC the transaction often landed anyway. Check its actual status
+    // before reporting failure to the user.
+    const message = error instanceof Error ? error.message : String(error ?? "")
+    const isExpiry =
+      message.includes("block height exceeded") || message.includes("expired")
+    if (!isExpiry) throw error
+
+    const status = await connection.getSignatureStatus(signature, {
+      searchTransactionHistory: true,
+    })
+    const confirmationStatus = status.value?.confirmationStatus
+    const landed =
+      status.value != null &&
+      !status.value.err &&
+      (confirmationStatus === "confirmed" || confirmationStatus === "finalized")
+    if (!landed) throw error
   }
 
   return signature

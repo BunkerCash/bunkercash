@@ -1,87 +1,77 @@
 "use client";
 
+import Link from "next/link";
 import { Layout } from "@/components/layout/Layout";
-import { TradeInterface, type TradeTab } from "@/components/TradeInterface";
-import { DisclaimerBanner } from "@/components/ui/DisclaimerBanner";
-import { InfoTooltip } from "@/components/ui/InfoTooltip";
-import { usePoolStats } from "@/hooks/usePoolStats";
-import { GLOSSARY } from "@/lib/glossary";
+import { PageContainer } from "@/components/design/PageContainer";
+import { BuyPrimaryInterface } from "@/components/BuyPrimaryInterface";
+import { WithdrawInterface } from "@/components/WithdrawInterface";
+import { ContextColumn } from "@/components/trade/ContextColumn";
+import { cn } from "@/lib/utils";
 
-function PoolMetricCard({
-  label,
-  value,
-  subtitle,
-  tooltip,
+export type TradeSide = "buy" | "sell";
+
+function SideTab({
+  side,
+  active,
+  href,
 }: {
-  label: string;
-  value: string;
-  subtitle: string;
-  tooltip?: string;
+  side: TradeSide;
+  active: boolean;
+  href: string;
 }) {
+  const isBuy = side === "buy";
   return (
-    <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-6">
-      <div className="mb-2 flex items-center gap-1.5 text-sm text-neutral-400">
-        {label}
-        {tooltip && <InfoTooltip text={tooltip} label={label} />}
-      </div>
-      <div className="text-2xl font-bold text-[#00FFB2]">{value}</div>
-      <div className="mt-2 text-xs text-neutral-500">{subtitle}</div>
-    </div>
+    <Link
+      href={href}
+      role="tab"
+      aria-selected={active}
+      className={cn(
+        "flex h-9 items-center justify-center rounded-md text-[13.5px] font-semibold no-underline transition-colors hover:no-underline",
+        active
+          ? isBuy
+            ? "bg-mint-soft text-mint shadow-[inset_0_0_0_1px_var(--mint-line)]"
+            : "bg-sell-soft text-sell shadow-[inset_0_0_0_1px_var(--sell-line)]"
+          : "text-ink-3 hover:text-ink-2",
+      )}
+    >
+      {isBuy ? "Buy" : "Sell"}
+    </Link>
   );
 }
 
-interface TradePageContentProps {
-  title: string;
-  description: string;
-  initialTab?: TradeTab;
-  hiddenTabs?: TradeTab[];
-  showDisclaimer?: boolean;
-}
-
-export function TradePageContent({
-  title,
-  description,
-  initialTab = "buy-primary",
-  hiddenTabs = [],
-  showDisclaimer = true,
-}: TradePageContentProps) {
-  const { stats } = usePoolStats();
-
-  const navDisplay = stats.navUsdc != null ? `$${stats.navUsdc} USDC` : "—";
-  const liquidDisplay =
-    stats.treasuryUsdc != null ? `$${stats.treasuryUsdc} USDC` : "—";
-
+export function TradePageContent({ side }: { side: TradeSide }) {
   return (
     <Layout>
-      <div className="container mx-auto px-4 py-12">
-        <div className="mx-auto max-w-2xl">
-          {showDisclaimer && <DisclaimerBanner className="mb-8" />}
-
-          <div className="mb-10 text-center">
-            <h1 className="mb-4 text-3xl font-bold text-foreground">{title}</h1>
-            <p className="mx-auto max-w-xl text-muted-foreground">
-              {description}
-            </p>
-          </div>
-
-          <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <PoolMetricCard
-              label="Current Reference Value"
-              value={navDisplay}
-              subtitle="Read directly from the on-chain pool account."
-              tooltip={GLOSSARY.referenceValue}
-            />
-            <PoolMetricCard
-              label="Liquid Size"
-              value={liquidDisplay}
-              subtitle="Current USDC balance available in the payout vault."
-              tooltip={GLOSSARY.liquidSize}
-            />
-          </div>
-
-          <TradeInterface initialTab={initialTab} hiddenTabs={hiddenTabs} />
+      <PageContainer className="gap-5">
+        <div className="flex flex-col gap-0.5">
+          <h1 className="text-xl font-semibold tracking-[-0.01em]">Trade</h1>
+          <span className="text-[13px] text-ink-3">
+            Buy and sell BNKR at the on-chain reference rate. Non-custodial —
+            every transaction is signed in your wallet.
+          </span>
         </div>
-      </div>
+
+        <div className="flex flex-wrap items-start gap-5">
+          {/* Composer */}
+          <section
+            aria-label="Transaction composer"
+            className="flex max-w-[600px] flex-[1.15_1_400px] flex-col gap-3.5 rounded-[14px] border border-line bg-surface p-4 desk:p-[18px]"
+          >
+            <div
+              role="tablist"
+              aria-label="Trade direction"
+              className="grid grid-cols-2 gap-0.5 rounded-lg border border-line bg-surface-2 p-0.5"
+            >
+              <SideTab side="buy" active={side === "buy"} href="/buy" />
+              <SideTab side="sell" active={side === "sell"} href="/sell" />
+            </div>
+
+            {side === "buy" ? <BuyPrimaryInterface /> : <WithdrawInterface />}
+          </section>
+
+          <ContextColumn />
+        </div>
+      </PageContainer>
     </Layout>
   );
 }

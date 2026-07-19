@@ -5,6 +5,7 @@ import type { Idl, Program } from '@coral-xyz/anchor'
 import { useConnection } from '@solana/wallet-adapter-react'
 import { PublicKey, SendTransactionError, SystemProgram, Transaction, type TransactionInstruction } from '@solana/web3.js'
 import { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token'
+import { useSetAtom } from "jotai";
 import {
   getBunkercashMintPda,
   getFeeConfigPda,
@@ -13,22 +14,36 @@ import {
   getSupportedUsdcConfigPda,
   fetchConfiguredUsdcMint,
   fetchMintTokenProgram,
+  fetchRawPoolAccountWithRetry,
   getProgram,
+  getReadonlyProgram,
   type ProgramWallet,
   PROGRAM_ID,
 } from "@/lib/program";
 import { countFractionalDigits, parseUiAmountToBaseUnits } from "@/lib/amounts";
 import { getClusterFromEndpoint } from "@/lib/constants";
-import { ArrowDown, AlertCircle } from "lucide-react";
 import { BN } from '@coral-xyz/anchor'
 import { useToast } from "@/components/ui/ToastContext";
 import { useSupportedUsdcMint } from "@/hooks/useSupportedUsdcMint";
+import { useUsdcBalance } from "@/hooks/useUsdcBalance";
+import { useTokenBalance } from "@/hooks/useTokenBalance";
 import { invalidateTransactionCache } from "@/hooks/useMyTransactions";
 import { sendAndConfirmWalletTransaction } from "@/lib/sendAndConfirmWalletTransaction";
 import { useOptionalWallet } from "@/hooks/useOptionalWallet";
-import { PhantomConnectButton } from "@/components/wallet/PhantomConnectButton";
-import { InfoTooltip } from "@/components/ui/InfoTooltip";
-import { GLOSSARY } from "@/lib/glossary";
+import { connectModalOpenAtom } from "@/lib/ui-atoms";
+import {
+  AmountInputCard,
+  AmountOutputCard,
+  ComposerCta,
+  DetailRow,
+  type CtaKind,
+} from "@/components/trade/composerParts";
+import {
+  ReviewSheet,
+  type SheetPhase,
+  type SheetRow,
+} from "@/components/trade/ReviewSheet";
+import { WarnIcon } from "@/components/design/icons";
 
 const USDC_DECIMALS = 6
 const USDC_SCALE = 10n ** BigInt(USDC_DECIMALS)
@@ -62,13 +77,6 @@ interface Stringable {
   toString(): string;
 }
 
-interface PoolAccount {
-  masterWallet: PublicKey;
-  nav: Stringable;
-  totalBunkercashSupply: Stringable;
-  totalPendingClaims: Stringable;
-}
-
 interface PurchaseLimitConfigAccount {
   purchaseLimitUsdc: Stringable;
   totalDepositedUsdc: Stringable;
@@ -88,10 +96,10 @@ type BuyPoolState = {
 };
 
 // Module-level cache of the last successfully fetched pool state. Survives
-// component unmount/remount (Buy tab switches, Home buy-modal open/close) so
-// the price shows instantly and we revalidate in the background instead of
-// gating the whole UI behind "Loading pool price…". Keyed by RPC endpoint so a
-// cluster switch never surfaces stale data.
+// component unmount/remount (tab/page switches) so the price shows instantly
+// and we revalidate in the background instead of gating the whole UI behind a
+// loading state. Keyed by RPC endpoint so a cluster switch never surfaces
+// stale data.
 let buyPoolStateCache: { endpoint: string; state: BuyPoolState } | null = null;
 
 interface BuyPrimaryMethods {
@@ -123,18 +131,23 @@ export function BuyPrimaryInterface() {
   const signTransaction = wallet?.signTransaction
   const signAllTransactions = wallet?.signAllTransactions
   const { showToast } = useToast();
+  const openConnect = useSetAtom(connectModalOpenAtom);
   const [usdcAmount, setUsdcAmount] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [txSig, setTxSig] = useState<string | null>(null);
-  const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [phase, setPhase] = useState<SheetPhase>("review");
+  const [liveSig, setLiveSig] = useState<string | null>(null);
+  const [failureMessage, setFailureMessage] = useState<string | null>(null);
+  const [receipt, setReceipt] = useState<{ k: string; v: string }[]>([]);
   const txInFlight = useRef(false);
   const endpoint = connection.rpcEndpoint ?? "";
   const [poolState, setPoolState] = useState<BuyPoolState | null>(() =>
     buyPoolStateCache?.endpoint === endpoint ? buyPoolStateCache.state : null,
   );
-  const [poolRefreshing, setPoolRefreshing] = useState(false);
   const [poolError, setPoolError] = useState<string | null>(null);
+
+  const { balance: usdcBalance } = useUsdcBalance();
+  const { balance: bnkrBalance } = useTokenBalance();
 
   const program = useMemo(
     () =>
@@ -162,14 +175,24 @@ export function BuyPrimaryInterface() {
     () => getClusterFromEndpoint(connection.rpcEndpoint ?? ""),
     [connection],
   );
-  const { usdcMint, usdcTokenProgram, error: usdcMintError } = useSupportedUsdcMint();
+
+  const { usdcMint, usdcTokenProgram, loading: usdcMintLoading, error: usdcMintError } = useSupportedUsdcMint();
 
   const fetchPoolState = useCallback(async () => {
-    if (!program || !connection) return;
-    if (buyPoolStateCache?.endpoint === endpoint) setPoolRefreshing(true);
+    if (!connection) return;
     try {
-      const accountApi = (program as Program<Idl>).account as {
-        pool: { fetch: (key: PublicKey) => Promise<PoolAccount> };
+      // Pool state is public — read it without a connected wallet too.
+      // Raw decode instead of Anchor's typed fetch: the deployed program may
+      // predate `settlement_epoch_seq`, and the typed decode throws on the
+      // shorter account even though every field we need is present.
+      const state = await fetchRawPoolAccountWithRetry(connection);
+      if (!state) {
+        setPoolError("not_initialized");
+        setPoolState(null);
+        return;
+      }
+      const readProgram = program ?? getReadonlyProgram(connection);
+      const accountApi = (readProgram as Program<Idl>).account as {
         purchaseLimitConfig?: {
           fetch: (key: PublicKey) => Promise<PurchaseLimitConfigAccount>;
         };
@@ -177,7 +200,6 @@ export function BuyPrimaryInterface() {
           fetch: (key: PublicKey) => Promise<FeeConfigAccount>;
         };
       }
-      const state = await accountApi.pool.fetch(poolPda);
       let purchaseLimitUsdc = BigInt(0);
       let totalDepositedUsdc = BigInt(0);
       let purchaseFeeBps = 0;
@@ -204,14 +226,14 @@ export function BuyPrimaryInterface() {
         }
       }
 
-      const nav = BigInt(state.nav.toString())
-      const totalPendingClaims = BigInt(state.totalPendingClaims.toString())
+      const nav = state.nav
+      const totalPendingClaims = state.totalPendingClaims
       const availableNav = nav > totalPendingClaims ? nav - totalPendingClaims : 0n
 
       const nextState: BuyPoolState = {
         masterWallet: state.masterWallet,
         nav: availableNav,
-        totalBunkercashSupply: BigInt(state.totalBunkercashSupply.toString()),
+        totalBunkercashSupply: state.totalBunkercashSupply,
         purchaseLimitUsdc,
         totalDepositedUsdc,
         purchaseFeeBps,
@@ -220,59 +242,14 @@ export function BuyPrimaryInterface() {
       setPoolState(nextState);
       setPoolError(null);
     } catch {
-      setPoolError("not_initialized");
+      setPoolError("rpc_error");
       setPoolState(null);
-    } finally {
-      setPoolRefreshing(false);
     }
   }, [program, poolPda, connection, purchaseLimitConfigPda, feeConfigPda, endpoint]);
 
   useEffect(() => {
     void fetchPoolState();
   }, [fetchPoolState]);
-
-  useEffect(() => {
-    if (!publicKey || !connection || !usdcMint || !usdcTokenProgram) return;
-    const fetchBalance = async () => {
-      try {
-        const userUsdc = getAssociatedTokenAddressSync(
-          usdcMint,
-          publicKey,
-          false,
-          usdcTokenProgram,
-          ASSOCIATED_TOKEN_PROGRAM_ID,
-        );
-        const balance = await connection.getTokenAccountBalance(userUsdc);
-        setUsdcBalance(balance.value.uiAmountString ?? "0");
-      } catch (e: unknown) {
-        // If the account doesn't exist, it throws.
-        // We can double check if it's an account-not-found error, but for now defaulting to 0 is safe for UI.
-        if (e instanceof Error && e.message.includes("could not find account")) {
-          setUsdcBalance("0");
-        } else {
-          console.error("Error fetching USDC balance:", e);
-          setUsdcBalance("0");
-        }
-      }
-    };
-    void fetchBalance();
-    const id = connection.onAccountChange(
-      getAssociatedTokenAddressSync(
-        usdcMint,
-        publicKey,
-        false,
-        usdcTokenProgram,
-        ASSOCIATED_TOKEN_PROGRAM_ID,
-      ),
-      () => {
-        // For simplicity, just refetch or parse info. Here avoiding intricate parsing for speed.
-        void fetchBalance();
-      },
-    );
-    return () => {
-      connection.removeAccountChangeListener(id);
-    };
-  }, [publicKey, connection, usdcMint, usdcTokenProgram]);
 
   const pricePerToken = poolState
     ? derivePrice(poolState.nav, poolState.totalBunkercashSupply)
@@ -307,11 +284,6 @@ export function BuyPrimaryInterface() {
     return (usdcAmountRaw * BigInt(poolState.purchaseFeeBps)) / 10_000n;
   }, [poolState, usdcAmountRaw]);
 
-  const netInvestmentRaw = useMemo(() => {
-    if (!usdcAmountRaw || purchaseFeeRaw == null) return null;
-    return usdcAmountRaw - purchaseFeeRaw;
-  }, [usdcAmountRaw, purchaseFeeRaw]);
-
   const tokenAmountUi =
     tokenAmountRaw != null ? toUi(tokenAmountRaw, USDC_DECIMALS) : "";
 
@@ -338,24 +310,26 @@ export function BuyPrimaryInterface() {
         ? "Global purchase cap reached"
         : `Only ${toUi(remainingPurchaseCapacityRaw, USDC_DECIMALS)} USDC of purchase capacity remains`;
     }
-    if (usdcBalanceRaw != null && usdcAmountRaw > usdcBalanceRaw) {
-      return "Insufficient USDC balance";
+    if (publicKey && usdcBalanceRaw != null && usdcAmountRaw > usdcBalanceRaw) {
+      return `Amount exceeds your USDC balance of ${usdcBalance ?? "0"}.`;
     }
     if (tokenAmountRaw != null && tokenAmountRaw <= 0n) {
       return "Amount is too small after fees and current pricing";
     }
     return null;
-  }, [usdcAmount, usdcAmountRaw, usdcBalanceRaw, remainingPurchaseCapacityRaw, tokenAmountRaw]);
+  }, [usdcAmount, usdcAmountRaw, usdcBalanceRaw, usdcBalance, remainingPurchaseCapacityRaw, tokenAmountRaw, publicKey]);
 
   const handleBuy = async () => {
     if (!usdcMint) {
       const msg = `Unsupported network: no configured USDC mint for ${currentCluster}.`;
-      setError(msg);
+      setFailureMessage(msg);
+      setPhase("failed");
       showToast(msg, "error");
       return;
     }
     if (usdcMintError) {
-      setError(usdcMintError);
+      setFailureMessage(usdcMintError);
+      setPhase("failed");
       showToast(usdcMintError, "error");
       return;
     }
@@ -377,15 +351,18 @@ export function BuyPrimaryInterface() {
 
     // Check insufficient balance before sending
     if (usdcBalanceRaw != null && usdcAmountRaw > usdcBalanceRaw) {
-      setError("Insufficient USDC balance");
+      setPhase("review");
       showToast("Insufficient USDC balance", "error");
       txInFlight.current = false;
       return;
     }
 
-    setError(null);
-    setTxSig(null);
+    const paidUi = toUi(usdcAmountRaw, USDC_DECIMALS);
+    const receivedUi = tokenAmountUi;
+    setFailureMessage(null);
+    setLiveSig(null);
     setLoading(true);
+    setPhase("signing");
     try {
       // Resolve the configured settlement mint fresh at submit time so we do not
       // build the transaction with stale client state after an admin-side mint change.
@@ -403,7 +380,8 @@ export function BuyPrimaryInterface() {
       ) {
         const msg =
           `Configured USDC mint ${configuredUsdcMint.toBase58()} is missing or owned by an unexpected token program on ${currentCluster}.`;
-        setError(msg);
+        setFailureMessage(msg);
+        setPhase("failed");
         showToast(msg, "error");
         return;
       }
@@ -426,7 +404,8 @@ export function BuyPrimaryInterface() {
       if (!bunkercashMintInfo) {
         const msg =
           "The BunkerCash mint PDA is not initialized for this program yet.";
-        setError(msg);
+        setFailureMessage(msg);
+        setPhase("failed");
         showToast(msg, "error");
         return;
       }
@@ -496,16 +475,26 @@ export function BuyPrimaryInterface() {
         connection,
         wallet,
         transaction: tx,
+        onSigned: (signature) => {
+          setLiveSig(signature);
+          setPhase("pending");
+        },
       });
 
-      setTxSig(sig);
+      setReceipt([
+        { k: "Paid", v: `${paidUi} USDC` },
+        { k: "Received (est.)", v: `${receivedUi} BNKR` },
+        { k: "Signature", v: `${sig.slice(0, 5)}…${sig.slice(-4)}` },
+      ]);
+      setLiveSig(sig);
+      setPhase("success");
       setUsdcAmount("");
       void fetchPoolState();
       invalidateTransactionCache();
-      showToast(`Transaction submitted. Tx: ${sig.slice(0, 8)}…`, "success");
+      showToast(`Purchase confirmed. Tx: ${sig.slice(0, 8)}…`, "success");
     } catch (e: unknown) {
       if (isWalletRejection(e)) {
-        setError("Transaction was rejected in your wallet.");
+        setPhase("review");
         showToast("Transaction rejected by wallet", "warning");
       } else if (e instanceof SendTransactionError) {
         const logs = await e.getLogs(connection);
@@ -513,11 +502,13 @@ export function BuyPrimaryInterface() {
           console.error('Deposit transaction logs:', logs);
         }
         const msg = e.message || "Transaction failed";
-        setError(msg);
+        setFailureMessage(msg);
+        setPhase("failed");
         showToast(msg, "error");
       } else {
         const msg = e instanceof Error ? e.message : "Transaction failed";
-        setError(msg);
+        setFailureMessage(msg);
+        setPhase("failed");
         showToast(msg, "error");
       }
     } finally {
@@ -526,214 +517,197 @@ export function BuyPrimaryInterface() {
     }
   };
 
+  // ---- CTA state ----
+  const ctaKind: CtaKind = "primary";
+  let ctaLabel = "Review purchase";
+  let ctaDisabled = false;
+  let ctaAction: (() => void) | undefined;
   if (!publicKey) {
-    return (
-      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-8 text-center">
-        <p className="text-neutral-500">Connect your wallet to continue.</p>
-        <PhantomConnectButton className="mt-4 inline-flex items-center justify-center rounded-xl bg-[#00FFB2] px-6 py-3 text-sm font-semibold text-black transition-all hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600" />
-      </div>
-    )
+    ctaLabel = "Connect wallet";
+    ctaAction = () => openConnect(true);
+  } else if (poolError) {
+    ctaLabel = "Pool unavailable";
+    ctaDisabled = true;
+  } else if (!poolState) {
+    ctaLabel = "Loading pool data…";
+    ctaDisabled = true;
+  } else if (usdcMintLoading) {
+    ctaLabel = "Loading mint details…";
+    ctaDisabled = true;
+  } else if (!usdcMint || !supportsUsdcDeposits) {
+    ctaLabel = "Unsupported network";
+    ctaDisabled = true;
+  } else if (!usdcAmountRaw || usdcAmountRaw <= BigInt(0)) {
+    ctaLabel = "Enter an amount";
+    ctaDisabled = true;
+  } else if (inputError) {
+    ctaLabel = inputError.startsWith("Amount exceeds")
+      ? "Insufficient USDC"
+      : "Review purchase";
+    ctaDisabled = true;
+  } else {
+    ctaAction = () => {
+      setPhase("review");
+      setSheetOpen(true);
+    };
   }
 
-  if (poolError || !poolState) {
-    return (
-      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-8 text-center">
-        {!poolError ? (
-          <p className="text-neutral-500">Loading pool price…</p>
-        ) : poolError === 'not_initialized' ? (
-          <div className="space-y-4 text-left max-w-lg mx-auto">
-            <p className="text-neutral-400">
-              The pool account is not initialized on this cluster yet.
-            </p>
-            <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 px-4 py-3 text-xs text-neutral-400 space-y-1">
-              <div>
-                <span className="text-neutral-500">Program:</span> {PROGRAM_ID.toBase58()}
-              </div>
-              <div>
-                <span className="text-neutral-500">Pool PDA:</span> {poolPda.toBase58()}
-              </div>
-            </div>
-            <button
-              onClick={() => void fetchPoolState()}
-              className="rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-xs text-neutral-200 hover:bg-neutral-800"
-            >
-              Retry
-            </button>
-          </div>
-        ) : (
-          <p className="text-neutral-500">{poolError}</p>
-        )}
-      </div>
-    )
-  }
+  const rateFmt = pricePerToken != null ? pricePerToken.toFixed(4) : "—";
+  const feePct =
+    poolState != null ? formatPercentFromBps(poolState.purchaseFeeBps) : null;
+  const capacityRemainingLabel =
+    poolState == null
+      ? "—"
+      : remainingPurchaseCapacityRaw != null
+        ? `${toUi(remainingPurchaseCapacityRaw, USDC_DECIMALS)} USDC`
+        : "Unlimited";
 
-  if (!usdcMint) {
-    return (
-      <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-8 text-center">
-        <div className="flex flex-col items-center gap-3">
-          <AlertCircle className="h-10 w-10 text-red-400" />
-          <h3 className="text-lg font-semibold text-red-400">
-            Unsupported Network
-          </h3>
-          <p className="text-neutral-400 max-w-md">
-            This deployment currently supports a configured USDC mint on
-            devnet/testnet only. Set `NEXT_PUBLIC_USDC_MINT` if you are using a
-            different supported USDC mint.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const sheetRows: SheetRow[] = [
+    { k: "You pay", v: `${usdcAmount || "0"} USDC`, strong: true },
+    { k: "Reference rate", v: `1 BNKR = ${rateFmt} USDC` },
+    {
+      k: "Protocol fee",
+      v:
+        feePct == null
+          ? "—"
+          : purchaseFeeRaw != null && purchaseFeeRaw > 0n
+            ? `${feePct}% (${toUi(purchaseFeeRaw, USDC_DECIMALS)} USDC)`
+            : `${feePct}%`,
+    },
+    {
+      k: "Capacity remaining",
+      v: capacityRemainingLabel,
+    },
+    {
+      k: "You receive (est.)",
+      v: `${tokenAmountUi || "0"} BNKR`,
+      strong: true,
+      tone: "mint",
+      highlight: true,
+    },
+  ];
 
   return (
-    <div className="space-y-6 sm:space-y-8">
-      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-4 sm:p-6">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6">
-          <div>
-            <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-wider text-neutral-500">
-              Reference Rate
-              <InfoTooltip text={GLOSSARY.referenceRate} label="Reference Rate" />
-              {poolRefreshing && (
-                <span className="inline-flex items-center gap-1 text-[10px] normal-case tracking-normal text-neutral-600">
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#00FFB2]" />
-                  refreshing
-                </span>
-              )}
-            </div>
-            <div className="text-xl font-bold text-[#00FFB2] sm:text-2xl">
-              ${pricePerToken != null ? pricePerToken.toFixed(2) : "—"} per
-              token
-            </div>
-          </div>
-          <div>
-            <div className="mb-2 text-xs uppercase tracking-wider text-neutral-500">
-              Pricing Method
-            </div>
-            <div className="text-xl font-bold sm:text-2xl">Protocol-defined</div>
-          </div>
-        </div>
+    <>
+      <span className="text-[12.5px] leading-relaxed text-ink-3">
+        USDC converts at the live reference rate. BNKR is minted directly to
+        your wallet — keep a small amount of SOL to cover network fees.
+      </span>
+
+      <AmountInputCard
+        label="You pay"
+        token="USDC"
+        value={usdcAmount}
+        onChange={setUsdcAmount}
+        balance={publicKey && usdcBalance != null ? usdcBalance : "—"}
+        onMax={
+          publicKey && usdcBalance != null
+            ? () => setUsdcAmount(usdcBalance)
+            : undefined
+        }
+        error={inputError}
+      />
+
+      <AmountOutputCard
+        label="You receive (estimated)"
+        token="BNKR"
+        value={tokenAmountUi}
+        balance={publicKey && bnkrBalance != null ? bnkrBalance : "—"}
+      />
+
+      <div className="flex flex-col gap-2 px-1 py-0.5">
+        <DetailRow label="Reference rate">1 BNKR = {rateFmt} USDC</DetailRow>
+        <DetailRow label="Protocol fee">
+          {feePct != null ? `${feePct}%` : "—"}
+        </DetailRow>
+        <DetailRow label="Capacity remaining">{capacityRemainingLabel}</DetailRow>
+        <DetailRow label="Delivery" mono={false}>
+          Minted directly to your wallet
+        </DetailRow>
       </div>
 
-      <p className="text-xs text-neutral-500">
-        Purchases are made in USDC — BunkerCash does not accept SOL. Keep a small
-        amount of SOL in your wallet to cover Solana network fees.
-      </p>
-
-      <div className="space-y-3">
-        <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4 sm:p-6">
-          <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-            <span className="text-xs uppercase tracking-wider text-neutral-500">
-              You provide
-            </span>
-            <span className="text-xs uppercase tracking-wider text-neutral-500">
-              Balance: {usdcBalance ?? "—"}
-            </span>
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-            <input
-              type="text"
-              value={usdcAmount}
-              onChange={(e) => setUsdcAmount(e.target.value)}
-              placeholder="0.00"
-              className="min-w-0 flex-1 bg-transparent text-2xl font-bold outline-none placeholder:text-neutral-800 sm:text-3xl"
-            />
-            <div className="inline-flex w-fit items-center gap-2 self-start rounded-xl border border-neutral-700 bg-neutral-800 px-4 py-2.5 sm:self-auto sm:px-5 sm:py-3">
-              <span className="text-sm font-semibold">USDC</span>
-            </div>
-          </div>
+      {poolError === "not_initialized" && (
+        <div className="flex flex-col gap-2 rounded-[10px] border border-warn-line bg-warn-soft px-4 py-3">
+          <span className="flex items-center gap-2 text-[13px] font-semibold text-warn">
+            <WarnIcon />
+            Pool not initialized on this cluster
+          </span>
+          <span className="break-all font-mono text-[11.5px] text-ink-3">
+            Program {PROGRAM_ID.toBase58()} · Pool {poolPda.toBase58()}
+          </span>
+          <button
+            type="button"
+            onClick={() => void fetchPoolState()}
+            className="self-start rounded-lg border border-line-2 bg-surface-2 px-3 py-1.5 text-xs font-semibold transition-colors hover:border-mint-line"
+          >
+            Retry
+          </button>
         </div>
-
-        <div className="relative z-10 -my-1 flex justify-center">
-          <div className="rounded-xl border-2 border-neutral-800 bg-neutral-900 p-3">
-            <ArrowDown className="h-5 w-5 text-neutral-500" />
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4 sm:p-6">
-          <div className="mb-4 flex items-center justify-between">
-            <span className="text-xs uppercase tracking-wider text-neutral-500">
-              You receive
-            </span>
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-            <div className="min-w-0 flex-1 bg-transparent text-2xl font-bold text-neutral-300 sm:text-3xl">
-              {tokenAmountUi || "0"}
-            </div>
-            <div className="inline-flex w-fit items-center gap-2 self-start rounded-xl border-2 border-[#00FFB2] bg-[#00FFB2]/10 px-4 py-2.5 sm:self-auto sm:px-5 sm:py-3">
-              <span className="text-sm font-semibold text-[#00FFB2]">
-                BunkerCash
-              </span>
-            </div>
-          </div>
-          <div className="mt-4 rounded-xl border border-neutral-800 bg-neutral-950/40 p-4 text-sm">
-            <div className="flex flex-col gap-1 text-neutral-400 sm:flex-row sm:items-center sm:justify-between">
-              <span>Purchase fee</span>
-              <span>
-                {purchaseFeeRaw != null ? `${toUi(purchaseFeeRaw, USDC_DECIMALS)} USDC` : "0 USDC"} ({formatPercentFromBps(poolState.purchaseFeeBps)}%)
-              </span>
-            </div>
-            <div className="mt-2 flex flex-col gap-1 text-white sm:flex-row sm:items-center sm:justify-between">
-              <span>Net investment</span>
-              <span>{netInvestmentRaw != null ? `${toUi(netInvestmentRaw, USDC_DECIMALS)} USDC` : "0 USDC"}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {error && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-          {error}
+      )}
+      {poolError === "rpc_error" && (
+        <div className="flex flex-col gap-2 rounded-[10px] border border-warn-line bg-warn-soft px-4 py-3">
+          <span className="flex items-center gap-2 text-[13px] font-semibold text-warn">
+            <WarnIcon />
+            Unable to reach Solana network
+          </span>
+          <span className="text-[12px] text-ink-3">
+            The RPC endpoint is not responding. Your funds are unaffected.
+          </span>
+          <button
+            type="button"
+            onClick={() => void fetchPoolState()}
+            className="self-start rounded-lg border border-line-2 bg-surface-2 px-3 py-1.5 text-xs font-semibold transition-colors hover:border-mint-line"
+          >
+            Retry connection
+          </button>
         </div>
       )}
       {usdcMintError && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <div className="rounded-[10px] border border-danger-line bg-danger-soft px-4 py-3 text-[13px] text-danger">
           Failed to load configured USDC mint details: {usdcMintError}
         </div>
       )}
-      {!usdcMintError && !supportsUsdcDeposits && usdcBalance && (
-        <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-400">
-          Detected {usdcBalance} USDC in your wallet, but the configured mint is unsupported for this deployment. Ask the team to verify the selected USDC mint.
-        </div>
-      )}
-      {txSig && (
-        <div className="rounded-xl border border-[#00FFB2]/30 bg-[#00FFB2]/10 px-4 py-3 text-sm text-[#00FFB2]">
-          Success. Tx: {txSig.slice(0, 8)}…{txSig.slice(-8)}
+      {!usdcMintError && !usdcMintLoading && usdcMint && !supportsUsdcDeposits && (
+        <div className="rounded-[10px] border border-warn-line bg-warn-soft px-4 py-3 text-[13px] text-warn">
+          The configured USDC mint is unsupported for this deployment. Ask the
+          team to verify the selected mint.
         </div>
       )}
 
-      {inputError && usdcAmount && (
-        <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-400">
-          {inputError}
-        </div>
-      )}
-
-      <button
-        onClick={handleBuy}
-        disabled={
-          loading ||
-          !usdcAmountRaw ||
-          usdcAmountRaw <= BigInt(0) ||
-          !!inputError ||
-          !usdcMint ||
-          !supportsUsdcDeposits
-        }
-        className="w-full rounded-xl bg-[#00FFB2] py-4 text-base font-semibold text-black transition-all hover:bg-[#00FFB2]/90 disabled:bg-neutral-800 disabled:text-neutral-600 sm:py-5 sm:text-lg"
+      <ComposerCta
+        kind={ctaKind}
+        disabled={ctaDisabled || loading}
+        busy={loading}
+        onClick={ctaAction}
       >
-        {loading ? "Processing…" : "Buy"}
-      </button>
+        {loading ? "Processing…" : ctaLabel}
+      </ComposerCta>
 
-      <div className="text-center text-xs text-neutral-600 space-y-1">
-        <div>
-          Displayed values are interface values only and do not constitute a
-          guarantee of value, liquidity, or future settlement.
-        </div>
-        <div className="opacity-50">
-          Network:{" "}
-          {currentCluster} |
-          Mint: {usdcMint?.toBase58().slice(0, 4)}...
-          {usdcMint?.toBase58().slice(-4)}
-        </div>
-      </div>
-    </div>
+      <span className="text-center text-[11.5px] leading-relaxed text-ink-3">
+        Displayed values are interface values only and do not constitute a
+        guarantee of value, liquidity, or future settlement.
+      </span>
+
+      <ReviewSheet
+        open={sheetOpen}
+        side="buy"
+        phase={phase}
+        rows={sheetRows}
+        liveSig={liveSig}
+        receipt={receipt}
+        failureMessage={failureMessage}
+        walletName={wallet?.wallet?.adapter.name}
+        onClose={() => {
+          setSheetOpen(false);
+          setPhase("review");
+        }}
+        onConfirm={() => void handleBuy()}
+        onRetry={() => setPhase("review")}
+        onDone={() => {
+          setSheetOpen(false);
+          setPhase("review");
+        }}
+      />
+    </>
   );
 }

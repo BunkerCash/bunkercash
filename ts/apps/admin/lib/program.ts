@@ -110,6 +110,47 @@ export function getClaimPriceSnapshotPda(
 
 export { PROGRAM_ID }
 
+// Pool fields shared by every deployed layout. `settlement_epoch_seq` (and the
+// trailing bump) were appended later, so the deployed program may serve an
+// 81-byte account while the bundled IDL describes 89 bytes — Anchor's typed
+// fetch throws on the short account. Reads must only depend on this prefix.
+export interface RawPoolAccount {
+  masterWallet: PublicKey
+  nav: bigint
+  totalBunkercashSupply: bigint
+  totalPendingClaims: bigint
+  claimCounter: bigint
+  withdrawalCounter: bigint
+}
+
+const POOL_STABLE_PREFIX_BYTES = 80 // 8 disc + 32 wallet + 5×u64
+
+// Returns null when the pool account does not exist (pool not initialized).
+export async function fetchRawPoolAccount(
+  connection: Connection,
+  programId: PublicKey = PROGRAM_ID
+): Promise<RawPoolAccount | null> {
+  const poolPda = getPoolPda(programId)
+  const info = await connection.getAccountInfo(poolPda, 'confirmed')
+  if (!info) return null
+  if (!info.owner.equals(programId)) {
+    throw new Error(`Pool account owned by unexpected program ${info.owner.toBase58()}`)
+  }
+  const data = info.data
+  if (data.length < POOL_STABLE_PREFIX_BYTES) {
+    throw new Error(`Pool account has unexpected size ${data.length}`)
+  }
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+  return {
+    masterWallet: new PublicKey(data.subarray(8, 40)),
+    nav: view.getBigUint64(40, true),
+    totalBunkercashSupply: view.getBigUint64(48, true),
+    totalPendingClaims: view.getBigUint64(56, true),
+    claimCounter: view.getBigUint64(64, true),
+    withdrawalCounter: view.getBigUint64(72, true),
+  }
+}
+
 async function passthroughTransaction<T extends Transaction | VersionedTransaction>(tx: T): Promise<T> {
   return tx
 }

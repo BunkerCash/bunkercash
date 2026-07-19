@@ -28,7 +28,7 @@ describe("POST /api/_internal/collect-metrics", () => {
   it("returns a generic not found payload", async () => {
     const res = await POST(makeRequest(AUTH_HEADER));
     expect(res.status).toBe(404);
-    const body = await res.json();
+    const body = (await res.json()) as { error: string };
     expect(body.error).toBe("Not found");
   });
 });

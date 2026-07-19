@@ -30,10 +30,15 @@ const mockSignAllTransactions = vi.fn()
 const mockSendTransaction = vi.fn()
 const mockConfirmTransaction = vi.fn()
 const mockGetLatestBlockhash = vi.fn()
-const mockUseWallet = vi.fn(() => ({
-  publicKey: WALLET_PUBKEY,
-  signAllTransactions: mockSignAllTransactions,
-}))
+const mockUseWallet = vi.fn(
+  (): {
+    publicKey: PublicKey | null
+    signAllTransactions: typeof mockSignAllTransactions | null
+  } => ({
+    publicKey: WALLET_PUBKEY,
+    signAllTransactions: mockSignAllTransactions,
+  }),
+)
 
 vi.mock("@solana/wallet-adapter-react", () => ({
   useConnection: () => ({
@@ -44,7 +49,13 @@ vi.mock("@solana/wallet-adapter-react", () => ({
       confirmTransaction: mockConfirmTransaction,
     },
   }),
-  useWallet: (...args: unknown[]) => mockUseWallet(...args),
+  useWallet: () => mockUseWallet(),
+}))
+
+// useSquadsTransaction reads the wallet through useOptionalWallet (which
+// consumes WalletContext directly), so mock it with the same wallet mock.
+vi.mock("@/hooks/useOptionalWallet", () => ({
+  useOptionalWallet: () => mockUseWallet(),
 }))
 
 // ── Mock @sqds/multisig ───────────────────────────────────────────────────

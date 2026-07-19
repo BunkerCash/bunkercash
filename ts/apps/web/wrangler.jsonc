@@ -2,6 +2,8 @@
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "main": "worker.js",
   "name": "bunkercash-web",
+  // bunkercash.com is attached to the bunkercash-web worker in this account
+  // (Contact@bunkercoin.io). Deploying elsewhere will not update the domain.
   "account_id": "9eb655a86ca1ba777efa7889d7eb93e6",
   "compatibility_date": "2024-09-23",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
@@ -21,17 +23,18 @@
   "triggers": {
     "crons": ["10 0 * * *"],
   },
-  "routes": [
-    { "pattern": "bunkercash.com", "custom_domain": true },
-    { "pattern": "www.bunkercash.com", "custom_domain": true },
-  ],
+  // Custom domain routes — uncomment when the zone is added to this account:
+  // "routes": [
+  //   { "pattern": "bunkercash.com", "custom_domain": true },
+  //   { "pattern": "www.bunkercash.com", "custom_domain": true },
+  // ],
   "vars": {
-    "NEXT_PUBLIC_SOLANA_RPC_URL": "https://api.devnet.solana.com",
-    "NEXT_PUBLIC_SOLANA_CLUSTER": "devnet",
-    "NEXT_PUBLIC_CLUSTER": "devnet",
-    "NEXT_PUBLIC_USDC_MINT": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+    "NEXT_PUBLIC_SOLANA_RPC_URL": "https://api.testnet.solana.com",
+    "NEXT_PUBLIC_SOLANA_CLUSTER": "testnet",
+    "NEXT_PUBLIC_CLUSTER": "testnet",
+    "NEXT_PUBLIC_USDC_MINT": "DCM1oDQRSv9dn4xpZrXuX23yvivoFHSKKF1mjuCEcjdQ",
     "TRUST_CLOUDFLARE_HEADERS": "true",
-    "NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY": "HEzTX4LNQ7cjrXTt1vKXyEZGtc94TKRUc9kWNFexJSGz",
+    "NEXT_PUBLIC_SQUADS_MULTISIG_PUBKEY": "GD3jX4ixATyMN5QZGfhGZeYgz3b6bgPjSBF3qtzEfYew",
   },
   "kv_namespaces": [
     {

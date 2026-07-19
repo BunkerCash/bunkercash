@@ -1,9 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { Loader2, Send } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/design/icons";
 
 interface SupportRequestFormProps {
   supportEmail: string;
@@ -20,9 +18,11 @@ function getErrorMessage(value: unknown, fallback: string): string {
   ) {
     return value.error;
   }
-
   return fallback;
 }
+
+const inputClass =
+  "h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-[13.5px] text-ink placeholder:text-ink-3 focus:border-mint-line focus:outline-none disabled:opacity-50";
 
 export function SupportRequestForm({
   supportEmail,
@@ -50,9 +50,7 @@ export function SupportRequestForm({
     try {
       const response = await fetch("/api/support", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
           source: initialSource,
@@ -63,7 +61,9 @@ export function SupportRequestForm({
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(getErrorMessage(data, "Failed to submit support request"));
+        throw new Error(
+          getErrorMessage(data, "Failed to submit support request"),
+        );
       }
 
       setSuccess(
@@ -89,121 +89,126 @@ export function SupportRequestForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
-      <div className="grid gap-5 sm:grid-cols-2">
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-white">Full name</label>
-          <Input
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[12.5px] font-medium text-ink-2">
+            Full name
+          </span>
+          <input
             value={form.fullName}
-            onChange={(event) =>
-              setForm((current) => ({ ...current, fullName: event.target.value }))
+            onChange={(e) =>
+              setForm((c) => ({ ...c, fullName: e.target.value }))
             }
             placeholder="Jane Doe"
             autoComplete="name"
             required
             disabled={submitting}
+            className={inputClass}
           />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-white">Email</label>
-          <Input
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[12.5px] font-medium text-ink-2">Email</span>
+          <input
             type="email"
             value={form.email}
-            onChange={(event) =>
-              setForm((current) => ({ ...current, email: event.target.value }))
+            onChange={(e) =>
+              setForm((c) => ({ ...c, email: e.target.value }))
             }
             placeholder={supportEmail}
             autoComplete="email"
             required
             disabled={submitting}
+            className={inputClass}
           />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-white">Phone number</label>
-          <Input
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[12.5px] font-medium text-ink-2">
+            Phone number
+          </span>
+          <input
             value={form.phone}
-            onChange={(event) =>
-              setForm((current) => ({ ...current, phone: event.target.value }))
+            onChange={(e) =>
+              setForm((c) => ({ ...c, phone: e.target.value }))
             }
             placeholder="+1 555 123 4567"
             autoComplete="tel"
             disabled={submitting}
+            className={inputClass}
           />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-white">
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[12.5px] font-medium text-ink-2">
             Country or region
-          </label>
-          <Input
+          </span>
+          <input
             value={form.country}
-            onChange={(event) =>
-              setForm((current) => ({ ...current, country: event.target.value }))
+            onChange={(e) =>
+              setForm((c) => ({ ...c, country: e.target.value }))
             }
             placeholder="Italy"
             autoComplete="country-name"
             disabled={submitting}
+            className={inputClass}
           />
-        </div>
+        </label>
       </div>
 
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-white">Subject</label>
-        <Input
+      <label className="flex flex-col gap-1.5">
+        <span className="text-[12.5px] font-medium text-ink-2">Subject</span>
+        <input
           value={form.subject}
-          onChange={(event) =>
-            setForm((current) => ({ ...current, subject: event.target.value }))
+          onChange={(e) =>
+            setForm((c) => ({ ...c, subject: e.target.value }))
           }
           placeholder="How can we help?"
           required
           disabled={submitting}
+          className={inputClass}
         />
-      </div>
+      </label>
 
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-white">Message</label>
+      <label className="flex flex-col gap-1.5">
+        <span className="text-[12.5px] font-medium text-ink-2">Message</span>
         <textarea
           value={form.message}
-          onChange={(event) =>
-            setForm((current) => ({ ...current, message: event.target.value }))
+          onChange={(e) =>
+            setForm((c) => ({ ...c, message: e.target.value }))
           }
           placeholder="Share the issue, your jurisdiction, and any details we should review."
-          rows={7}
+          rows={6}
           required
           disabled={submitting}
-          className="flex min-h-[180px] w-full rounded-md border border-input bg-background px-3 py-3 text-sm text-white placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-[13.5px] text-ink placeholder:text-ink-3 focus:border-mint-line focus:outline-none disabled:opacity-50"
         />
-      </div>
+      </label>
 
-      {error ? (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+      {error && (
+        <div className="rounded-lg border border-sell-line bg-sell-soft px-4 py-2.5 text-[13px] text-sell">
           {error}
         </div>
-      ) : null}
+      )}
 
-      {success ? (
-        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+      {success && (
+        <div className="rounded-lg border border-mint-line bg-mint-soft px-4 py-2.5 text-[13px] text-mint">
           {success}
         </div>
-      ) : null}
+      )}
 
-      <Button
+      <button
         type="submit"
-        size="lg"
-        className="w-full sm:w-auto"
         disabled={submitting}
+        className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-mint-btn text-[13.5px] font-semibold text-mint-ink transition-colors hover:bg-mint-btn-h disabled:opacity-50 sm:w-auto sm:px-6"
       >
         {submitting ? (
           <>
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Spinner className="h-3.5 w-3.5" />
             Sending request
           </>
         ) : (
-          <>
-            <Send className="h-4 w-4" />
-            Submit request
-          </>
+          "Submit request"
         )}
-      </Button>
+      </button>
     </form>
   );
 }

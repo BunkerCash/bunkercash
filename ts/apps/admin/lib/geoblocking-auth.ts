@@ -6,16 +6,12 @@ import {
   type AdminAuthRequestChallenge,
 } from "./admin-auth-message";
 import { consumeAdminAuthNonce } from "./admin-auth-nonce";
-import { getPoolPda, getReadonlyProgram } from "./program";
+import { fetchRawPoolAccount } from "./program";
 import { getConfiguredRpcCluster } from "./solana-env";
 
 const CLOCK_SKEW_TOLERANCE_MS = 30 * 1000; // allow 30 s of clock skew for future timestamps
 const ADMIN_WALLETS_TTL_MS = 60 * 1000;
 const ADMIN_WALLETS_FAILURE_BACKOFF_MS = 15 * 1000;
-
-interface PoolAccountLike {
-  masterWallet: { toBase58: () => string };
-}
 
 let adminWalletsCache: { wallets: Set<string>; ts: number } | null = null;
 let adminWalletsPromise: Promise<Set<string>> | null = null;
@@ -71,11 +67,10 @@ export async function getAuthorizedAdminWallets(): Promise<Set<string>> {
     for (const endpoint of endpoints) {
       try {
         const connection = new Connection(endpoint, "confirmed");
-        const program = getReadonlyProgram(connection);
-        const accountApi = program.account as {
-          pool: { fetch: (pubkey: ReturnType<typeof getPoolPda>) => Promise<PoolAccountLike> };
-        };
-        const poolState = await accountApi.pool.fetch(getPoolPda());
+        const poolState = await fetchRawPoolAccount(connection);
+        if (!poolState) {
+          throw new Error("Pool account not found — pool not initialized on this cluster");
+        }
         const wallets = new Set([poolState.masterWallet.toBase58()]);
 
         adminWalletsFailureTs = 0;
@@ -275,12 +270,6 @@ export async function authorizeAdminAccess(args: {
       return { ok: false as const, error: "Invalid admin signature" };
     }
 
-    const authorizedWallets = await getAuthorizedAdminWallets();
-    const isAdmin = authorizedWallets.has(wallet);
-    if (!isAdmin) {
-      return { ok: true as const, isAdmin: false };
-    }
-
     const nonceResult = await consumeAdminAuthNonce(challenge.challenge);
     if (!nonceResult.ok) {
       return {
@@ -289,7 +278,9 @@ export async function authorizeAdminAccess(args: {
       };
     }
 
-    return { ok: true as const, isAdmin: true };
+    const authorizedWallets = await getAuthorizedAdminWallets();
+    const isAdmin = authorizedWallets.has(wallet);
+    return { ok: true as const, isAdmin };
   } catch (e: unknown) {
     console.error("[admin-auth] Access verification failed:", e instanceof Error ? e.message : e);
     return { ok: false as const, error: "Failed to verify admin authorization" };

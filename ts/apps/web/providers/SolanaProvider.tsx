@@ -1,11 +1,12 @@
 "use client";
 
-import { FC, ReactNode, useMemo, type ComponentProps } from "react";
+import { FC, ReactNode, useCallback, useMemo, type ComponentProps } from "react";
 import {
   ConnectionProvider,
   WalletProvider,
 } from "@solana/wallet-adapter-react";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
+import { WalletError } from "@solana/wallet-adapter-base";
 import { PhantomWalletAdapter } from "@solana/wallet-adapter-phantom";
 import { clusterApiUrl } from "@solana/web3.js";
 import { createRateLimitedFetch } from "@/lib/rpc-throttle";
@@ -65,6 +66,14 @@ export const SolanaProvider: FC<SolanaProviderProps> = ({
   // Rate-limited fetch middleware prevents 429s on public RPC endpoints.
   const fetchMiddleware = useMemo(() => createRateLimitedFetch(), []);
 
+  const onError = useCallback((error: WalletError) => {
+    // Suppress "User rejected" — it's expected when the user dismisses
+    // the wallet popup or autoConnect fires after a prior session.
+    const msg = error.message?.toLowerCase() ?? "";
+    if (msg.includes("user rejected") || msg.includes("user denied")) return;
+    console.error(error);
+  }, []);
+
   return (
     <ConnectionProvider
       endpoint={endpoint}
@@ -73,6 +82,7 @@ export const SolanaProvider: FC<SolanaProviderProps> = ({
       <WalletProvider
         wallets={wallets}
         autoConnect={config?.autoConnect ?? true}
+        onError={onError}
       >
         <WalletModalProvider>{children}</WalletModalProvider>
       </WalletProvider>

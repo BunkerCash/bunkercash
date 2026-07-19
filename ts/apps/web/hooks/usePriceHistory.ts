@@ -28,5 +28,5 @@ export function usePriceHistory(days = 30) {
     fetch_();
   }, [fetch_]);
 
-  return { data, loading };
+  return { data, loading, refresh: fetch_ };
 }

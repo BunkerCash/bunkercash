@@ -44,7 +44,7 @@ describe("GET /api/price-history", () => {
     const res = await GET(
       new Request("https://web.test/api/price-history?days=3"),
     );
-    const body = await res.json();
+    const body = (await res.json()) as { data: unknown };
 
     expect(res.status).toBe(200);
     expect(body.data).toEqual([
