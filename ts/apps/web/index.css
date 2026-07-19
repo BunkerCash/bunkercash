@@ -230,15 +230,6 @@
 }
 
 @layer components {
-  /* Marquee scroll for disclaimer banner */
-  .disclaimer-scroll {
-    animation: marquee 60s linear infinite;
-  }
-  @keyframes marquee {
-    0% { transform: translateX(0); }
-    100% { transform: translateX(-50%); }
-  }
-
   /* Horizontal scroller that hides its scrollbar (status rail, filter rows) */
   .rail-scroll {
     overflow-x: auto;

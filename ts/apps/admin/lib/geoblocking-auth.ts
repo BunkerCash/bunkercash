@@ -270,12 +270,6 @@ export async function authorizeAdminAccess(args: {
       return { ok: false as const, error: "Invalid admin signature" };
     }
 
-    const authorizedWallets = await getAuthorizedAdminWallets();
-    const isAdmin = authorizedWallets.has(wallet);
-    if (!isAdmin) {
-      return { ok: true as const, isAdmin: false };
-    }
-
     const nonceResult = await consumeAdminAuthNonce(challenge.challenge);
     if (!nonceResult.ok) {
       return {
@@ -284,7 +278,9 @@ export async function authorizeAdminAccess(args: {
       };
     }
 
-    return { ok: true as const, isAdmin: true };
+    const authorizedWallets = await getAuthorizedAdminWallets();
+    const isAdmin = authorizedWallets.has(wallet);
+    return { ok: true as const, isAdmin };
   } catch (e: unknown) {
     console.error("[admin-auth] Access verification failed:", e instanceof Error ? e.message : e);
     return { ok: false as const, error: "Failed to verify admin authorization" };

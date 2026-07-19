@@ -8,7 +8,7 @@
     "strict": true,
     "noEmit": true,
     "esModuleInterop": true,
-    "types": ["node", "@cloudflare/workers-types"],
+    "types": ["node", "@cloudflare/workers-types", "vitest/globals"],
     "module": "esnext",
     "moduleResolution": "bundler",
     "resolveJsonModule": true,

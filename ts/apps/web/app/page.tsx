@@ -69,7 +69,7 @@ export default function Home() {
   const points = useMemo(() => toChartPoints(history), [history]);
   const change24h = useMemo(() => {
     const vals = toChartPoints(dayHistory).map((p) => p.v);
-    if (vals.length < 2) return null;
+    if (vals.length < 2 || vals[0] === 0) return null;
     return (vals[vals.length - 1] / vals[0] - 1) * 100;
   }, [dayHistory]);
 
@@ -257,7 +257,7 @@ export default function Home() {
                 <span className="text-ink-3">100 USDC receives</span>
                 <span className="font-mono tabular-nums text-ink-2">
                   {rate != null && rate > 0
-                    ? `≈ ${(100 / rate).toLocaleString("en-US", { maximumFractionDigits: 2 })} BNKR`
+                    ? `≈ ${((100 * (10000 - (stats.purchaseFeeBps ?? 0)) / 10000) / rate).toLocaleString("en-US", { maximumFractionDigits: 2 })} BNKR`
                     : "—"}
                 </span>
               </div>
